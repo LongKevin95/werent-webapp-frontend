@@ -1,0 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+body {
+  margin: 0;
+  font-family: "Inter", "Geist Variable", sans-serif;
+  background: linear-gradient(180deg, #fcfcf8 0%, #f7f9f4 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
