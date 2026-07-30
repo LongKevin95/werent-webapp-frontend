@@ -1,9 +1,23 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:8080";
 
+export class ApiRequestError extends Error {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = options.status;
+    this.errors = options.errors;
+    this.retryAfter = options.retryAfter;
+  }
+}
+
 async function request(path, options = {}) {
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
-    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.body && !isFormData
+      ? { "Content-Type": "application/json" }
+      : {}),
     ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
     ...options.headers,
   };
@@ -11,15 +25,27 @@ async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: options.body
+      ? isFormData
+        ? options.body
+        : JSON.stringify(options.body)
+      : undefined,
   });
 
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}`,
-    );
+    const retryAfter = response.headers.get("retry-after");
+    const fallbackMessage =
+      response.status === 429
+        ? "Bạn thao tác quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
+        : `Yêu cầu thất bại với mã ${response.status}.`;
+
+    throw new ApiRequestError(payload?.message || fallbackMessage, {
+      status: response.status,
+      errors: payload?.errors,
+      retryAfter,
+    });
   }
 
   return payload;
@@ -43,6 +69,40 @@ export function getCurrentUser(token) {
   return request("/api/auth/me", {
     method: "GET",
     token,
+  });
+}
+
+export function getProfile(token) {
+  return request("/api/users/me", {
+    method: "GET",
+    token,
+  });
+}
+
+export function updateProfile(token, payload) {
+  return request("/api/users/me", {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export function uploadAvatar(token, file) {
+  const body = new FormData();
+  body.append("avatar", file);
+
+  return request("/api/users/me/avatar", {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function changePassword(token, payload) {
+  return request("/api/users/me/change-password", {
+    method: "PATCH",
+    token,
+    body: payload,
   });
 }
 

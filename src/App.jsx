@@ -1,33 +1,48 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import bannerImg from "./assets/banner-img.png";
 import {
+  changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
   login as loginRequest,
   register as registerRequest,
+  updateProfile as updateProfileRequest,
+  uploadAvatar as uploadAvatarRequest,
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
   ArrowRight,
   Bath,
+  Bell,
   BedDouble,
   Building2,
+  CalendarDays,
+  Camera,
   CarFront,
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
+  CircleUserRound,
+  FileText,
   Heart,
   Home,
   House,
+  KeyRound,
   Landmark,
+  LoaderCircle,
   Mail,
   MapPin,
+  MessageSquare,
   Lock,
   PawPrint,
   Phone,
   Ruler,
+  Save,
   Search,
+  Settings,
+  ShieldCheck,
   Sofa,
   Store,
+  UserRound,
   Eye,
   EyeOff,
   Warehouse,
@@ -790,6 +805,814 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
   );
 }
 
+const profileMenuItems = [
+  { icon: UserRound, label: "Thông tin cá nhân", active: true },
+  { icon: Heart, label: "Tin yêu thích" },
+  { icon: CalendarDays, label: "Lịch hẹn xem phòng" },
+  { icon: MessageSquare, label: "Tin nhắn" },
+  { icon: FileText, label: "Báo cáo đã gửi" },
+];
+
+function getPasswordStrength(password) {
+  const checks = [
+    password.length >= 8,
+    /[a-z]/.test(password) && /[A-Z]/.test(password),
+    /\d/.test(password),
+    /[^A-Za-z0-9]/.test(password),
+  ];
+  const score = checks.filter(Boolean).length;
+  const labels = ["Chưa đủ mạnh", "Yếu", "Trung bình", "Khá", "Mạnh"];
+
+  return { checks, score, label: labels[score] };
+}
+
+function PasswordField({
+  label,
+  name,
+  placeholder,
+  value,
+  visible,
+  onChange,
+  onToggle,
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-[#29313B]">
+        {label}
+      </span>
+      <div className="relative">
+        <Lock className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#929AA5]" />
+        <input
+          autoComplete={name === "currentPassword" ? "current-password" : "new-password"}
+          className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          name={name}
+          placeholder={placeholder}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={onChange}
+        />
+        <button
+          aria-label={visible ? `Ẩn ${label.toLowerCase()}` : `Hiện ${label.toLowerCase()}`}
+          className="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-[#8B949F] transition hover:bg-[#F3F6F3] hover:text-[#39424D]"
+          type="button"
+          onClick={onToggle}
+        >
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+    </label>
+  );
+}
+
+function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
+  const [values, setValues] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [visibleFields, setVisibleFields] = useState({});
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const strength = getPasswordStrength(values.newPassword);
+
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !isSubmitting) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSubmitting, onClose]);
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+    setValues((current) => ({ ...current, [name]: value }));
+  }
+
+  function toggleField(name) {
+    setVisibleFields((current) => ({
+      ...current,
+      [name]: !current[name],
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setErrorMessage("");
+
+    if (!values.currentPassword) {
+      setErrorMessage("Vui lòng nhập mật khẩu hiện tại.");
+      return;
+    }
+
+    if (values.newPassword.length < 8) {
+      setErrorMessage("Mật khẩu mới phải có ít nhất 8 ký tự.");
+      return;
+    }
+
+    if (values.newPassword !== values.confirmPassword) {
+      setErrorMessage("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+
+    if (values.currentPassword === values.newPassword) {
+      setErrorMessage("Mật khẩu mới phải khác mật khẩu hiện tại.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await changePasswordRequest(accessToken, {
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+      });
+      onSuccess(response.message);
+      onClose();
+    } catch (error) {
+      setErrorMessage(error.message || "Không thể đổi mật khẩu. Vui lòng thử lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-[2px]"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !isSubmitting) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        aria-labelledby="change-password-title"
+        aria-modal="true"
+        className="relative max-h-[calc(100dvh-32px)] w-full max-w-[560px] overflow-y-auto rounded-[28px] bg-white p-6 shadow-[0_30px_90px_rgba(10,24,15,0.28)] sm:p-9"
+        role="dialog"
+      >
+        <button
+          aria-label="Đóng popup đổi mật khẩu"
+          className="absolute right-5 top-5 flex size-10 items-center justify-center rounded-full text-[#68717D] transition hover:bg-[#F1F5F1] hover:text-[#242A32]"
+          disabled={isSubmitting}
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-5" />
+        </button>
+
+        <div className="text-center">
+          <h2
+            className="pr-8 text-[28px] font-bold tracking-[-0.03em] text-[#20262E]"
+            id="change-password-title"
+          >
+            Đổi mật khẩu
+          </h2>
+          <span className="mx-auto mt-5 flex size-16 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+            <KeyRound className="size-7" />
+          </span>
+          <p className="mx-auto mt-4 max-w-[360px] text-sm leading-6 text-[#68717C]">
+            Tạo mật khẩu mới đủ mạnh để bảo vệ tài khoản của bạn.
+          </p>
+        </div>
+
+        {errorMessage ? (
+          <div className="mt-5 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B33A3A]">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <PasswordField
+            label="Mật khẩu hiện tại"
+            name="currentPassword"
+            placeholder="Nhập mật khẩu hiện tại"
+            value={values.currentPassword}
+            visible={Boolean(visibleFields.currentPassword)}
+            onChange={handleChange}
+            onToggle={() => toggleField("currentPassword")}
+          />
+          <PasswordField
+            label="Mật khẩu mới"
+            name="newPassword"
+            placeholder="Nhập mật khẩu mới"
+            value={values.newPassword}
+            visible={Boolean(visibleFields.newPassword)}
+            onChange={handleChange}
+            onToggle={() => toggleField("newPassword")}
+          />
+
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
+              <span
+                className={
+                  strength.score >= 3 ? "font-semibold text-[#2F9C50]" : "text-[#C35C4D]"
+                }
+              >
+                {strength.label}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-4 gap-2">
+              {[0, 1, 2, 3].map((index) => (
+                <span
+                  key={index}
+                  className={`h-1.5 rounded-full ${
+                    index < strength.score ? "bg-[#35A554]" : "bg-[#E6EAE7]"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <PasswordField
+            label="Xác nhận mật khẩu mới"
+            name="confirmPassword"
+            placeholder="Nhập lại mật khẩu mới"
+            value={values.confirmPassword}
+            visible={Boolean(visibleFields.confirmPassword)}
+            onChange={handleChange}
+            onToggle={() => toggleField("confirmPassword")}
+          />
+
+          <div className="rounded-2xl border border-[#DDEEDD] bg-[#F3FAF4] px-4 py-4 text-sm text-[#52705A]">
+            <p className="font-semibold text-[#2F7F45]">Mật khẩu nên có:</p>
+            <ul className="mt-2 space-y-1.5">
+              <li className={strength.checks[0] ? "text-[#2F9C50]" : ""}>
+                ✓ Ít nhất 8 ký tự
+              </li>
+              <li className={strength.checks[1] ? "text-[#2F9C50]" : ""}>
+                ✓ Chữ hoa và chữ thường
+              </li>
+              <li className={strength.checks[2] ? "text-[#2F9C50]" : ""}>
+                ✓ Ít nhất một chữ số
+              </li>
+              <li className={strength.checks[3] ? "text-[#2F9C50]" : ""}>
+                ✓ Ít nhất một ký tự đặc biệt
+              </li>
+            </ul>
+          </div>
+
+          <div className="grid gap-3 pt-2 sm:grid-cols-2">
+            <button
+              className="h-12 rounded-xl border border-[#DDE3DE] text-sm font-semibold text-[#4A535D] transition hover:bg-[#F7F9F7]"
+              disabled={isSubmitting}
+              type="button"
+              onClick={onClose}
+            >
+              Hủy
+            </button>
+            <button
+              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
+              disabled={isSubmitting}
+              type="submit"
+            >
+              {isSubmitting ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <KeyRound className="size-4" />
+              )}
+              {isSubmitting ? "Đang cập nhật..." : "Đổi mật khẩu"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePage({
+  accessToken,
+  user,
+  onBack,
+  onLogout,
+  onUserChange,
+}) {
+  const avatarInputRef = useRef(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [formValues, setFormValues] = useState({
+    fullName: user.fullName ?? "",
+    email: user.email ?? "",
+    phone: user.phone ?? "",
+  });
+
+  const memberSince = user.createdAt
+    ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
+    : "Chưa có dữ liệu";
+  const roleLabel = user.roles?.includes("admin")
+    ? "Quản trị viên"
+    : "Người dùng";
+
+  function handleFormChange(event) {
+    const { name, value } = event.target;
+    setFormValues((current) => ({ ...current, [name]: value }));
+  }
+
+  function cancelEditing() {
+    setFormValues({
+      fullName: user.fullName ?? "",
+      email: user.email ?? "",
+      phone: user.phone ?? "",
+    });
+    setIsEditing(false);
+    setNotice(null);
+  }
+
+  async function handleProfileSubmit(event) {
+    event.preventDefault();
+    setNotice(null);
+
+    if (!formValues.fullName.trim()) {
+      setNotice({ type: "error", message: "Họ và tên không được để trống." });
+      return;
+    }
+
+    const email = formValues.email.trim();
+    const rawPhone = formValues.phone.trim();
+    const phone = rawPhone ? normalizeVietnamPhone(rawPhone) : "";
+
+    if (rawPhone && !phone) {
+      setNotice({ type: "error", message: INVALID_PHONE_MESSAGE });
+      return;
+    }
+
+    if (!email && !phone) {
+      setNotice({
+        type: "error",
+        message: "Hồ sơ phải có ít nhất một email hoặc số điện thoại.",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const payload = {
+        fullName: formValues.fullName.trim(),
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+      };
+      const response = await updateProfileRequest(accessToken, payload);
+      onUserChange(response.data.user);
+      setIsEditing(false);
+      setNotice({ type: "success", message: response.message });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error.message || "Không thể cập nhật hồ sơ.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleAvatarChange(event) {
+    const [file] = event.target.files ?? [];
+    event.target.value = "";
+    setNotice(null);
+
+    if (!file) {
+      return;
+    }
+
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      setNotice({
+        type: "error",
+        message: "Vui lòng chọn ảnh JPG, PNG, WEBP hoặc GIF.",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setNotice({ type: "error", message: "Ảnh không được vượt quá 5 MB." });
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+
+    try {
+      const response = await uploadAvatarRequest(accessToken, file);
+      onUserChange(response.data.user);
+      setNotice({ type: "success", message: response.message });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error.message || "Không thể tải ảnh đại diện.",
+      });
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      {showPasswordModal ? (
+        <ChangePasswordModal
+          accessToken={accessToken}
+          onClose={() => setShowPasswordModal(false)}
+          onSuccess={(message) =>
+            setNotice({ type: "success", message: message || "Đổi mật khẩu thành công." })
+          }
+        />
+      ) : null}
+
+      <header className="sticky top-0 z-30 border-b border-[#E8ECE7] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] items-center gap-5 px-4 py-3 sm:px-6 lg:px-8">
+          <button className="flex items-center gap-3" type="button" onClick={onBack}>
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-[#E6F5E9] text-[#36A655]">
+              <Home className="size-5" />
+            </span>
+            <span className="text-left">
+              <span className="block text-[21px] font-bold leading-none text-[#2FA550]">
+                WeRent
+              </span>
+              <span className="mt-1 block text-[10px] text-[#9299A2]">
+                Thuê nhà dễ dàng hơn mỗi ngày
+              </span>
+            </span>
+          </button>
+
+          <div className="relative ml-auto hidden max-w-[420px] flex-1 md:block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#9CA4AD]" />
+            <input
+              className="h-11 w-full rounded-xl bg-[#F5F7F5] pl-11 pr-4 text-sm outline-none"
+              placeholder="Tìm theo địa chỉ, khu vực..."
+              type="search"
+            />
+          </div>
+
+          <nav className="ml-auto hidden items-center gap-6 text-sm font-medium text-[#3D454E] lg:flex">
+            <button type="button" onClick={onBack}>Trang chủ</button>
+            <span>Tin đăng</span>
+            <span>Yêu thích</span>
+            <span>Tin nhắn</span>
+          </nav>
+
+          <button
+            aria-label="Thông báo"
+            className="ml-auto flex size-10 items-center justify-center rounded-full border border-[#E7EBE7] text-[#68717A] lg:ml-0"
+            type="button"
+          >
+            <Bell className="size-4" />
+          </button>
+
+          <div className="flex items-center gap-2 rounded-xl bg-[#F7F9F7] px-2 py-1.5">
+            {user.avatarUrl ? (
+              <img
+                alt={`Ảnh đại diện của ${user.fullName}`}
+                className="size-8 rounded-full object-cover"
+                src={user.avatarUrl}
+              />
+            ) : (
+              <span className="flex size-8 items-center justify-center rounded-full bg-[#DFF2E3] text-[#2D9B4C]">
+                <CircleUserRound className="size-5" />
+              </span>
+            )}
+            <span className="hidden max-w-[150px] truncate text-sm font-semibold sm:block">
+              {user.fullName}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[1440px] gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[250px_minmax(0,1fr)] lg:px-8">
+        <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)]">
+          <p className="px-3 pb-2 pt-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9097A0]">
+            Tài khoản
+          </p>
+          <div className="space-y-1">
+            {profileMenuItems.map(({ icon: Icon, label, active }) => (
+              <button
+                key={label}
+                aria-current={active ? "page" : undefined}
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm ${
+                  active
+                    ? "bg-[#EDF8EF] font-semibold text-[#2E9C4D]"
+                    : "cursor-not-allowed text-[#69727C]"
+                }`}
+                disabled={!active}
+                type="button"
+              >
+                <Icon className="size-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-5 px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9097A0]">
+            Cài đặt
+          </p>
+          <button
+            className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-[#69727C]"
+            disabled
+            type="button"
+          >
+            <Settings className="size-4" />
+            Cài đặt tài khoản
+          </button>
+          <button
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#D05252] transition hover:bg-[#FFF5F5]"
+            type="button"
+            onClick={onLogout}
+          >
+            <ArrowRight className="size-4 rotate-180" />
+            Đăng xuất
+          </button>
+        </aside>
+
+        <div className="min-w-0 space-y-5">
+          <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                <div className="relative mx-auto shrink-0 sm:mx-0">
+                  {user.avatarUrl ? (
+                    <img
+                      alt={`Ảnh đại diện của ${user.fullName}`}
+                      className="size-28 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-32"
+                      src={user.avatarUrl}
+                    />
+                  ) : (
+                    <span className="flex size-28 items-center justify-center rounded-full border-4 border-[#F0F6F1] bg-[#E6F4E8] text-[#32A452] sm:size-32">
+                      <UserRound className="size-14" />
+                    </span>
+                  )}
+                  <button
+                    aria-label="Đổi ảnh đại diện"
+                    className="absolute bottom-1 right-1 flex size-10 items-center justify-center rounded-full border-4 border-white bg-[#31A451] text-white shadow-lg disabled:opacity-60"
+                    disabled={isUploadingAvatar}
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                  >
+                    {isUploadingAvatar ? (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                      <Camera className="size-4" />
+                    )}
+                  </button>
+                  <input
+                    ref={avatarInputRef}
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    type="file"
+                    onChange={handleAvatarChange}
+                  />
+                </div>
+
+                <div className="text-center sm:text-left">
+                  <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                    <h1 className="text-[30px] font-bold tracking-[-0.03em] text-[#1E242C]">
+                      {user.fullName}
+                    </h1>
+                    <span className="rounded-full bg-[#FFF7E7] px-3 py-1 text-xs font-semibold text-[#A26A11]">
+                      Chưa xác thực
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#68717B] sm:justify-start">
+                    {user.phone ? (
+                      <span className="flex items-center gap-2">
+                        <Phone className="size-4" />
+                        {user.phone}
+                      </span>
+                    ) : null}
+                    {user.email ? (
+                      <span className="flex items-center gap-2">
+                        <Mail className="size-4" />
+                        {user.email}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 text-xs text-[#9198A1]">
+                    Thành viên từ {memberSince}
+                  </p>
+                  <p className="mt-2 text-xs text-[#758079]">
+                    Ảnh JPG, PNG, WEBP hoặc GIF, tối đa 5 MB.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                className="rounded-xl border border-[#9DCAAA] px-5 py-2.5 text-sm font-semibold text-[#2E9149] transition hover:bg-[#F0F8F1]"
+                type="button"
+                onClick={() => setIsEditing(true)}
+              >
+                Chỉnh sửa hồ sơ
+              </button>
+            </div>
+
+            <div className="mt-7 grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl bg-[#F8FAF8] p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
+                    <ShieldCheck className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-xs text-[#858D96]">Trạng thái</p>
+                    <p className="mt-1 font-semibold text-[#29313A]">
+                      {user.isActive === false ? "Đã khóa" : "Đang hoạt động"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl bg-[#F8FAF8] p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
+                    <UserRound className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-xs text-[#858D96]">Vai trò của bạn</p>
+                    <p className="mt-1 font-semibold text-[#29313A]">{roleLabel}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl bg-[#F8FAF8] p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
+                    <CalendarDays className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-xs text-[#858D96]">Cập nhật gần nhất</p>
+                    <p className="mt-1 font-semibold text-[#29313A]">
+                      {user.updatedAt
+                        ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.updatedAt))
+                        : "Chưa có dữ liệu"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {notice ? (
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm ${
+                notice.type === "error"
+                  ? "border-[#F1D1D1] bg-[#FFF6F6] text-[#B43D3D]"
+                  : "border-[#D4EAD7] bg-[#F1F9F2] text-[#267C40]"
+              }`}
+            >
+              {notice.message}
+            </div>
+          ) : null}
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+            <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-lg font-bold text-[#252C34]">Thông tin cá nhân</h2>
+                {!isEditing ? (
+                  <button
+                    className="text-sm font-semibold text-[#2E9B4D]"
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                  >
+                    Thay đổi
+                  </button>
+                ) : null}
+              </div>
+
+              {isEditing ? (
+                <form className="mt-5 space-y-4" onSubmit={handleProfileSubmit}>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-[#4B545E]">
+                      Họ và tên
+                    </span>
+                    <input
+                      className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                      name="fullName"
+                      value={formValues.fullName}
+                      onChange={handleFormChange}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-[#4B545E]">
+                      Số điện thoại
+                    </span>
+                    <input
+                      className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                      inputMode="tel"
+                      name="phone"
+                      placeholder="Ví dụ: 0900000000"
+                      value={formValues.phone}
+                      onChange={handleFormChange}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-[#4B545E]">
+                      Email
+                    </span>
+                    <input
+                      className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                      name="email"
+                      type="email"
+                      value={formValues.email}
+                      onChange={handleFormChange}
+                    />
+                  </label>
+                  <p className="text-xs leading-5 text-[#858D96]">
+                    Tài khoản phải giữ lại ít nhất một email hoặc số điện thoại hợp lệ.
+                  </p>
+                  <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+                    <button
+                      className="h-11 rounded-xl border border-[#DDE3DE] px-5 text-sm font-semibold text-[#59626B]"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={cancelEditing}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#32A452] px-5 text-sm font-semibold text-white disabled:opacity-65"
+                      disabled={isSaving}
+                      type="submit"
+                    >
+                      {isSaving ? (
+                        <LoaderCircle className="size-4 animate-spin" />
+                      ) : (
+                        <Save className="size-4" />
+                      )}
+                      {isSaving ? "Đang lưu..." : "Lưu thay đổi"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <dl className="mt-4 divide-y divide-[#EEF1EE]">
+                  {[
+                    ["Họ và tên", user.fullName],
+                    ["Số điện thoại", user.phone || "Chưa cập nhật"],
+                    ["Email", user.email || "Chưa cập nhật"],
+                    ["Vai trò", roleLabel],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="grid gap-1 py-4 text-sm sm:grid-cols-[150px_minmax(0,1fr)]"
+                    >
+                      <dt className="text-[#777F89]">{label}</dt>
+                      <dd className="font-medium text-[#333B44]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </section>
+
+            <div className="space-y-5">
+              <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 text-center shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+                <h2 className="text-left text-lg font-bold text-[#252C34]">
+                  Bảo mật tài khoản
+                </h2>
+                <span className="mx-auto mt-5 flex size-14 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+                  <Lock className="size-6" />
+                </span>
+                <p className="mt-3 text-sm leading-6 text-[#6E7781]">
+                  Đổi mật khẩu định kỳ để bảo vệ thông tin tài khoản.
+                </p>
+                <button
+                  className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white transition hover:bg-[#2C9349]"
+                  type="button"
+                  onClick={() => setShowPasswordModal(true)}
+                >
+                  <KeyRound className="size-4" />
+                  Đổi mật khẩu
+                </button>
+              </section>
+
+              <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+                <h2 className="text-lg font-bold text-[#252C34]">
+                  Xác thực tài khoản
+                </h2>
+                <div className="mt-4 flex gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#FFF5DF] text-[#B67817]">
+                    <ShieldCheck className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-[#414A53]">
+                      Chưa triển khai OTP/email
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[#7D858F]">
+                      Tính năng xác thực sẽ được bổ sung ở giai đoạn sau.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function HomePage() {
   const [authModal, setAuthModal] = useState(null);
   const [accessToken, setAccessToken] = useState(() => getStoredAccessToken());
@@ -797,6 +1620,7 @@ function HomePage() {
     getStoredAccessToken() ? undefined : null,
   );
   const [authNotice, setAuthNotice] = useState(null);
+  const [currentView, setCurrentView] = useState("home");
 
   useEffect(() => {
     if (!authModal) {
@@ -892,6 +1716,7 @@ function HomePage() {
   function handleLogout() {
     setAccessToken("");
     setCurrentUser(null);
+    setCurrentView("home");
     setAuthNotice({
       type: "success",
       message: "Bạn đã đăng xuất thành công.",
@@ -905,6 +1730,18 @@ function HomePage() {
     .filter(Boolean)
     .join(" • ");
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
+
+  if (currentView === "profile" && currentUser) {
+    return (
+      <ProfilePage
+        accessToken={accessToken}
+        user={currentUser}
+        onBack={() => setCurrentView("home")}
+        onLogout={handleLogout}
+        onUserChange={setCurrentUser}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#fcfcf8_0%,#f7f9f4_100%)] text-[#20252F]">
@@ -948,12 +1785,32 @@ function HomePage() {
 
             {currentUser ? (
               <div className="flex flex-wrap items-center justify-end gap-3 self-end lg:self-auto">
-                <div className="rounded-2xl border border-[#E7EAE7] bg-[#F9FCF9] px-4 py-2.5 text-right">
-                  <p className="text-sm font-semibold text-[#23313F]">
-                    Xin chào, {currentUser.fullName}
-                  </p>
-                  <p className="mt-1 text-xs text-[#6E7784]">{contactLine}</p>
-                </div>
+                <button
+                  className="flex items-center gap-3 rounded-2xl border border-[#E7EAE7] bg-[#F9FCF9] px-3 py-2 text-right transition hover:border-[#CFE8D4] hover:bg-[#F1F9F2]"
+                  title="Mở thông tin cá nhân"
+                  type="button"
+                  onClick={() => setCurrentView("profile")}
+                >
+                  {currentUser.avatarUrl ? (
+                    <img
+                      alt={`Ảnh đại diện của ${currentUser.fullName}`}
+                      className="size-9 rounded-full object-cover"
+                      src={currentUser.avatarUrl}
+                    />
+                  ) : (
+                    <span className="flex size-9 items-center justify-center rounded-full bg-[#DFF2E3] text-[#2D9B4C]">
+                      <CircleUserRound className="size-5" />
+                    </span>
+                  )}
+                  <span>
+                    <span className="block text-sm font-semibold text-[#23313F]">
+                      Xin chào, {currentUser.fullName}
+                    </span>
+                    <span className="mt-1 block text-xs text-[#6E7784]">
+                      {contactLine}
+                    </span>
+                  </span>
+                </button>
                 <button
                   className="rounded-xl border border-[#E7EAE7] px-4 py-2.5 text-sm font-semibold text-[#2D313A]"
                   type="button"
