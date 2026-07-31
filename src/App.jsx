@@ -843,7 +843,9 @@ function PasswordField({
       <div className="relative">
         <Lock className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#929AA5]" />
         <input
-          autoComplete={name === "currentPassword" ? "current-password" : "new-password"}
+          autoComplete={
+            name === "currentPassword" ? "current-password" : "new-password"
+          }
           className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
           name={name}
           placeholder={placeholder}
@@ -852,7 +854,11 @@ function PasswordField({
           onChange={onChange}
         />
         <button
-          aria-label={visible ? `Ẩn ${label.toLowerCase()}` : `Hiện ${label.toLowerCase()}`}
+          aria-label={
+            visible
+              ? `Ẩn ${label.toLowerCase()}`
+              : `Hiện ${label.toLowerCase()}`
+          }
           className="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-[#8B949F] transition hover:bg-[#F3F6F3] hover:text-[#39424D]"
           type="button"
           onClick={onToggle}
@@ -939,7 +945,9 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
       onSuccess(response.message);
       onClose();
     } catch (error) {
-      setErrorMessage(error.message || "Không thể đổi mật khẩu. Vui lòng thử lại.");
+      setErrorMessage(
+        error.message || "Không thể đổi mật khẩu. Vui lòng thử lại.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -1016,7 +1024,9 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
               <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
               <span
                 className={
-                  strength.score >= 3 ? "font-semibold text-[#2F9C50]" : "text-[#C35C4D]"
+                  strength.score >= 3
+                    ? "font-semibold text-[#2F9C50]"
+                    : "text-[#C35C4D]"
                 }
               >
                 {strength.label}
@@ -1072,7 +1082,7 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
               Hủy
             </button>
             <button
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
+              className="cursor-pointer flex h-12 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
               disabled={isSubmitting}
               type="submit"
             >
@@ -1090,13 +1100,7 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
   );
 }
 
-function ProfilePage({
-  accessToken,
-  user,
-  onBack,
-  onLogout,
-  onUserChange,
-}) {
+function ProfilePage({ accessToken, user, onBack, onLogout, onUserChange }) {
   const avatarInputRef = useRef(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -1188,7 +1192,11 @@ function ProfilePage({
       return;
     }
 
-    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+    if (
+      !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(
+        file.type,
+      )
+    ) {
       setNotice({
         type: "error",
         message: "Vui lòng chọn ảnh JPG, PNG, WEBP hoặc GIF.",
@@ -1224,14 +1232,21 @@ function ProfilePage({
           accessToken={accessToken}
           onClose={() => setShowPasswordModal(false)}
           onSuccess={(message) =>
-            setNotice({ type: "success", message: message || "Đổi mật khẩu thành công." })
+            setNotice({
+              type: "success",
+              message: message || "Đổi mật khẩu thành công.",
+            })
           }
         />
       ) : null}
 
       <header className="sticky top-0 z-30 border-b border-[#E8ECE7] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1440px] items-center gap-5 px-4 py-3 sm:px-6 lg:px-8">
-          <button className="flex items-center gap-3" type="button" onClick={onBack}>
+          <button
+            className="flex items-center gap-3"
+            type="button"
+            onClick={onBack}
+          >
             <span className="flex size-10 items-center justify-center rounded-2xl bg-[#E6F5E9] text-[#36A655]">
               <Home className="size-5" />
             </span>
@@ -1254,8 +1269,10 @@ function ProfilePage({
             />
           </div>
 
-          <nav className="ml-auto hidden items-center gap-6 text-sm font-medium text-[#3D454E] lg:flex">
-            <button type="button" onClick={onBack}>Trang chủ</button>
+          <nav className="mx-auto hidden items-center gap-6 text-sm font-medium text-[#3D454E] lg:flex">
+            <button type="button" onClick={onBack}>
+              Trang chủ
+            </button>
             <span>Tin đăng</span>
             <span>Yêu thích</span>
             <span>Tin nhắn</span>
@@ -1433,7 +1450,9 @@ function ProfilePage({
                   </span>
                   <div>
                     <p className="text-xs text-[#858D96]">Vai trò của bạn</p>
-                    <p className="mt-1 font-semibold text-[#29313A]">{roleLabel}</p>
+                    <p className="mt-1 font-semibold text-[#29313A]">
+                      {roleLabel}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1446,7 +1465,9 @@ function ProfilePage({
                     <p className="text-xs text-[#858D96]">Cập nhật gần nhất</p>
                     <p className="mt-1 font-semibold text-[#29313A]">
                       {user.updatedAt
-                        ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.updatedAt))
+                        ? new Intl.DateTimeFormat("vi-VN").format(
+                            new Date(user.updatedAt),
+                          )
                         : "Chưa có dữ liệu"}
                     </p>
                   </div>
@@ -1470,7 +1491,9 @@ function ProfilePage({
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
             <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6">
               <div className="flex items-center justify-between gap-4">
-                <h2 className="text-lg font-bold text-[#252C34]">Thông tin cá nhân</h2>
+                <h2 className="text-lg font-bold text-[#252C34]">
+                  Thông tin cá nhân
+                </h2>
                 {!isEditing ? (
                   <button
                     className="text-sm font-semibold text-[#2E9B4D]"
@@ -1521,7 +1544,8 @@ function ProfilePage({
                     />
                   </label>
                   <p className="text-xs leading-5 text-[#858D96]">
-                    Tài khoản phải giữ lại ít nhất một email hoặc số điện thoại hợp lệ.
+                    Tài khoản phải giữ lại ít nhất một email hoặc số điện thoại
+                    hợp lệ.
                   </p>
                   <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                     <button
@@ -1578,7 +1602,7 @@ function ProfilePage({
                   Đổi mật khẩu định kỳ để bảo vệ thông tin tài khoản.
                 </p>
                 <button
-                  className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white transition hover:bg-[#2C9349]"
+                  className="cursor-pointer mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white transition hover:bg-[#2C9349]"
                   type="button"
                   onClick={() => setShowPasswordModal(true)}
                 >
@@ -1757,7 +1781,7 @@ function HomePage() {
       <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
         <header className="rounded-[22px] border border-[#EEF1EB] bg-white/95 px-4 py-3 shadow-[0_10px_35px_rgba(53,75,61,0.08)] backdrop-blur sm:px-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
+            <div className="cursor-pointer flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-2xl bg-[#E6F5E9] text-[#3AA657]">
                 <Home className="size-5" />
               </span>
@@ -1770,7 +1794,14 @@ function HomePage() {
                 </p>
               </div>
             </div>
-
+            <div className="relative ml-auto hidden max-w-[420px] flex-1 md:block">
+              <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#9CA4AD]" />
+              <input
+                className="h-11 w-full rounded-xl bg-[#F5F7F5] pl-11 pr-4 text-sm outline-none"
+                placeholder="Tìm theo địa chỉ, khu vực..."
+                type="search"
+              />
+            </div>
             <nav className="flex flex-wrap items-center justify-center gap-6 text-sm font-medium text-[#404651]">
               {navItems.map((item, index) => (
                 <a
@@ -1804,10 +1835,7 @@ function HomePage() {
                   )}
                   <span>
                     <span className="block text-sm font-semibold text-[#23313F]">
-                      Xin chào, {currentUser.fullName}
-                    </span>
-                    <span className="mt-1 block text-xs text-[#6E7784]">
-                      {contactLine}
+                      {currentUser.fullName}
                     </span>
                   </span>
                 </button>
@@ -1860,9 +1888,9 @@ function HomePage() {
 
         <section className="mt-6">
           <div className="relative lg:h-[390px] overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_18px_50px_rgba(61,91,71,0.08)]">
-            <div className="grid items-stretch lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="px-5 pb-24 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pb-30">
-                <h1 className="max-w-[520px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
+            <div className="h-full grid items-stretch lg:grid-cols-[1.9fr_1fr]">
+              <div className="px-5 pb-24 pr-0 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pr-0 lg:pb-30 overflow-visible">
+                <h1 className="whitespace-nowrap max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
                   Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>
                   <br />
                   với bạn
@@ -1872,15 +1900,15 @@ function HomePage() {
                 </p>
               </div>
 
-              <div className="relative w-full h-full min-h-[220px] lg:min-h-[330px]">
+              <div className="relative h-full min-h-[220px] lg:min-h-[330px]">
                 <img
                   alt="Banner WeRent"
-                  className="absolute w-[75%] object-cover object-center lg:object-right top-[-20px] right-0"
+                  className="absolute h-full scale-122 object-contain object-center lg:object-right top-[-10px] right-8"
                   src={bannerImg}
                 />
               </div>
             </div>
-            <div className="absolute bottom-7 w-[880px] z-10 -mt-14 px-1 sm:px-6">
+            <div className="absolute bottom-7 w-[70%] z-10 -mt-14 px-1 sm:px-6">
               <div className="relative rounded-[24px] border border-[#EFF1F4] bg-white p-4 shadow-[0_24px_54px_rgba(64,83,72,0.12)] sm:p-4">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#A0A5AF]" />
