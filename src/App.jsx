@@ -2220,6 +2220,11 @@ function HomePage() {
 
       setAccessToken(nextToken);
       setCurrentUser(nextUser);
+      if (nextMessage === "Đăng nhập thành công.") {
+        setAuthNotice(null);
+        return;
+      }
+
       setAuthNotice({
         type: "success",
         message: nextMessage,
