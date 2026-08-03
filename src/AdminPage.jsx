@@ -766,6 +766,8 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   const [showForm, setShowForm] = useState(false);
   const [deleteUser, setDeleteUser] = useState(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const formUserId = formUser?.id ?? formUser?._id ?? "";
+  const deleteUserId = deleteUser?.id ?? deleteUser?._id ?? "";
 
   const stats = useMemo(
     () => [
@@ -830,8 +832,8 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   }
 
   async function handleFormSubmit(payload) {
-    if (formUser) {
-      const response = await updateAdminUser(accessToken, formUser.id, payload);
+    if (formUserId) {
+      const response = await updateAdminUser(accessToken, formUserId, payload);
       refresh(response.message);
       return;
     }
@@ -842,7 +844,9 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   }
 
   async function handleDelete() {
-    const response = await deleteAdminUser(accessToken, deleteUser.id);
+    if (!deleteUserId) return;
+
+    const response = await deleteAdminUser(accessToken, deleteUserId);
     if (users.length === 1 && page > 1) setPage((value) => value - 1);
     refresh(response.message);
   }
@@ -1000,9 +1004,11 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                   ) : users.length === 0 ? (
                     <tr><td className="px-5 py-16 text-center" colSpan="6"><Users className="mx-auto size-8 text-[#A9B1AA]" /><p className="mt-3 text-sm font-medium text-[#59636D]">Không tìm thấy tài khoản phù hợp.</p></td></tr>
                   ) : users.map((user) => {
-                    const isSelf = user.id === currentUser.id;
+                    const userId = user.id ?? user._id ?? "";
+                    const currentUserId = currentUser.id ?? currentUser._id ?? "";
+                    const isSelf = userId === currentUserId;
                     return (
-                      <tr key={user.id} className="transition hover:bg-[#FBFCFB]">
+                      <tr key={userId} className="transition hover:bg-[#FBFCFB]">
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
                             {user.avatarUrl ? (
@@ -1012,7 +1018,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                             )}
                             <div>
                               <p className="font-semibold text-[#313942]">{user.fullName}</p>
-                              <p className="mt-0.5 text-[11px] text-[#9198A1]">ID: {user.id.slice(-8)}</p>
+                              <p className="mt-0.5 text-[11px] text-[#9198A1]">ID: {userId ? userId.slice(-8) : "—"}</p>
                             </div>
                           </div>
                         </td>

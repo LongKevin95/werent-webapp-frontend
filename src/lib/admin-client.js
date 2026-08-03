@@ -36,7 +36,28 @@ export function getAdminUsers(token, query = {}, options = {}) {
   });
 
   const suffix = searchParams.size ? `?${searchParams.toString()}` : "";
-  return adminRequest(`/api/admin/users${suffix}`, token, options);
+  return adminRequest(`/api/admin/users${suffix}`, token, options).then(
+    (response) => {
+      const items = (response.data?.items ?? []).map((user) => ({
+        ...user,
+        id: user.id ?? user._id,
+      }));
+
+      return {
+        ...response,
+        data: {
+          ...response.data,
+          items,
+          pagination: response.data?.pagination ?? {
+            page: 1,
+            limit: items.length,
+            total: items.length,
+            totalPages: 1,
+          },
+        },
+      };
+    },
+  );
 }
 
 export function createAdminUser(token, payload) {
