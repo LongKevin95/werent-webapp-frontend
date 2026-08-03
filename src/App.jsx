@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
 import {
   changePassword as changePasswordRequest,
@@ -1645,6 +1646,7 @@ function HomePage() {
   );
   const [authNotice, setAuthNotice] = useState(null);
   const [currentView, setCurrentView] = useState("home");
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!authModal) {
@@ -1741,19 +1743,26 @@ function HomePage() {
     setAccessToken("");
     setCurrentUser(null);
     setCurrentView("home");
+    setIsUserMenuOpen(false);
     setAuthNotice({
       type: "success",
       message: "Bạn đã đăng xuất thành công.",
     });
   }
 
-  const contactLine = [
-    currentUser?.email ?? currentUser?.phone ?? null,
-    Array.isArray(currentUser?.roles) ? currentUser.roles.join(" • ") : null,
-  ]
-    .filter(Boolean)
-    .join(" • ");
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
+  const isAdmin = currentUser?.roles?.includes("admin");
+
+  if (currentView === "admin" && currentUser && isAdmin) {
+    return (
+      <AdminPage
+        accessToken={accessToken}
+        currentUser={currentUser}
+        onBack={() => setCurrentView("home")}
+        onLogout={handleLogout}
+      />
+    );
+  }
 
   if (currentView === "profile" && currentUser) {
     return (
@@ -1815,12 +1824,14 @@ function HomePage() {
             </nav>
 
             {currentUser ? (
-              <div className="flex flex-wrap items-center justify-end gap-3 self-end lg:self-auto">
+              <div className="relative self-end lg:self-auto">
                 <button
                   className="flex items-center gap-3 rounded-2xl border border-[#E7EAE7] bg-[#F9FCF9] px-3 py-2 text-right transition hover:border-[#CFE8D4] hover:bg-[#F1F9F2]"
-                  title="Mở thông tin cá nhân"
+                  aria-expanded={isUserMenuOpen}
+                  aria-haspopup="menu"
+                  title="Mở menu tài khoản"
                   type="button"
-                  onClick={() => setCurrentView("profile")}
+                  onClick={() => setIsUserMenuOpen((value) => !value)}
                 >
                   {currentUser.avatarUrl ? (
                     <img
@@ -1837,15 +1848,58 @@ function HomePage() {
                     <span className="block text-sm font-semibold text-[#23313F]">
                       {currentUser.fullName}
                     </span>
+                    <span className="mt-0.5 block text-[10px] text-[#7B858E]">
+                      {isAdmin ? "Quản trị viên" : "Người dùng"}
+                    </span>
                   </span>
+                  <ChevronDown className={`size-4 text-[#77818A] transition ${isUserMenuOpen ? "rotate-180" : ""}`} />
                 </button>
-                <button
-                  className="rounded-xl border border-[#E7EAE7] px-4 py-2.5 text-sm font-semibold text-[#2D313A]"
-                  type="button"
-                  onClick={handleLogout}
-                >
-                  Đăng xuất
-                </button>
+
+                {isUserMenuOpen ? (
+                  <div
+                    className="absolute right-0 top-[calc(100%+10px)] z-40 w-[245px] overflow-hidden rounded-2xl border border-[#E5EAE5] bg-white p-2 text-left shadow-[0_18px_45px_rgba(35,54,41,0.16)]"
+                    role="menu"
+                  >
+                    <div className="border-b border-[#EDF0ED] px-3 pb-2 pt-1">
+                      <p className="truncate text-xs font-semibold text-[#333B44]">{currentUser.email || currentUser.phone}</p>
+                    </div>
+                    <button
+                      className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#4F5963] hover:bg-[#F2F7F3]"
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        setCurrentView("profile");
+                        setIsUserMenuOpen(false);
+                      }}
+                    >
+                      <CircleUserRound className="size-4 text-[#36A255]" />
+                      Thông tin cá nhân
+                    </button>
+                    {isAdmin ? (
+                      <button
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#2D9149] hover:bg-[#EDF7EF]"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => {
+                          setCurrentView("admin");
+                          setIsUserMenuOpen(false);
+                        }}
+                      >
+                        <ShieldCheck className="size-4" />
+                        Trang quản lý admin
+                      </button>
+                    ) : null}
+                    <button
+                      className="mt-1 flex w-full items-center gap-3 border-t border-[#EDF0ED] px-3 py-2.5 pt-3 text-sm font-medium text-[#C04A4A] hover:bg-[#FFF5F5]"
+                      role="menuitem"
+                      type="button"
+                      onClick={handleLogout}
+                    >
+                      <ArrowRight className="size-4 rotate-180" />
+                      Đăng xuất
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="flex items-center gap-3 self-end lg:self-auto">
