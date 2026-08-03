@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   Building2,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleUserRound,
   CreditCard,
+  Download,
   FileWarning,
   Home,
   LayoutDashboard,
@@ -27,6 +28,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import bannerImg from "./assets/banner-img.png";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -38,12 +40,12 @@ import {
 const sidebarGroups = [
   {
     label: "",
-    items: [{ icon: LayoutDashboard, label: "Tổng quan" }],
+    items: [{ icon: LayoutDashboard, key: "overview", label: "Tổng quan" }],
   },
   {
     label: "Quản lý người dùng",
     items: [
-      { icon: Users, label: "Quản lý người dùng", active: true },
+      { icon: Users, key: "users", label: "Quản lý người dùng" },
       { icon: UserRoundCheck, label: "Quản lý chủ nhà" },
       { icon: ShieldCheck, label: "Xác minh KYC" },
     ],
@@ -97,7 +99,13 @@ function getInitials(name = "") {
     .toUpperCase();
 }
 
-function AdminSidebar({ currentUser, onBack, onLogout }) {
+function AdminSidebar({
+  activeSection,
+  currentUser,
+  onBack,
+  onLogout,
+  onSectionChange,
+}) {
   return (
     <aside className="border-b border-[#E9EDE9] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[250px] lg:border-b-0 lg:border-r">
       <div className="flex h-full flex-col">
@@ -128,23 +136,31 @@ function AdminSidebar({ currentUser, onBack, onLogout }) {
                 </p>
               ) : null}
               <div className="flex gap-1 lg:block lg:space-y-1">
-                {group.items.map(({ icon: Icon, label, active }) => (
+                {group.items.map(({ icon: Icon, key, label }) => {
+                  const isAvailable = Boolean(key);
+                  const isActive = key === activeSection;
+
+                  return (
                   <button
                     key={label}
-                    aria-current={active ? "page" : undefined}
+                    aria-current={isActive ? "page" : undefined}
                     className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${
-                      active
+                      isActive
                         ? "bg-[#EAF5EC] font-semibold text-[#2D9A4B] shadow-[inset_3px_0_0_#31A451]"
-                        : "cursor-not-allowed text-[#5F6872] opacity-75"
+                        : isAvailable
+                          ? "text-[#5F6872] hover:bg-[#F5F8F5] hover:text-[#2D9149]"
+                          : "cursor-not-allowed text-[#5F6872] opacity-75"
                     }`}
-                    disabled={!active}
+                    disabled={!isAvailable}
                     type="button"
-                    title={!active ? "Tính năng sẽ được phát triển sau" : undefined}
+                    title={!isAvailable ? "Tính năng sẽ được phát triển sau" : undefined}
+                    onClick={() => isAvailable && onSectionChange(key)}
                   >
                     <Icon className="size-4" />
                     {label}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -212,6 +228,261 @@ function StatCard({ icon: Icon, label, value, color }) {
         </div>
       </div>
     </article>
+  );
+}
+
+const trafficValues = [1250, 1610, 1180, 1420, 1210, 1510, 1290, 1980, 1400, 1760];
+const trafficLabels = ["01/07", "02/07", "03/07", "04/07", "05/07", "06/07", "07/07", "08/07", "09/07", "10/07"];
+
+function TrafficChart() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    function drawChart() {
+      const context = canvas.getContext("2d");
+      const bounds = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(Math.floor(bounds.width * ratio), 1);
+      canvas.height = Math.max(Math.floor(bounds.height * ratio), 1);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      const width = bounds.width;
+      const height = bounds.height;
+      const padding = { top: 14, right: 14, bottom: 8, left: 4 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+      const maxValue = 2500;
+      const points = trafficValues.map((value, index) => ({
+        x: padding.left + (chartWidth * index) / (trafficValues.length - 1),
+        y: padding.top + chartHeight - (value / maxValue) * chartHeight,
+      }));
+
+      context.clearRect(0, 0, width, height);
+      const gradient = context.createLinearGradient(0, padding.top, 0, height);
+      gradient.addColorStop(0, "rgba(48, 159, 78, 0.20)");
+      gradient.addColorStop(1, "rgba(48, 159, 78, 0.015)");
+
+      context.beginPath();
+      context.moveTo(points[0].x, height);
+      points.forEach((point, index) => {
+        if (index === 0) {
+          context.lineTo(point.x, point.y);
+          return;
+        }
+        const previous = points[index - 1];
+        const midX = (previous.x + point.x) / 2;
+        context.bezierCurveTo(midX, previous.y, midX, point.y, point.x, point.y);
+      });
+      context.lineTo(points.at(-1).x, height);
+      context.closePath();
+      context.fillStyle = gradient;
+      context.fill();
+
+      context.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) {
+          context.moveTo(point.x, point.y);
+          return;
+        }
+        const previous = points[index - 1];
+        const midX = (previous.x + point.x) / 2;
+        context.bezierCurveTo(midX, previous.y, midX, point.y, point.x, point.y);
+      });
+      context.strokeStyle = "#329F4F";
+      context.lineWidth = 2.2;
+      context.lineCap = "round";
+      context.stroke();
+
+      points.forEach((point) => {
+        context.beginPath();
+        context.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        context.fillStyle = "#329F4F";
+        context.fill();
+        context.beginPath();
+        context.arc(point.x, point.y, 2, 0, Math.PI * 2);
+        context.fillStyle = "#FFFFFF";
+        context.fill();
+      });
+    }
+
+    const resizeObserver = new ResizeObserver(drawChart);
+    resizeObserver.observe(canvas);
+    drawChart();
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  return (
+    <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
+      <div className="flex h-[226px] flex-col justify-between pb-7 pt-1 text-right text-[10px] text-[#75808A]">
+        {["2,500", "2,000", "1,500", "1,000", "500", "0"].map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
+      <div>
+        <div className="relative h-[200px] border-b border-[#DDE3DE] bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(20%-1px),#EEF1EE_calc(20%-1px),#EEF1EE_20%)]">
+          <canvas ref={canvasRef} className="absolute inset-0 size-full" />
+        </div>
+        <div className="mt-2 grid grid-cols-10 text-center text-[10px] text-[#65707A]">
+          {trafficLabels.map((label) => <span key={label}>{label}</span>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardStatCard({ icon: Icon, label, value, change, color }) {
+  return (
+    <article className="rounded-xl border border-[#E5EAE5] bg-white px-5 py-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
+      <div className="flex items-center gap-4">
+        <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${color}`}>
+          <Icon className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-[#505A64]">{label}</p>
+          <div className="mt-1 flex items-end gap-2">
+            <p className="text-[26px] font-bold leading-none text-[#17202A]">
+              {Number(value ?? 0).toLocaleString("vi-VN")}
+            </p>
+            <span className="pb-0.5 text-[11px] font-semibold text-[#2FA250]">↑ {change}</span>
+          </div>
+          <p className="mt-2 text-[10px] text-[#7A848E]">So với 23/06 - 30/06</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+const latestProperties = [
+  { title: "Căn hộ 2PN Vinhomes Ocean Park", location: "Quận Gia Lâm, Hà Nội", date: "10/07/2025", status: "Đã duyệt", tone: "green", position: "33% center" },
+  { title: "Nhà nguyên căn hẻm 5m", location: "Quận Tân Bình, TP.HCM", date: "10/07/2025", status: "Chờ duyệt", tone: "yellow", position: "58% center" },
+  { title: "Căn hộ studio đầy đủ nội thất", location: "Quận Bình Thạnh, TP.HCM", date: "09/07/2025", status: "Đã duyệt", tone: "green", position: "73% center" },
+  { title: "Phòng trọ gần ĐH Bách Khoa", location: "Quận Hai Bà Trưng, Hà Nội", date: "09/07/2025", status: "Từ chối", tone: "red", position: "86% center" },
+];
+
+const viewingRequests = [
+  { name: "Trần Minh Tuấn", property: "Căn hộ 2PN Vinhomes Ocean Park", date: "10/07/2025 - 14:30", initials: "TT" },
+  { name: "Lê Hoàng Anh", property: "Nhà nguyên căn hẻm 5m", date: "10/07/2025 - 10:15", initials: "LA" },
+  { name: "Phạm Quỳnh Chi", property: "Căn hộ studio đầy đủ nội thất", date: "09/07/2025 - 16:45", initials: "PC" },
+  { name: "Nguyễn Văn Nam", property: "Phòng trọ gần ĐH Bách Khoa", date: "09/07/2025 - 09:20", initials: "NN" },
+];
+
+function DashboardOverview({ summary }) {
+  const cards = [
+    { icon: Users, label: "Người dùng", value: summary.totalUsers, change: "12.5%", color: "bg-[#E6F4E8] text-[#2E9C4C]" },
+    { icon: Building2, label: "Tin đăng", value: summary.totalProperties, change: "8.3%", color: "bg-[#E7F1FC] text-[#3E88DD]" },
+    { icon: CalendarDays, label: "Yêu cầu xem phòng", value: 596, change: "15.6%", color: "bg-[#FFF2DD] text-[#EE991C]" },
+    { icon: CreditCard, label: "Giao dịch thành công", value: summary.totalPayments, change: "10.2%", color: "bg-[#F0EAFE] text-[#7C55DF]" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => <DashboardStatCard key={card.label} {...card} />)}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.28fr_1fr]">
+        <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-bold text-[#242B33]">Lượt truy cập</h2>
+            <button className="flex h-9 items-center gap-2 rounded-lg border border-[#DFE5DF] px-3 text-xs text-[#57616B]" type="button">
+              7 ngày qua <ChevronRight className="size-3.5 rotate-90" />
+            </button>
+          </div>
+          <TrafficChart />
+        </article>
+
+        <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-bold text-[#242B33]">Tin đăng mới nhất</h2>
+            <button className="text-xs font-semibold text-[#2E9D4D]" type="button">Xem tất cả</button>
+          </div>
+          <div className="mt-4 divide-y divide-[#EDF0ED]">
+            {latestProperties.map((property) => (
+              <div key={property.title} className="flex items-center gap-3 py-2.5 first:pt-0">
+                <img
+                  alt=""
+                  className="h-11 w-14 shrink-0 rounded-lg object-cover"
+                  src={bannerImg}
+                  style={{ objectPosition: property.position }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-[#313942]">{property.title}</p>
+                  <p className="mt-1 truncate text-[10px] text-[#79838D]">{property.location}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] text-[#69737D]">{property.date}</p>
+                  <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${
+                    property.tone === "green"
+                      ? "bg-[#EAF7ED] text-[#2E9149]"
+                      : property.tone === "yellow"
+                        ? "bg-[#FFF3DF] text-[#C77B0E]"
+                        : "bg-[#FFF0F0] text-[#D04C4C]"
+                  }`}>
+                    {property.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.28fr_1fr]">
+        <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-bold text-[#242B33]">Yêu cầu xem phòng mới</h2>
+            <button className="text-xs font-semibold text-[#2E9D4D]" type="button">Xem tất cả</button>
+          </div>
+          <div className="mt-3 divide-y divide-[#EDF0ED]">
+            {viewingRequests.map((request, index) => (
+              <div key={request.name} className="grid grid-cols-[minmax(0,1fr)_150px_76px] items-center gap-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${index % 2 === 0 ? "bg-[#E1F1E5] text-[#2E9149]" : "bg-[#E7EFF8] text-[#3D74A8]"}`}>
+                    {request.initials}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-[#303840]">{request.name}</p>
+                    <p className="mt-1 truncate text-[10px] text-[#79838D]">{request.property}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-[#57616B]">{request.date}</p>
+                <span className="rounded-md bg-[#EAF3FF] px-2 py-1 text-center text-[9px] font-semibold text-[#3474B6]">Chờ xử lý</span>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
+          <h2 className="text-[15px] font-bold text-[#242B33]">Thống kê theo danh mục</h2>
+          <div className="mt-6 grid items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-[160px_minmax(0,1fr)]">
+            <div className="relative mx-auto size-40 rounded-full bg-[conic-gradient(#2F9E4D_0_39.9%,#3C85DD_39.9%_65.1%,#F5A11D_65.1%_85%,#F04E43_85%_95%,#D9DEE1_95%_100%)]">
+              <div className="absolute inset-[25px] flex flex-col items-center justify-center rounded-full bg-white">
+                <span className="text-[22px] font-bold text-[#1E252D]">{Number(summary.totalProperties ?? 1284).toLocaleString("vi-VN")}</span>
+                <span className="mt-1 text-[10px] text-[#6C7680]">Tin đăng</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {[
+                ["#2F9E4D", "Căn hộ chung cư", "512 (39.9%)"],
+                ["#3C85DD", "Nhà nguyên căn", "324 (25.2%)"],
+                ["#F5A11D", "Phòng trọ", "256 (19.9%)"],
+                ["#F04E43", "Nhà mặt phố", "128 (10.0%)"],
+                ["#D9DEE1", "Khác", "64 (5.0%)"],
+              ].map(([color, label, value]) => (
+                <div key={label} className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2 text-[10px] text-[#4D5761]">
+                  <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
+                  <span>{label}</span>
+                  <span>{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
   );
 }
 
@@ -479,6 +750,7 @@ function DeleteConfirmModal({ user, onClose, onConfirm }) {
 }
 
 export default function AdminPage({ accessToken, currentUser, onBack, onLogout }) {
+  const [activeSection, setActiveSection] = useState("overview");
   const [users, setUsers] = useState([]);
   const [summary, setSummary] = useState({});
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
@@ -514,6 +786,8 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   }, [search]);
 
   useEffect(() => {
+    if (activeSection !== "users") return undefined;
+
     const controller = new AbortController();
     window.queueMicrotask(() => {
       if (!controller.signal.aborted) {
@@ -541,7 +815,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       });
 
     return () => controller.abort();
-  }, [accessToken, debouncedSearch, page, refreshVersion, role, status]);
+  }, [accessToken, activeSection, debouncedSearch, page, refreshVersion, role, status]);
 
   useEffect(() => {
     getAdminDashboard(accessToken)
@@ -575,7 +849,13 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
 
   return (
     <div className="min-h-screen bg-[#F7F9F7] text-[#20262E]">
-      <AdminSidebar currentUser={currentUser} onBack={onBack} onLogout={onLogout} />
+      <AdminSidebar
+        activeSection={activeSection}
+        currentUser={currentUser}
+        onBack={onBack}
+        onLogout={onLogout}
+        onSectionChange={setActiveSection}
+      />
 
       {showForm ? (
         <UserFormModal
@@ -599,8 +879,14 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
         <header className="border-b border-[#E9EDE9] bg-white px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-[1500px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">Quản lý người dùng</h1>
-              <p className="mt-1 text-sm text-[#747D87]">Quản lý tài khoản và quyền truy cập trên hệ thống.</p>
+              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">
+                {activeSection === "overview" ? "Tổng quan" : "Quản lý người dùng"}
+              </h1>
+              <p className="mt-1 text-sm text-[#747D87]">
+                {activeSection === "overview"
+                  ? "Theo dõi hoạt động và hiệu suất của hệ thống."
+                  : "Quản lý tài khoản và quyền truy cập trên hệ thống."}
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -610,21 +896,37 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
               >
                 <ChevronLeft className="size-4" /> Trang chủ
               </button>
-              <button
-                className="flex h-11 items-center gap-2 rounded-xl bg-[#31A451] px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(49,164,81,0.2)]"
-                type="button"
-                onClick={() => {
-                  setFormUser(undefined);
-                  setShowForm(true);
-                }}
-              >
-                <Plus className="size-4" /> Thêm người dùng
-              </button>
+              {activeSection === "overview" ? (
+                <>
+                  <button className="flex h-11 items-center gap-2 rounded-xl border border-[#DDE3DD] bg-white px-4 text-sm text-[#4F5963]" type="button">
+                    <CalendarDays className="size-4" /> 01/07/2025 - 10/07/2025
+                    <ChevronRight className="size-3.5 rotate-90" />
+                  </button>
+                  <button className="flex h-11 items-center gap-2 rounded-xl border border-[#A8D5B2] bg-white px-4 text-sm font-semibold text-[#2E9149]" type="button">
+                    <Download className="size-4" /> Xuất báo cáo
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="flex h-11 items-center gap-2 rounded-xl bg-[#31A451] px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(49,164,81,0.2)]"
+                  type="button"
+                  onClick={() => {
+                    setFormUser(undefined);
+                    setShowForm(true);
+                  }}
+                >
+                  <Plus className="size-4" /> Thêm người dùng
+                </button>
+              )}
             </div>
           </div>
         </header>
 
         <div className="mx-auto max-w-[1500px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+          {activeSection === "overview" ? (
+            <DashboardOverview summary={summary} />
+          ) : (
+            <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
           </section>
@@ -788,6 +1090,8 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
           <p className="flex items-center gap-2 text-xs text-[#858E97]">
             <LockKeyhole className="size-3.5" /> Tài khoản quản trị hiện tại không thể tự khóa, gỡ quyền hoặc xóa.
           </p>
+            </>
+          )}
         </div>
       </main>
     </div>
