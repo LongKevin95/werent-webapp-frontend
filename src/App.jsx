@@ -7,6 +7,8 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import { useEffect, useRef, useState } from "react";
+import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
 import SharedHeader from "./SharedHeader.jsx";
 import {
@@ -4487,107 +4489,6 @@ function MyListingsPage({
   );
 }
 
-function AdminDashboardPage({ onLogout, onNavigate, user }) {
-  return (
-    <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
-          activeNav="home"
-          currentUser={user}
-          navItems={authenticatedHeaderNavItems}
-          onLogoClick={() => onNavigate("home")}
-          onLogout={onLogout}
-          onNavigate={onNavigate}
-          onUserClick={() => onNavigate("profile")}
-        />
-
-        <main className="mt-5 space-y-5">
-          <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <span className="inline-flex items-center rounded-full bg-[#EDF8EF] px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#2E9C4D]">
-                  Khu vực quản trị
-                </span>
-                <h1 className="mt-4 text-[34px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                  Trang quản lý Admin
-                </h1>
-                <p className="mt-2 max-w-[720px] text-sm text-[#69717B] sm:text-base">
-                  Theo dõi nhanh hoạt động hệ thống và truy cập các nhóm chức
-                  năng quản trị từ một điểm chung.
-                </p>
-              </div>
-
-              <button
-                className="flex items-center justify-center gap-2 rounded-xl border border-[#D7E6DA] px-5 py-3 text-sm font-semibold text-[#355C41] transition hover:bg-[#F6FAF7]"
-                type="button"
-                onClick={() => onNavigate("home")}
-              >
-                <ArrowRight className="size-4 rotate-180" />
-                Quay về trang chủ
-              </button>
-            </div>
-          </section>
-
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              {
-                icon: UserRound,
-                label: "Người dùng",
-                value: "Quản lý hồ sơ và phân quyền",
-              },
-              {
-                icon: FileText,
-                label: "Tin đăng",
-                value: "Kiểm duyệt và theo dõi trạng thái",
-              },
-              {
-                icon: ShieldCheck,
-                label: "Báo cáo",
-                value: "Xử lý phản ánh và nội dung vi phạm",
-              },
-              {
-                icon: CircleDollarSign,
-                label: "Thanh toán",
-                value: "Theo dõi giao dịch và doanh thu",
-              },
-            ].map(({ icon: Icon, label, value }) => (
-              <article
-                key={label}
-                className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]"
-              >
-                <span className="flex size-12 items-center justify-center rounded-2xl bg-[#EDF8EF] text-[#2F9C50]">
-                  <Icon className="size-6" />
-                </span>
-                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.08em] text-[#8A919B]">
-                  {label}
-                </p>
-                <p className="mt-2 text-base font-semibold text-[#1F252D]">
-                  {value}
-                </p>
-              </article>
-            ))}
-          </section>
-
-          <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-2xl bg-[#EDF8EF] text-[#2F9C50]">
-                <Settings className="size-5" />
-              </span>
-              <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
-                Trạng thái triển khai
-              </h2>
-            </div>
-            <div className="mt-5 rounded-2xl border border-[#E0F1E2] bg-[#F5FCF6] px-4 py-3 text-sm text-[#4E7155]">
-              Giao diện quản trị cơ bản đã sẵn sàng để bạn mở rộng thêm bảng
-              điều khiển, danh sách người dùng, duyệt tin đăng và xử lý báo cáo.
-            </div>
-          </section>
-        </main>
-      </div>
-    </div>
-  );
-}
-
 function ProfilePage({
   accessToken,
   onLogout,
@@ -5302,10 +5203,11 @@ function HomePage() {
     currentUser?.roles?.includes("admin")
   ) {
     return (
-      <AdminDashboardPage
+      <AdminPage
+        accessToken={accessToken}
+        currentUser={currentUser}
+        onBack={() => navigateTo("home")}
         onLogout={handleLogout}
-        onNavigate={navigateTo}
-        user={currentUser}
       />
     );
   }
