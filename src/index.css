@@ -4,6 +4,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "leaflet/dist/leaflet.css";
 
 body {
   margin: 0;
@@ -13,4 +14,28 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+.leaflet-container {
+  font-family: "Inter", "Geist Variable", sans-serif;
+}
+
+.werent-map-marker {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 36px;
+  border: 3px solid #ffffff;
+  border-radius: 999px 999px 999px 4px;
+  background: #16a34a;
+  box-shadow: 0 14px 28px rgba(22, 163, 74, 0.3);
+  transform: rotate(-45deg);
+}
+
+.werent-map-marker::after {
+  position: absolute;
+  inset: 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  content: "";
 }
