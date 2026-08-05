@@ -180,7 +180,9 @@ const featuredListings = [
     specs: ["1 WC", "Nội thất cơ bản"],
     owner: "Lê Văn C",
   },
-];
+].map((listing, index) =>
+  buildMarketingListingRecord(listing, "featured", index),
+);
 
 const latestListings = [
   {
@@ -225,7 +227,9 @@ const latestListings = [
     location: "Thủ Đức, TP.HCM",
     meta: "18m² • 1 WC",
   },
-];
+].map((listing, index) =>
+  buildMarketingListingRecord(listing, "latest", index),
+);
 
 const ownerListingRecords = [
   {
@@ -683,9 +687,22 @@ function CategoryCard({ icon: Icon, title, count }) {
   );
 }
 
-function PropertyCard({ listing }) {
+function PropertyCard({ listing, onViewListing }) {
+  const handleOpen = () => onViewListing?.(listing);
+
   return (
-    <article className="overflow-hidden rounded-[20px] border border-[#ECEEF1] bg-white shadow-[0_12px_32px_rgba(39,53,45,0.07)]">
+    <article
+      className="cursor-pointer overflow-hidden rounded-[20px] border border-[#ECEEF1] bg-white shadow-[0_12px_32px_rgba(39,53,45,0.07)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(39,53,45,0.1)]"
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleOpen();
+        }
+      }}
+    >
       <div className="relative">
         <img
           alt={listing.title}
@@ -698,6 +715,7 @@ function PropertyCard({ listing }) {
         <button
           className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-white/95 text-[#77B87B] shadow-sm"
           type="button"
+          onClick={(event) => event.stopPropagation()}
         >
           <Heart className="size-4" />
         </button>
@@ -744,6 +762,10 @@ function PropertyCard({ listing }) {
           <button
             className="rounded-xl border border-[#D8EEDD] px-4 py-2 text-xs font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
             type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpen();
+            }}
           >
             Xem chi tiết
           </button>
@@ -753,9 +775,22 @@ function PropertyCard({ listing }) {
   );
 }
 
-function MiniPropertyCard({ listing }) {
+function MiniPropertyCard({ listing, onViewListing }) {
+  const handleOpen = () => onViewListing?.(listing);
+
   return (
-    <article className="overflow-hidden rounded-[18px] border border-[#ECEEF1] bg-white shadow-[0_10px_24px_rgba(39,53,45,0.05)]">
+    <article
+      className="cursor-pointer overflow-hidden rounded-[18px] border border-[#ECEEF1] bg-white shadow-[0_10px_24px_rgba(39,53,45,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(39,53,45,0.08)]"
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleOpen();
+        }
+      }}
+    >
       <img
         alt={listing.title}
         className="h-[110px] w-full object-cover"
@@ -1611,6 +1646,75 @@ function buildListingMediaItems(listing, detail, draft) {
       thumb: gallery[0] ?? listing.image,
     },
   ];
+}
+
+function buildMarketingListingRecord(listing, source, index) {
+  const locationParts = (listing.location ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const city = locationParts.at(-1) ?? "TP. Hồ Chí Minh";
+  const district = locationParts[0] ?? "Khu vực trung tâm";
+  const areaValue =
+    listing.area?.match(/\d+/)?.[0] ?? listing.meta?.match(/\d+/)?.[0] ?? "30";
+  const bathroomsValue =
+    listing.meta?.match(/(\d+)\s*WC/i)?.[1] ??
+    listing.specs?.[0]?.match(/\d+/)?.[0] ??
+    "1";
+  const furnishing = listing.specs?.[1] ?? "Đang cập nhật";
+  const gallery = [listing.image, listing.image, listing.image];
+
+  return {
+    ...listing,
+    id: listing.id ?? `${source}-${index + 1}`,
+    status: "active",
+    statusLabel: "Đang hiển thị",
+    packageLabel: source === "featured" ? "Tin nổi bật" : "Tin mới nhất",
+    detail: {
+      ownerName: listing.owner ?? "Chủ nhà",
+      ownerPhone: "0900 123 456",
+      ownerLabel: source === "featured" ? "Tin nổi bật" : "Tin mới nhất",
+      availableFrom: "Nhận nhà ngay",
+      deposit: "Thỏa thuận",
+      minimumStay: "Trao đổi trực tiếp",
+      maxOccupants: "2 - 4 người",
+      publishedAt: "Hôm nay",
+      expiresAt: "30 ngày tới",
+      coordinates: { lat: null, lng: null },
+      gallery,
+      nearbyPlaces: [district, city, "Liên hệ để xem nhà"],
+      houseRules: ["Trao đổi trực tiếp khi xem nhà"],
+    },
+    draft: {
+      propertyType:
+        source === "featured" ? "Căn hộ / Studio" : "Phòng trọ / Căn hộ mini",
+      area: areaValue,
+      bedrooms: "1",
+      bathrooms: bathroomsValue,
+      rentPrice: listing.price?.replace(/[^\d]/g, "") ?? "",
+      furnishing,
+      orientation: "Đang cập nhật",
+      floor: "",
+      totalFloors: "",
+      frontage: "",
+      accessRoad: "",
+      moveInDays: "7",
+      waterPrice: "Thỏa thuận",
+      electricityPrice: "Thỏa thuận",
+      city,
+      district,
+      ward: "",
+      street: "",
+      addressLine: listing.title,
+      projectName: source === "featured" ? "Tin nổi bật" : "Tin mới nhất",
+      description: listing.title,
+      locationNote: listing.location,
+      videoLink: "",
+      selectedTier: "standard",
+      selectedDuration: "30days",
+      selectedAmenities: [],
+    },
+  };
 }
 
 function ZaloMark({ className = "size-5" }) {
@@ -3239,7 +3343,7 @@ function ListingDetailPage({
   onLogout,
   onNavigate,
 }) {
-  const detail = ownerListingPublicDetails[listing.id] ?? {};
+  const detail = listing.detail ?? ownerListingPublicDetails[listing.id] ?? {};
   const draft = listing.draft ?? defaultListingDraft;
   const tierOption = getListingTierOptionByKey(draft.selectedTier);
   const amenities = getListingAmenityItems(draft.selectedAmenities);
@@ -4921,7 +5025,11 @@ function HomePage() {
           <SectionHeading title="Tin nổi bật" />
           <div className="grid gap-5 xl:grid-cols-3">
             {featuredListings.map((listing) => (
-              <PropertyCard key={listing.title} listing={listing} />
+              <PropertyCard
+                key={listing.id}
+                listing={listing}
+                onViewListing={() => openListingDetail(listing)}
+              />
             ))}
           </div>
           <div className="mt-5 flex items-center justify-center gap-2">
@@ -4936,7 +5044,11 @@ function HomePage() {
           <SectionHeading title="Tin mới nhất" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {latestListings.map((listing) => (
-              <MiniPropertyCard key={listing.title} listing={listing} />
+              <MiniPropertyCard
+                key={listing.id}
+                listing={listing}
+                onViewListing={() => openListingDetail(listing)}
+              />
             ))}
           </div>
         </section>
