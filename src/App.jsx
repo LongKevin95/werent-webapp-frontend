@@ -7,7 +7,6 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import { useEffect, useRef, useState } from "react";
 import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
 import SharedHeader from "./SharedHeader.jsx";
