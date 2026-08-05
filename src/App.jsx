@@ -1,9 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import L from "leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  MapContainer,
+  Marker,
+  TileLayer,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import bannerImg from "./assets/banner-img.png";
 import SharedHeader from "./SharedHeader.jsx";
 import {
   changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
+  getApiBaseUrl,
   login as loginRequest,
   register as registerRequest,
   updateProfile as updateProfileRequest,
@@ -55,6 +64,16 @@ import {
 } from "lucide-react";
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
+const DEFAULT_PROPERTY_LOCATION = { lat: 10.7721, lng: 106.6983 };
+const MAP_SEARCH_DEBOUNCE_MS = 600;
+const MAP_SEARCH_MIN_LENGTH = 3;
+const MAP_API_BASE_URL = getApiBaseUrl();
+const PROPERTY_MARKER_ICON = L.divIcon({
+  className: "",
+  html: '<span class="werent-map-marker"></span>',
+  iconAnchor: [18, 36],
+  iconSize: [36, 36],
+});
 
 function App() {
   return <HomePage />;
@@ -1567,6 +1586,73 @@ function buildListingFullAddress(draft) {
     .join(", ");
 }
 
+function hasValidCoordinates(coordinates) {
+  return (
+    Number.isFinite(Number(coordinates?.lat)) &&
+    Number.isFinite(Number(coordinates?.lng))
+  );
+}
+
+function createDraftLocation(draft) {
+  const fullAddress = buildListingFullAddress(draft);
+  const hasCoordinates = hasValidCoordinates(draft.coordinates);
+
+  return {
+    addressComponents: draft.addressComponents ?? [],
+    displayName: draft.displayName ?? draft.projectName ?? "",
+    formattedAddress: draft.formattedAddress ?? fullAddress,
+    isPinAdjusted: Boolean(draft.isPinAdjusted),
+    lat: hasCoordinates
+      ? Number(draft.coordinates.lat)
+      : DEFAULT_PROPERTY_LOCATION.lat,
+    lng: hasCoordinates
+      ? Number(draft.coordinates.lng)
+      : DEFAULT_PROPERTY_LOCATION.lng,
+    mapProvider: draft.mapProvider ?? "",
+    placeId: draft.placeId ?? null,
+    searchText: draft.formattedAddress ?? fullAddress,
+  };
+}
+
+function formatCoordinate(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(6) : "--";
+}
+
+function buildMapApiUrl(path, params = {}) {
+  const baseUrl =
+    typeof window === "undefined" ? "http://localhost" : window.location.origin;
+  const url = new URL(`${MAP_API_BASE_URL}${path}`, baseUrl);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url;
+}
+
+async function requestMapApi(path, params, signal) {
+  const response = await fetch(buildMapApiUrl(path, params), { signal });
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(payload?.message || "Không thể kết nối dịch vụ bản đồ.");
+  }
+
+  return payload?.data ?? {};
+}
+
+async function fetchMapAutocomplete(params, signal) {
+  const data = await requestMapApi("/api/maps/autocomplete", params, signal);
+  return data.places ?? [];
+}
+
+async function fetchMapReverse(params, signal) {
+  const data = await requestMapApi("/api/maps/reverse", params, signal);
+  return data.place ?? null;
+}
+
 function getListingStatusClassName(status) {
   if (status === "active") {
     return "border-[#D8EEDC] bg-[#F4FBF5] text-[#238C43]";
@@ -2566,92 +2652,411 @@ function PostListingBasicInfoStep({
   );
 }
 
-function ListingStaticMap() {
+function LocationSelectionSummary({ location }) {
   return (
-    <div className="relative overflow-hidden rounded-[20px] border border-[#E2E7E3] bg-[#EEF3F1]">
-      <div
-        className="absolute inset-0 opacity-95"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 20% 30%, rgba(255,255,255,0.9), transparent 22%), radial-gradient(circle at 78% 20%, rgba(255,255,255,0.65), transparent 20%), linear-gradient(135deg, rgba(232,238,235,0.98), rgba(245,248,246,0.98))",
-        }}
-      />
-      <div className="absolute left-[18%] top-[16%] h-[2px] w-[24%] rotate-[8deg] rounded-full bg-[#CFD8E3]" />
-      <div className="absolute left-[8%] top-[42%] h-[2px] w-[32%] -rotate-[10deg] rounded-full bg-[#CFD8E3]" />
-      <div className="absolute right-[12%] top-[28%] h-[2px] w-[28%] -rotate-[18deg] rounded-full bg-[#CFD8E3]" />
-      <div className="absolute right-[18%] top-[62%] h-[2px] w-[22%] rotate-[12deg] rounded-full bg-[#CFD8E3]" />
-      <div className="absolute left-[52%] top-[10%] h-[135%] w-8 -translate-x-1/2 rotate-[26deg] rounded-full bg-[#9EC8FF]/70" />
-      <div className="absolute left-[68%] top-[56%] h-[88%] w-6 -translate-y-1/2 rotate-[18deg] rounded-full bg-[#A9D0FF]/80" />
-      <div className="absolute left-[18%] top-[68%] h-5 w-[62%] -rotate-[7deg] rounded-full bg-[#B6D5FF]/75" />
-      <div className="absolute left-[54%] top-[48%] z-10 -translate-x-1/2 -translate-y-1/2">
-        <span className="relative flex size-11 items-center justify-center rounded-full bg-[#16A34A] text-white shadow-[0_14px_28px_rgba(22,163,74,0.3)]">
-          <MapPin className="size-5 fill-current" />
-          <span className="absolute top-full mt-1 h-3 w-3 rotate-45 rounded-[2px] bg-[#16A34A]" />
-        </span>
+    <div className="grid gap-3 rounded-[18px] border border-[#E7ECE8] bg-[#FCFDFC] p-4 text-sm md:grid-cols-[minmax(0,1fr)_220px] md:items-start [&>div:nth-child(2)]:md:text-right [&>div:nth-child(3)]:hidden">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase text-[#8A949F]">
+          Địa chỉ đã chọn
+        </p>
+        <p className="mt-1 line-clamp-2 font-semibold text-[#27313A]">
+          {location.formattedAddress || "Chưa chọn vị trí"}
+        </p>
       </div>
-
-      <div className="relative z-10 p-4 sm:p-5">
-        <div className="max-w-[420px] rounded-2xl border border-[#E3E7EA] bg-white/95 p-1.5 shadow-[0_12px_30px_rgba(26,40,34,0.08)] backdrop-blur">
-          <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#68717C]">
-            <Search className="size-4 text-[#97A0AA]" />
-            <span className="flex-1 truncate">
-              Tìm kiếm địa chỉ (ví dụ: 123 Nguyễn Trãi, Quận 1, TP. HCM)
-            </span>
-          </div>
-        </div>
-
-        <div className="relative mt-5 h-[280px] sm:h-[320px]">
-          <span className="absolute left-[3%] top-[11%] rounded bg-[#4E8EEA] px-2 py-0.5 text-[10px] font-bold text-white">
-            DT739
-          </span>
-          <span className="absolute right-[10%] top-[14%] rounded bg-[#4E8EEA] px-2 py-0.5 text-[10px] font-bold text-white">
-            DT704
-          </span>
-          <span className="absolute right-[8%] top-[45%] rounded bg-[#EAB308] px-2 py-0.5 text-[10px] font-bold text-[#4D3A00]">
-            CT01
-          </span>
-          <span className="absolute left-[19%] top-[33%] text-[11px] font-medium text-[#58A96A]">
-            Công viên Lê Văn Tám
-          </span>
-          <span className="absolute left-[16%] top-[61%] text-[11px] text-[#7D8792]">
-            Chợ Bến Thành
-          </span>
-          <span className="absolute left-[37%] top-[22%] text-[11px] font-semibold tracking-[0.08em] text-[#8993A0]">
-            ĐA KAO
-          </span>
-          <span className="absolute right-[11%] top-[30%] text-[11px] font-semibold tracking-[0.08em] text-[#8993A0]">
-            THẢO ĐIỀN
-          </span>
-          <span className="absolute right-[9%] top-[58%] text-[11px] font-semibold tracking-[0.08em] text-[#8993A0]">
-            CÁT LÁI
-          </span>
-          <span className="absolute left-[52%] top-[52%] rounded-full bg-white/90 px-2 py-1 text-[11px] font-medium text-[#8C5BC4] shadow-sm">
-            Landmark 81
-          </span>
-
-          <div className="absolute bottom-0 right-0 flex flex-col gap-2">
-            {["+", "−", "⌖"].map((control) => (
-              <button
-                key={control}
-                className="flex size-10 items-center justify-center rounded-xl border border-[#E1E6EA] bg-white text-lg font-semibold text-[#52606D] shadow-[0_8px_20px_rgba(24,36,29,0.08)] transition hover:bg-[#F8FAF8]"
-                type="button"
-              >
-                {control}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div>
+        <p className="text-xs font-semibold uppercase text-[#8A949F]">Tọa độ</p>
+        <p className="mt-1 font-semibold text-[#27313A]">
+          {formatCoordinate(location.lat)}, {formatCoordinate(location.lng)}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase text-[#8A949F]">
+          Nguồn vị trí
+        </p>
+        <p className="mt-1 font-semibold text-[#27313A]">
+          {location.placeId
+            ? "Geoapify"
+            : location.isPinAdjusted
+              ? "Ghim thủ công"
+              : "Mặc định"}
+        </p>
       </div>
     </div>
   );
 }
 
+function MapPositionSync({ location }) {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView([location.lat, location.lng], Math.max(map.getZoom(), 15), {
+      animate: true,
+    });
+  }, [location.lat, location.lng, map]);
+
+  return null;
+}
+
+function DraggablePropertyMarker({
+  location,
+  onManualPositionChange,
+  onNoticeChange,
+}) {
+  const markerRef = useRef(null);
+  const markerPosition = useMemo(
+    () => [location.lat, location.lng],
+    [location.lat, location.lng],
+  );
+  const markerEvents = useMemo(
+    () => ({
+      dragend() {
+        const marker = markerRef.current;
+
+        if (!marker) {
+          return;
+        }
+
+        const nextPosition = marker.getLatLng();
+        onManualPositionChange({
+          lat: nextPosition.lat,
+          lng: nextPosition.lng,
+        });
+      },
+    }),
+    [onManualPositionChange],
+  );
+
+  useMapEvents({
+    click(event) {
+      onManualPositionChange({
+        lat: event.latlng.lat,
+        lng: event.latlng.lng,
+      });
+      onNoticeChange("Đã chọn vị trí mới trên bản đồ.");
+    },
+  });
+
+  return (
+    <Marker
+      draggable
+      eventHandlers={markerEvents}
+      icon={PROPERTY_MARKER_ICON}
+      position={markerPosition}
+      ref={markerRef}
+    />
+  );
+}
+
+function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
+  const [query, setQuery] = useState(
+    location.searchText || location.formattedAddress || "",
+  );
+  const [predictions, setPredictions] = useState([]);
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [searchStatus, setSearchStatus] = useState("idle");
+  const [selectionStatus, setSelectionStatus] = useState("idle");
+  const [notice, setNotice] = useState("");
+  const autocompleteAbortRef = useRef(null);
+  const autocompleteCacheRef = useRef(new Map());
+  const lastSelectedQueryRef = useRef("");
+  const locationRef = useRef(location);
+  const onLocationChangeRef = useRef(onLocationChange);
+  const reverseAbortRef = useRef(null);
+  const searchBoxRef = useRef(null);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
+
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+  }, [onLocationChange]);
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (searchBoxRef.current?.contains(event.target)) {
+        return;
+      }
+
+      setIsSuggestionsOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+
+    if (
+      trimmedQuery.length < MAP_SEARCH_MIN_LENGTH ||
+      trimmedQuery === lastSelectedQueryRef.current
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+    const timeoutId = window.setTimeout(() => {
+      const cacheKey = `${trimmedQuery.toLowerCase()}|${formatCoordinate(locationRef.current.lat)}|${formatCoordinate(locationRef.current.lng)}`;
+      const cachedPredictions = autocompleteCacheRef.current.get(cacheKey);
+
+      if (cachedPredictions) {
+        setPredictions(cachedPredictions);
+        setSearchStatus(cachedPredictions.length > 0 ? "ready" : "empty");
+        setIsSuggestionsOpen(cachedPredictions.length > 0);
+        return;
+      }
+
+      autocompleteAbortRef.current?.abort();
+      const abortController = new AbortController();
+      autocompleteAbortRef.current = abortController;
+      setSearchStatus("loading");
+
+      fetchMapAutocomplete(
+        {
+          lat: locationRef.current.lat,
+          limit: 6,
+          lng: locationRef.current.lng,
+          query: trimmedQuery,
+        },
+        abortController.signal,
+      )
+        .then((nextPredictions) => {
+          if (!isActive) {
+            return;
+          }
+
+          const normalizedPredictions = nextPredictions.slice(0, 6);
+          autocompleteCacheRef.current.set(cacheKey, normalizedPredictions);
+          setPredictions(normalizedPredictions);
+          setSearchStatus(normalizedPredictions.length > 0 ? "ready" : "empty");
+          setIsSuggestionsOpen(normalizedPredictions.length > 0);
+        })
+        .catch((error) => {
+          if (!isActive || error.name === "AbortError") {
+            return;
+          }
+
+          setPredictions([]);
+          setSearchStatus("error");
+          setNotice(error.message);
+        });
+    }, MAP_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [query]);
+
+  function applySelectedPlace(place, isPinAdjusted = false) {
+    const nextLocation = {
+      addressComponents: place.addressComponents ?? {},
+      displayName: place.displayName,
+      formattedAddress: place.formattedAddress,
+      isPinAdjusted,
+      lat: place.lat,
+      lng: place.lng,
+      mapProvider: "geoapify",
+      placeId: place.placeId,
+      searchText: place.formattedAddress,
+    };
+
+    lastSelectedQueryRef.current = nextLocation.formattedAddress;
+    setQuery(nextLocation.formattedAddress);
+    setPredictions([]);
+    setIsSuggestionsOpen(false);
+    setSelectionStatus("ready");
+    onLocationChangeRef.current(nextLocation);
+  }
+
+  function selectPrediction(prediction) {
+    if (!prediction) {
+      return;
+    }
+
+    setSelectionStatus("loading");
+    setNotice("Đã chọn vị trí từ Geoapify.");
+    applySelectedPlace(prediction, false);
+  }
+
+  function handleSearchKeyDown(event) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (predictions.length > 0) {
+      selectPrediction(predictions[0]);
+    }
+  }
+
+  function handleQueryChange(event) {
+    const nextQuery = event.target.value;
+    lastSelectedQueryRef.current = "";
+    setQuery(nextQuery);
+    setIsSuggestionsOpen(predictions.length > 0);
+
+    if (nextQuery.trim().length < MAP_SEARCH_MIN_LENGTH) {
+      autocompleteAbortRef.current?.abort();
+      setPredictions([]);
+      setIsSuggestionsOpen(false);
+      setSearchStatus("idle");
+    }
+  }
+
+  function handleSearchFocus() {
+    if (predictions.length > 0) {
+      setIsSuggestionsOpen(true);
+    }
+  }
+
+  function reverseLookup(nextPosition) {
+    reverseAbortRef.current?.abort();
+    const abortController = new AbortController();
+    reverseAbortRef.current = abortController;
+    setSelectionStatus("loading");
+
+    fetchMapReverse(nextPosition, abortController.signal)
+      .then((place) => {
+        if (!place) {
+          setSelectionStatus("ready");
+          return;
+        }
+
+        applySelectedPlace(
+          {
+            ...place,
+            lat: nextPosition.lat,
+            lng: nextPosition.lng,
+          },
+          true,
+        );
+        setNotice("Đã cập nhật địa chỉ gần vị trí ghim.");
+      })
+      .catch((error) => {
+        if (error.name === "AbortError") {
+          return;
+        }
+
+        setSelectionStatus("error");
+        setNotice("Đã đổi tọa độ ghim, nhưng chưa lấy được địa chỉ gần nhất.");
+      });
+  }
+
+  function handleManualPositionChange(nextPosition) {
+    const nextLocation = {
+      ...locationRef.current,
+      isPinAdjusted: true,
+      lat: nextPosition.lat,
+      lng: nextPosition.lng,
+      mapProvider: "geoapify",
+    };
+
+    onLocationChangeRef.current(nextLocation);
+    setNotice("Đã cập nhật tọa độ theo vị trí ghim.");
+    reverseLookup(nextPosition);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <div ref={searchBoxRef} className="relative z-[1200]">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#97A0AA]" />
+            <input
+              className="h-12 w-full rounded-2xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm text-[#38404A] shadow-[0_12px_30px_rgba(26,40,34,0.08)] outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+              placeholder="Tìm địa điểm, tòa nhà, tên đường..."
+              type="text"
+              value={query}
+              onChange={handleQueryChange}
+              onFocus={handleSearchFocus}
+              onKeyDown={handleSearchKeyDown}
+            />
+            {searchStatus === "loading" || selectionStatus === "loading" ? (
+              <LoaderCircle className="absolute right-4 top-1/2 size-4 -translate-y-1/2 animate-spin text-[#35A554]" />
+            ) : null}
+          </div>
+
+          {isSuggestionsOpen && predictions.length > 0 ? (
+            <div className="absolute left-0 right-0 top-full z-[1200] mt-2 max-h-[260px] overflow-auto rounded-2xl border border-[#E2E7E3] bg-white shadow-[0_16px_36px_rgba(26,40,34,0.12)]">
+              {predictions.map((prediction) => (
+                <button
+                  key={prediction.placeId}
+                  className="flex w-full items-start gap-3 border-b border-[#F0F3F1] px-4 py-3 text-left transition last:border-b-0 hover:bg-[#F7FCF8]"
+                  type="button"
+                  onClick={() => selectPrediction(prediction)}
+                >
+                  <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
+                  <span>
+                    <span className="block text-sm font-semibold text-[#27313A]">
+                      {prediction.displayName}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-[#737D88]">
+                      {prediction.formattedAddress}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {searchStatus === "empty" ? (
+            <div className="mt-2 rounded-2xl border border-[#F1E3BF] bg-[#FFF9EE] px-4 py-3 text-sm text-[#9A6A16] shadow-sm">
+              Không tìm thấy gợi ý phù hợp. Hãy thử thêm quận, phường hoặc thành
+              phố.
+            </div>
+          ) : null}
+
+          {searchStatus === "error" ? (
+            <div className="mt-2 rounded-2xl border border-[#F2D4D4] bg-[#FFF3F3] px-4 py-3 text-sm text-[#B73A3A] shadow-sm">
+              Không thể tải gợi ý bản đồ lúc này. Bạn vẫn có thể nhập địa chỉ
+              thủ công.
+            </div>
+          ) : null}
+        </div>
+
+        <div className="relative mt-4 overflow-hidden rounded-[20px] border border-[#E2E7E3] bg-[#EEF3F1]">
+          <MapContainer
+            center={[location.lat, location.lng]}
+            className="h-[420px] w-full"
+            scrollWheelZoom
+            zoom={15}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <MapPositionSync location={location} />
+            <DraggablePropertyMarker
+              location={location}
+              onManualPositionChange={handleManualPositionChange}
+              onNoticeChange={setNotice}
+            />
+          </MapContainer>
+        </div>
+      </div>
+
+      {notice ? <ListingHint icon={Info}>{notice}</ListingHint> : null}
+
+      <LocationSelectionSummary location={location} />
+    </div>
+  );
+}
 function PostListingLocationStep({
   canGoBack,
   canGoNext,
   draftValues,
+  listingLocation,
   locationNote,
   onBackStep,
+  onListingLocationChange,
   onLocationNoteChange,
   onNextStep,
 }) {
@@ -2665,15 +3070,18 @@ function PostListingLocationStep({
           <h2 className="text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
             Vị trí của bất động sản
           </h2>
-          <p className="mt-2 text-sm text-[#69717B]">
+          <p className="hidden">
             Vui lòng cung cấp địa chỉ chính xác của bất động sản để người thuê
             dễ dàng tìm thấy.
           </p>
         </div>
       </div>
 
-      <div className="mt-6 space-y-5">
-        <ListingStaticMap />
+      <div className="mt-4 space-y-5">
+        <GeoapifyLeafletLocationPicker
+          location={listingLocation}
+          onLocationChange={onListingLocationChange}
+        />
 
         <ListingHint>
           Kéo ghim hoặc nhấp vào bản đồ để chọn vị trí chính xác.
@@ -2681,7 +3089,7 @@ function PostListingLocationStep({
 
         <div>
           <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
-            Địa chỉ chi tiết
+            Địa chỉ
           </h3>
           <div className="mt-5 space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
@@ -2717,8 +3125,8 @@ function PostListingLocationStep({
             <div className="grid gap-4 md:grid-cols-2">
               <ListingInput
                 defaultValue={draftValues.addressLine}
-                label="Số nhà, tòa nhà, căn hộ"
-                placeholder="Nhập số nhà, tòa nhà, căn hộ"
+                label="Địa chỉ chi tiết"
+                placeholder="Nhập số nhà, khu phố, ngõ hẻm, căn hộ..."
               />
               <ListingInput
                 defaultValue={draftValues.projectName}
@@ -3183,6 +3591,9 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
     draftValues.description,
   );
   const [locationNote, setLocationNote] = useState(draftValues.locationNote);
+  const [listingLocation, setListingLocation] = useState(() =>
+    createDraftLocation(draftValues),
+  );
   const [videoLink, setVideoLink] = useState(draftValues.videoLink);
   const [selectedTier, setSelectedTier] = useState(draftValues.selectedTier);
   const [selectedDuration, setSelectedDuration] = useState(
@@ -3240,8 +3651,10 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
           canGoBack={canGoBack}
           canGoNext={canGoNext}
           draftValues={draftValues}
+          listingLocation={listingLocation}
           locationNote={locationNote}
           onBackStep={goToPreviousStep}
+          onListingLocationChange={setListingLocation}
           onLocationNoteChange={(event) => setLocationNote(event.target.value)}
           onNextStep={goToNextStep}
         />
