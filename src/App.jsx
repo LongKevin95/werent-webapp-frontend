@@ -66,8 +66,10 @@ import {
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
 const DEFAULT_PROPERTY_LOCATION = { lat: 10.7721, lng: 106.6983 };
-const MAP_SEARCH_DEBOUNCE_MS = 600;
+const MAP_SEARCH_DEBOUNCE_MS = 250;
 const MAP_SEARCH_MIN_LENGTH = 3;
+const MAP_SEARCH_CACHE_LOCATION_PRECISION = 3;
+const MAP_SEARCH_CACHE_LIMIT = 40;
 const MAP_API_BASE_URL = getApiBaseUrl();
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
@@ -1619,6 +1621,34 @@ function formatCoordinate(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(6) : "--";
 }
 
+function formatMapCacheCoordinate(value) {
+  const coordinate = Number(value);
+
+  return Number.isFinite(coordinate)
+    ? coordinate.toFixed(MAP_SEARCH_CACHE_LOCATION_PRECISION)
+    : "";
+}
+
+function buildAutocompleteCacheKey(query, location) {
+  return [
+    query.trim().toLowerCase().replace(/\s+/g, " "),
+    formatMapCacheCoordinate(location.lat),
+    formatMapCacheCoordinate(location.lng),
+  ].join("|");
+}
+
+function rememberAutocompletePredictions(cache, key, predictions) {
+  cache.set(key, predictions);
+
+  if (cache.size > MAP_SEARCH_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+
+    if (oldestKey) {
+      cache.delete(oldestKey);
+    }
+  }
+}
+
 function buildMapApiUrl(path, params = {}) {
   const baseUrl =
     typeof window === "undefined" ? "http://localhost" : window.location.origin;
@@ -2701,7 +2731,6 @@ function MapPositionSync({ location }) {
 function DraggablePropertyMarker({
   location,
   onManualPositionChange,
-  onNoticeChange,
 }) {
   const markerRef = useRef(null);
   const markerPosition = useMemo(
@@ -2733,7 +2762,6 @@ function DraggablePropertyMarker({
         lat: event.latlng.lat,
         lng: event.latlng.lng,
       });
-      onNoticeChange("Đã chọn vị trí mới trên bản đồ.");
     },
   });
 
@@ -2801,28 +2829,48 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       return undefined;
     }
 
-    let isActive = true;
-    const timeoutId = window.setTimeout(() => {
-      const cacheKey = `${trimmedQuery.toLowerCase()}|${formatCoordinate(locationRef.current.lat)}|${formatCoordinate(locationRef.current.lng)}`;
-      const cachedPredictions = autocompleteCacheRef.current.get(cacheKey);
+    const cacheKey = buildAutocompleteCacheKey(trimmedQuery, locationRef.current);
+    const cachedPredictions = autocompleteCacheRef.current.get(cacheKey);
 
-      if (cachedPredictions) {
-        setPredictions(cachedPredictions);
-        setSearchStatus(cachedPredictions.length > 0 ? "ready" : "empty");
-        setIsSuggestionsOpen(cachedPredictions.length > 0);
+    if (cachedPredictions) {
+      autocompleteAbortRef.current?.abort();
+      setPredictions(cachedPredictions);
+      setSearchStatus(cachedPredictions.length > 0 ? "ready" : "empty");
+      setIsSuggestionsOpen(cachedPredictions.length > 0);
+      return undefined;
+    }
+
+    let isActive = true;
+    let abortController = null;
+
+    setSearchStatus("loading");
+    setNotice("");
+
+    const timeoutId = window.setTimeout(() => {
+      const requestLocation = locationRef.current;
+      const requestCacheKey = buildAutocompleteCacheKey(
+        trimmedQuery,
+        requestLocation,
+      );
+      const lateCachedPredictions =
+        autocompleteCacheRef.current.get(requestCacheKey);
+
+      if (lateCachedPredictions) {
+        setPredictions(lateCachedPredictions);
+        setSearchStatus(lateCachedPredictions.length > 0 ? "ready" : "empty");
+        setIsSuggestionsOpen(lateCachedPredictions.length > 0);
         return;
       }
 
       autocompleteAbortRef.current?.abort();
-      const abortController = new AbortController();
+      abortController = new AbortController();
       autocompleteAbortRef.current = abortController;
-      setSearchStatus("loading");
 
       fetchMapAutocomplete(
         {
-          lat: locationRef.current.lat,
+          lat: requestLocation.lat,
           limit: 6,
-          lng: locationRef.current.lng,
+          lng: requestLocation.lng,
           query: trimmedQuery,
         },
         abortController.signal,
@@ -2833,7 +2881,11 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
           }
 
           const normalizedPredictions = nextPredictions.slice(0, 6);
-          autocompleteCacheRef.current.set(cacheKey, normalizedPredictions);
+          rememberAutocompletePredictions(
+            autocompleteCacheRef.current,
+            requestCacheKey,
+            normalizedPredictions,
+          );
           setPredictions(normalizedPredictions);
           setSearchStatus(normalizedPredictions.length > 0 ? "ready" : "empty");
           setIsSuggestionsOpen(normalizedPredictions.length > 0);
@@ -2852,10 +2904,15 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     return () => {
       isActive = false;
       window.clearTimeout(timeoutId);
+      abortController?.abort();
     };
   }, [query]);
 
-  function applySelectedPlace(place, isPinAdjusted = false) {
+  function applySelectedPlace(
+    place,
+    { isPinAdjusted = false, syncSearchInput = false } = {},
+  ) {
+    const nextSearchText = syncSearchInput ? place.formattedAddress : query;
     const nextLocation = {
       addressComponents: place.addressComponents ?? {},
       displayName: place.displayName,
@@ -2865,11 +2922,14 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       lng: place.lng,
       mapProvider: "geoapify",
       placeId: place.placeId,
-      searchText: place.formattedAddress,
+      searchText: nextSearchText,
     };
 
-    lastSelectedQueryRef.current = nextLocation.formattedAddress;
-    setQuery(nextLocation.formattedAddress);
+    if (syncSearchInput) {
+      lastSelectedQueryRef.current = nextLocation.formattedAddress;
+      setQuery(nextLocation.formattedAddress);
+    }
+
     setPredictions([]);
     setIsSuggestionsOpen(false);
     setSelectionStatus("ready");
@@ -2883,7 +2943,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
 
     setSelectionStatus("loading");
     setNotice("Đã chọn vị trí từ Geoapify.");
-    applySelectedPlace(prediction, false);
+    applySelectedPlace(prediction, { syncSearchInput: true });
   }
 
   function handleSearchKeyDown(event) {
@@ -2937,9 +2997,8 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
             lat: nextPosition.lat,
             lng: nextPosition.lng,
           },
-          true,
+          { isPinAdjusted: true },
         );
-        setNotice("Đã cập nhật địa chỉ gần vị trí ghim.");
       })
       .catch((error) => {
         if (error.name === "AbortError") {
@@ -2961,7 +3020,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     };
 
     onLocationChangeRef.current(nextLocation);
-    setNotice("Đã cập nhật tọa độ theo vị trí ghim.");
+    setNotice("");
     reverseLookup(nextPosition);
   }
 
@@ -3038,7 +3097,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
             <DraggablePropertyMarker
               location={location}
               onManualPositionChange={handleManualPositionChange}
-              onNoticeChange={setNotice}
             />
           </MapContainer>
         </div>
