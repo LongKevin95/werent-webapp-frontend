@@ -64,12 +64,28 @@ export function listMyProperties(token, params = {}) {
   return request(`/api/properties/my-listings${suffix}`, { token });
 }
 
+export function listAdministrativeDivisions() {
+  return request("/api/administrative-divisions");
+}
+
 export function createPropertyListing(token, body) {
   return request("/api/properties", {
     method: "POST",
     token,
     body,
   });
+}
+
+export function updatePropertyListing(token, propertyId, body) {
+  return request(`/api/properties/${propertyId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function updatePropertyListingStatus(token, propertyId, status) {
+  return updatePropertyListing(token, propertyId, { status });
 }
 
 export function deletePropertyListing(token, propertyId) {

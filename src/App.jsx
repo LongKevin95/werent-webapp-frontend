@@ -3,15 +3,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
+  Popup,
   TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
 import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
+import AppFooter from "./components/layout/AppFooter";
+import AppHeader from "./components/layout/AppHeader";
 import Button from "./components/ui/Button";
 import Modal from "./components/ui/Modal";
-import SharedHeader from "./SharedHeader.jsx";
 import {
   changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
@@ -25,8 +27,11 @@ import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
   createPropertyListing,
   deletePropertyListing,
+  listAdministrativeDivisions,
   listMyProperties,
   listProperties,
+  updatePropertyListing,
+  updatePropertyListingStatus,
 } from "./lib/property-client";
 import {
   ArrowDown,
@@ -269,6 +274,15 @@ const featuredListings = [
     area: "28m²",
     specs: ["1 WC", "Nội thất cơ bản"],
     owner: "Lê Văn C",
+  },
+  {
+    image: createPlaceholderImage("Nhà thuê 04", "#dce3d7", "#f0f4ed"),
+    price: "6.000.000đ",
+    title: "Nhà nguyên căn yên tĩnh, gần chợ và trục đường chính",
+    location: "Quận 3, TP. Hồ Chí Minh",
+    area: "42m²",
+    specs: ["1 WC", "Nội thất cơ bản"],
+    owner: "Phạm Minh D",
   },
 ].map((listing, index) =>
   buildMarketingListingRecord(listing, "featured", index),
@@ -715,31 +729,6 @@ const listingStatusTabs = [
   { key: "rejected", label: "Vi phạm" },
 ];
 
-const footerColumns = [
-  {
-    title: "Về WeRent",
-    items: ["Giới thiệu", "Tin tức", "Tuyển dụng", "Liên hệ"],
-  },
-  {
-    title: "Hỗ trợ",
-    items: [
-      "Trung tâm trợ giúp",
-      "Hướng dẫn sử dụng",
-      "Quy định cộng đồng",
-      "Chính sách bảo mật",
-    ],
-  },
-  {
-    title: "Dành cho chủ nhà",
-    items: [
-      "Đăng tin cho thuê",
-      "Quản lý tin đăng",
-      "Gói dịch vụ",
-      "Hướng dẫn đăng tin",
-    ],
-  },
-];
-
 function SectionHeading({ title }) {
   return (
     <div className="mb-5 flex items-center justify-between gap-4">
@@ -785,6 +774,14 @@ function CategoryCard({ icon: Icon, title, count }) {
 
 function PropertyCard({ listing, onViewListing }) {
   const handleOpen = () => onViewListing?.(listing);
+  const publishedTimeLabel = formatRelativeListingPublishedTime(
+    listing.publishedAtRaw ??
+      listing.detail?.publishedAtRaw ??
+      listing.createdAtRaw ??
+      listing.updatedAtRaw ??
+      listing.updatedAt ??
+      listing.detail?.publishedAt,
+  );
 
   return (
     <article
@@ -802,31 +799,24 @@ function PropertyCard({ listing, onViewListing }) {
       <div className="relative">
         <img
           alt={listing.title}
-          className="h-[198px] w-full object-cover"
+          className="h-[168px] w-full object-cover"
           src={listing.image}
         />
         <span className="absolute left-3 top-3 rounded-lg bg-[#49B96E] px-2 py-1 text-[10px] font-bold text-white">
           VIP
         </span>
-        <button
-          className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-white/95 text-[#77B87B] shadow-sm"
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Heart className="size-4" />
-        </button>
       </div>
-      <div className="space-y-3 p-4">
+      <div className="space-y-2.5 p-3.5">
         <div>
-          <div className="flex items-end gap-1">
-            <span className="text-[26px] font-bold leading-none text-[#31A352]">
+          <h3 className="line-clamp-2 min-h-[44px] break-words text-[16px] font-bold leading-[22px] text-[#232933]">
+            {listing.title}
+          </h3>
+          <div className="mt-2 flex items-end gap-1">
+            <span className="text-[17px] font-bold leading-none text-[#31A352]">
               {listing.price}
             </span>
             <span className="pb-0.5 text-xs text-[#8A909A]">/ tháng</span>
           </div>
-          <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[#232933]">
-            {listing.title}
-          </h3>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-[#858B97]">
           <MapPin className="size-3.5 text-[#7F8591]" />
@@ -846,24 +836,20 @@ function PropertyCard({ listing, onViewListing }) {
             {listing.specs[1]}
           </span>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[#F0F1F3] pt-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#f4d8bd,#f0c295)] text-xs font-semibold text-[#735333]">
-              {listing.owner.slice(0, 1)}
-            </span>
-            <span className="text-[13px] font-medium text-[#3B414B]">
-              {listing.owner}
-            </span>
+        <div className="flex items-center justify-between gap-2 border-t border-[#F0F1F3] pt-3">
+          <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[#6E7782]">
+            <Clock3 className="size-4 shrink-0 text-[#35A554]" />
+            <span className="truncate">{publishedTimeLabel}</span>
           </div>
           <button
-            className="rounded-xl border border-[#D8EEDD] px-4 py-2 text-xs font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
+            aria-label="Lưu tin yêu thích"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#D8EEDD] text-[#77B87B] transition hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              handleOpen();
             }}
           >
-            Xem chi tiết
+            <Heart className="size-4" />
           </button>
         </div>
       </div>
@@ -889,16 +875,16 @@ function MiniPropertyCard({ listing, onViewListing }) {
     >
       <img
         alt={listing.title}
-        className="h-[110px] w-full object-cover"
+        className="h-[155px] w-full object-cover"
         src={listing.image}
       />
-      <div className="space-y-1.5 p-3">
-        <p className="text-[18px] font-bold leading-none text-[#32A553]">
-          {listing.price}
-        </p>
-        <h3 className="min-h-[40px] text-[13px] font-semibold leading-5 text-[#242933]">
+      <div className="space-y-3 p-[18px]">
+        <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
           {listing.title}
         </h3>
+        <p className="text-[16px] font-bold leading-none text-[#32A553]">
+          {listing.price}
+        </p>
         <p className="text-[11px] text-[#818793]">{listing.location}</p>
         <p className="text-[11px] text-[#9095A0]">{listing.meta}</p>
       </div>
@@ -1417,19 +1403,7 @@ const postListingSteps = [
   "Chọn loại tin",
 ];
 const defaultPostListingStep = 0;
-const cityOptions = ["TP. Hồ Chí Minh", "Hà Nội", "Đà Nẵng"];
-const districtOptions = [
-  "Quận 2 (TP. Thủ Đức)",
-  "Quận 1",
-  "Quận Bình Thạnh",
-  "Quận 7",
-];
-const wardOptions = [
-  "Phường An Khánh",
-  "Phường Thảo Điền",
-  "Phường Bình An",
-  "Phường An Phú",
-];
+const ADMINISTRATIVE_DIVISIONS_CACHE_KEY = "werent:administrative-divisions:v1";
 const PROPERTY_IMAGE_LIMIT = 10;
 const PROPERTY_RECOMMENDED_IMAGE_COUNT = 5;
 const PROPERTY_IMAGE_MAX_SIZE_MB = 5;
@@ -1518,40 +1492,48 @@ const scheduleOptions = [
   "Chọn thời gian cụ thể",
 ];
 const defaultListingDraft = {
-  propertyType: "Căn hộ chung cư",
-  area: "72",
-  bedrooms: "2",
-  bathrooms: "2",
-  rentPrice: "12.000.000",
-  furnishing: "Đầy đủ nội thất",
-  orientation: "Đông Nam",
-  floor: "12",
-  totalFloors: "25",
-  frontage: "8",
-  accessRoad: "12",
-  moveInDays: "7",
-  waterPrice: "Thỏa thuận",
-  electricityPrice: "Theo giá nhà cung cấp",
-  internetPrice: "Thỏa thuận",
-  city: "TP. Hồ Chí Minh",
-  district: "Quận 2 (TP. Thủ Đức)",
-  ward: "Phường An Khánh",
-  street: "Đường Nguyễn Cơ Thạch",
-  addressLine: "Số 15, Tòa A, Căn 12A",
-  projectName: "Vinhomes Metropolis",
+  propertyType: "",
+  area: "",
+  bedrooms: "",
+  bathrooms: "",
+  rentPrice: "",
+  furnishing: "",
+  orientation: "",
+  floor: "",
+  totalFloors: "",
+  frontage: "",
+  accessRoad: "",
+  moveInDays: "",
+  waterPrice: "",
+  electricityPrice: "",
+  internetPrice: "",
+  city: "",
+  district: "",
+  ward: "",
+  street: "",
+  addressLine: "",
+  projectName: "",
   description: "",
   locationNote: "",
   videoLink: "",
   selectedTier: "standard",
   selectedDuration: "custom",
-  selectedAmenities: [
-    "airConditioner",
-    "washingMachine",
-    "wifi",
-    "security",
-    "camera",
-  ],
+  selectedAmenities: [],
 };
+const draftRequiredFieldSteps = {
+  area: 0,
+  bathrooms: 0,
+  bedrooms: 0,
+  city: 1,
+  description: 0,
+  district: 1,
+  propertyType: 0,
+  rentPrice: 0,
+  title: 0,
+  ward: 1,
+};
+const draftValidationToastMessage =
+  "Vui lòng nhập đủ các trường thông tin bắt buộc trước khi lưu nháp!";
 
 const propertyTypeOptions = [
   "Phòng trọ",
@@ -1560,6 +1542,53 @@ const propertyTypeOptions = [
   "Nhà nguyên căn",
   "Mặt bằng kinh doanh",
 ];
+
+function getDraftRequiredFieldErrors({
+  listingDescription,
+  listingDraft,
+  listingTitle,
+}) {
+  const requiredValues = {
+    area: listingDraft.area,
+    bathrooms: listingDraft.bathrooms,
+    bedrooms: listingDraft.bedrooms,
+    city: listingDraft.city,
+    description: listingDescription,
+    district: listingDraft.district,
+    propertyType: listingDraft.propertyType,
+    rentPrice: listingDraft.rentPrice,
+    title: listingTitle,
+    ward: listingDraft.ward,
+  };
+
+  return Object.entries(requiredValues).reduce((errors, [field, value]) => {
+    if (!hasListingInputValue(value)) {
+      errors[field] = true;
+    }
+
+    return errors;
+  }, {});
+}
+
+function getFirstDraftValidationStep(validationErrors) {
+  const invalidSteps = Object.keys(validationErrors)
+    .map((field) => draftRequiredFieldSteps[field])
+    .filter((step) => Number.isInteger(step));
+
+  return invalidSteps.length ? Math.min(...invalidSteps) : 0;
+}
+
+function createDraftListingPricingData({ selectedDuration, selectedTier }) {
+  return {
+    package: {
+      durationDays: 0,
+      durationKey: selectedDuration,
+      pricePerDay: 0,
+      tier: selectedTier,
+      totalPrice: 0,
+    },
+  };
+}
 
 const furnishingOptions = [
   "Nội thất cơ bản",
@@ -1577,10 +1606,10 @@ const waterPriceOptions = utilityPriceOptions;
 const electricityPriceOptions = utilityPriceOptions;
 const internetPriceOptions = ["Thỏa thuận", "Do chủ nhà quy định"];
 const indoorAmenities = [
-  { key: "airConditioner", icon: Wind, label: "Máy lạnh", selected: true },
+  { key: "airConditioner", icon: Wind, label: "Máy lạnh" },
   { key: "refrigerator", icon: Home, label: "Tủ lạnh" },
-  { key: "washingMachine", icon: Save, label: "Máy giặt", selected: true },
-  { key: "wifi", icon: MessageSquare, label: "Wi-Fi", selected: true },
+  { key: "washingMachine", icon: Save, label: "Máy giặt" },
+  { key: "wifi", icon: MessageSquare, label: "Wi-Fi" },
   { key: "kitchen", icon: Store, label: "Bếp" },
   { key: "waterHeater", icon: Bath, label: "Nóng lạnh" },
   { key: "bed", icon: BedDouble, label: "Giường" },
@@ -1593,8 +1622,8 @@ const indoorAmenities = [
 const areaAmenities = [
   { key: "elevator", icon: Building2, label: "Thang máy" },
   { key: "parkingBasement", icon: CarFront, label: "Hầm để xe" },
-  { key: "security", icon: ShieldCheck, label: "Bảo vệ 24/7", selected: true },
-  { key: "camera", icon: Camera, label: "Camera an ninh", selected: true },
+  { key: "security", icon: ShieldCheck, label: "Bảo vệ 24/7" },
+  { key: "camera", icon: Camera, label: "Camera an ninh" },
   { key: "park", icon: Landmark, label: "Công viên" },
   { key: "pool", icon: Bath, label: "Hồ bơi" },
   { key: "gym", icon: Ruler, label: "Phòng gym" },
@@ -1626,6 +1655,142 @@ function getListingDurationOptionByKey(key) {
 
 function formatListingCurrency(value) {
   return `${new Intl.NumberFormat("vi-VN").format(Math.max(0, value))} đ`;
+}
+
+function formatCompactMonthlyRent(value, fallback = "Thỏa thuận") {
+  const rentValue =
+    parseListingMoneyInput(value) || parseListingMoneyInput(fallback);
+
+  if (!rentValue) {
+    return fallback || "Thỏa thuận";
+  }
+
+  const compactParts = [
+    { minimum: 1_000_000_000, unit: "tỷ", divisor: 1_000_000_000 },
+    { minimum: 1_000_000, unit: "triệu", divisor: 1_000_000 },
+    { minimum: 1_000, unit: "nghìn", divisor: 1_000 },
+  ];
+  const matchedPart = compactParts.find((part) => rentValue >= part.minimum);
+
+  if (!matchedPart) {
+    return `${formatListingCurrency(rentValue)}/tháng`;
+  }
+
+  const compactValue = rentValue / matchedPart.divisor;
+  const maximumFractionDigits =
+    compactValue < 10 ? 2 : compactValue < 100 ? 1 : 0;
+  const formattedValue = new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits,
+  }).format(compactValue);
+
+  return `${formattedValue} ${matchedPart.unit}/tháng`;
+}
+
+function createRelativeListingDate({
+  days = 0,
+  hours = 0,
+  minutes = 0,
+  months = 0,
+} = {}) {
+  const date = new Date();
+
+  if (months) {
+    date.setMonth(date.getMonth() - months);
+  }
+
+  if (days) {
+    date.setDate(date.getDate() - days);
+  }
+
+  if (hours) {
+    date.setHours(date.getHours() - hours);
+  }
+
+  if (minutes) {
+    date.setMinutes(date.getMinutes() - minutes);
+  }
+
+  return date.toISOString();
+}
+
+function parseListingTimestamp(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "number") {
+    const numericDate = new Date(value);
+
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate;
+  }
+
+  const stringValue = String(value ?? "").trim();
+
+  if (!stringValue) {
+    return null;
+  }
+
+  const dateOnlyMatch = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(stringValue);
+
+  if (dateOnlyMatch) {
+    const [, day, month, year] = dateOnlyMatch;
+    const dateOnlyValue = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+    );
+
+    return Number.isNaN(dateOnlyValue.getTime()) ? null : dateOnlyValue;
+  }
+
+  const parsedDate = new Date(stringValue);
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function formatRelativeListingPublishedTime(value) {
+  const publishedDate = parseListingTimestamp(value);
+
+  if (!publishedDate) {
+    return "Đăng gần đây";
+  }
+
+  const diffMs = Math.max(0, Date.now() - publishedDate.getTime());
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (diffMs < minuteMs) {
+    return "Đăng vừa xong";
+  }
+
+  if (diffMs < hourMs) {
+    const minutes = Math.floor(diffMs / minuteMs);
+
+    return `Đăng ${minutes} phút trước`;
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs);
+
+    return `Đăng ${hours} giờ trước`;
+  }
+
+  const days = Math.floor(diffMs / dayMs);
+
+  if (days < 7) {
+    return `Đăng ${days} ngày trước`;
+  }
+
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+
+    return `Đăng ${weeks} tuần trước`;
+  }
+
+  const months = Math.floor(days / 30);
+
+  return `Đăng ${months} tháng trước`;
 }
 
 function parseListingDate(value = "") {
@@ -1717,7 +1882,71 @@ function getListingAmenityItems(keys = []) {
 }
 
 function getSelectOptionValue(value, options) {
-  return options.includes(value) ? value : options[0];
+  return options.includes(value) ? value : "";
+}
+
+function normalizeAdministrativeDivisionName(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\btp\b/g, "thanh pho")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function findAdministrativeDivisionByName(items = [], name) {
+  const normalizedName = normalizeAdministrativeDivisionName(name);
+
+  if (!normalizedName) {
+    return null;
+  }
+
+  return (
+    items.find((item) => item.name === name) ??
+    items.find(
+      (item) =>
+        normalizeAdministrativeDivisionName(item.name) === normalizedName,
+    ) ??
+    null
+  );
+}
+
+function getAdministrativeDivisionOptions(items = []) {
+  return items.map((item) => item.name);
+}
+
+function readCachedAdministrativeDivisions() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const cachedValue = window.localStorage.getItem(
+      ADMINISTRATIVE_DIVISIONS_CACHE_KEY,
+    );
+    const parsedValue = cachedValue ? JSON.parse(cachedValue) : null;
+
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedAdministrativeDivisions(provinces) {
+  if (typeof window === "undefined" || !Array.isArray(provinces)) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      ADMINISTRATIVE_DIVISIONS_CACHE_KEY,
+      JSON.stringify(provinces),
+    );
+  } catch {
+    // localStorage can be unavailable in private browsing or restricted contexts.
+  }
 }
 
 function parseListingMoneyInput(value) {
@@ -1766,12 +1995,18 @@ function formatListingDateForApi(value) {
   return `${year}-${month}-${day}`;
 }
 
-function appendFormValue(formData, key, value) {
-  if (value === undefined || value === null || value === "") {
+function appendFormValue(formData, key, value, options = {}) {
+  if (value === undefined || value === null) {
     return;
   }
 
-  formData.append(key, String(value));
+  const stringValue = String(value);
+
+  if (!options.includeEmpty && stringValue === "") {
+    return;
+  }
+
+  formData.append(key, stringValue);
 }
 
 function appendFormNumber(formData, key, value) {
@@ -1782,19 +2017,26 @@ function appendFormNumber(formData, key, value) {
   formData.append(key, String(value));
 }
 
+function hasListingInputValue(value) {
+  return String(value ?? "").trim().length > 0;
+}
+
 function getUserDisplayName(user) {
   return user?.fullName || user?.name || user?.email || user?.phone || "";
 }
 
 function createPropertyListingFormData({
+  includeExistingImages = false,
+  includeEmptyValues = false,
   listingDescription,
   listingDraft,
   listingImages,
   listingLocation,
   listingTitle,
   locationNote,
-  pricingData,
+  pricingData = null,
   selectedAmenities,
+  status,
   user,
   videoLink,
 }) {
@@ -1811,24 +2053,46 @@ function createPropertyListingFormData({
       }
     : null;
 
-  appendFormValue(formData, "title", listingTitle.trim());
-  appendFormValue(formData, "propertyType", listingDraft.propertyType);
-  appendFormValue(formData, "description", listingDescription.trim());
+  appendFormValue(formData, "title", listingTitle.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "propertyType", listingDraft.propertyType, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "description", listingDescription.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
   appendFormValue(formData, "address", fullAddress);
-  appendFormValue(formData, "city", listingDraft.city);
-  appendFormValue(formData, "district", listingDraft.district);
-  appendFormValue(formData, "ward", listingDraft.ward);
-  appendFormValue(formData, "street", listingDraft.street);
-  appendFormValue(formData, "addressLine", listingDraft.addressLine);
-  appendFormValue(formData, "projectName", listingDraft.projectName);
-  appendFormValue(formData, "locationNote", locationNote.trim());
+  appendFormValue(formData, "city", listingDraft.city, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "district", listingDraft.district, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "ward", listingDraft.ward, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "street", listingDraft.street, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "addressLine", listingDraft.addressLine, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "projectName", listingDraft.projectName, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "locationNote", locationNote.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
   appendFormValue(
     formData,
     "formattedAddress",
     listingLocation.formattedAddress || fullAddress,
   );
   appendFormValue(formData, "placeId", listingLocation.placeId);
-  appendFormValue(formData, "mapProvider", listingLocation.mapProvider);
+  appendFormValue(formData, "mapProvider", listingLocation.mapProvider, {
+    includeEmpty: includeEmptyValues,
+  });
   appendFormValue(formData, "isPinAdjusted", listingLocation.isPinAdjusted);
   appendFormValue(
     formData,
@@ -1860,9 +2124,15 @@ function createPropertyListingFormData({
     "bathrooms",
     Math.trunc(parseListingNumericInput(listingDraft.bathrooms)),
   );
-  appendFormValue(formData, "furnishing", listingDraft.furnishing);
-  appendFormValue(formData, "orientation", listingDraft.orientation);
-  appendFormValue(formData, "floor", listingDraft.floor);
+  appendFormValue(formData, "furnishing", listingDraft.furnishing, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "orientation", listingDraft.orientation, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "floor", listingDraft.floor, {
+    includeEmpty: includeEmptyValues,
+  });
   appendFormNumber(
     formData,
     "totalFloors",
@@ -1883,23 +2153,71 @@ function createPropertyListingFormData({
     "moveInDays",
     Math.trunc(parseListingNumericInput(listingDraft.moveInDays)),
   );
-  appendFormValue(formData, "waterPrice", listingDraft.waterPrice);
-  appendFormValue(formData, "electricityPrice", listingDraft.electricityPrice);
-  appendFormValue(formData, "internetPrice", listingDraft.internetPrice);
+  appendFormValue(formData, "waterPrice", listingDraft.waterPrice, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "electricityPrice", listingDraft.electricityPrice, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "internetPrice", listingDraft.internetPrice, {
+    includeEmpty: includeEmptyValues,
+  });
   appendFormValue(formData, "amenities", JSON.stringify(selectedAmenities));
-  appendFormValue(formData, "videoUrl", videoLink.trim());
-  appendFormValue(formData, "package", JSON.stringify(pricingData.package));
-  appendFormValue(formData, "availableFrom", pricingData.startDate);
-  appendFormValue(formData, "expiresAt", pricingData.endDate);
+  appendFormValue(formData, "videoUrl", videoLink.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  if (pricingData?.package) {
+    appendFormValue(formData, "package", JSON.stringify(pricingData.package));
+  }
+  appendFormValue(formData, "availableFrom", pricingData?.startDate);
+  appendFormValue(formData, "expiresAt", pricingData?.endDate);
   appendFormValue(formData, "contactName", getUserDisplayName(user));
   appendFormValue(formData, "contactPhone", user?.phone);
   appendFormValue(formData, "contactEmail", user?.email);
+  appendFormValue(formData, "status", status);
 
-  listingImages
-    .filter((image) => image.source === "local" && image.file)
-    .forEach((image) => {
+  const localFileIndexByImageId = new Map();
+  let nextLocalFileIndex = 0;
+
+  listingImages.forEach((image) => {
+    if (image.source === "local" && image.file) {
+      localFileIndexByImageId.set(image.id, nextLocalFileIndex);
+      nextLocalFileIndex += 1;
       formData.append("images", image.file);
-    });
+    }
+  });
+
+  if (includeExistingImages) {
+    const existingImages = listingImages
+      .filter((image) => image.source === "existing" && image.previewUrl)
+      .map((image) => ({
+        publicId: image.publicId ?? null,
+        url: image.url ?? image.previewUrl,
+      }));
+    const imageOrder = listingImages
+      .map((image) => {
+        if (image.source === "existing" && image.previewUrl) {
+          return {
+            publicId: image.publicId ?? null,
+            source: "existing",
+            url: image.url ?? image.previewUrl,
+          };
+        }
+
+        if (image.source === "local" && image.file) {
+          return {
+            fileIndex: localFileIndexByImageId.get(image.id),
+            source: "new",
+          };
+        }
+
+        return null;
+      })
+      .filter(Boolean);
+
+    appendFormValue(formData, "existingImages", JSON.stringify(existingImages));
+    appendFormValue(formData, "imageOrder", JSON.stringify(imageOrder));
+  }
 
   return formData;
 }
@@ -1925,19 +2243,25 @@ function createExistingListingImageItems(listing) {
     return [];
   }
 
-  const detail = listing.id ? ownerListingPublicDetails[listing.id] : null;
-  const gallery = detail?.gallery?.length
-    ? detail.gallery
-    : listing.image
-      ? [listing.image]
-      : [];
+  const detail =
+    listing.detail ??
+    (listing.id ? ownerListingPublicDetails[listing.id] : null);
+  const images = detail?.images?.length
+    ? detail.images
+    : detail?.gallery?.length
+      ? detail.gallery.map((url) => ({ publicId: null, url }))
+      : listing.image
+        ? [{ publicId: null, url: listing.image }]
+        : [];
 
-  return gallery.slice(0, PROPERTY_IMAGE_LIMIT).map((url, index) => ({
+  return images.slice(0, PROPERTY_IMAGE_LIMIT).map((image, index) => ({
     id: `existing-${listing.id ?? "listing"}-${index}`,
     name: `Ảnh ${index + 1}`,
-    previewUrl: url,
+    previewUrl: image.url,
+    publicId: image.publicId ?? null,
     size: null,
     source: "existing",
+    url: image.url,
   }));
 }
 
@@ -2033,8 +2357,76 @@ function createDraftLocation(draft) {
   };
 }
 
+function hasNewListingUserInput({
+  listingDescription,
+  listingDraft,
+  listingImages,
+  listingLocation,
+  listingTitle,
+  locationNote,
+  selectedAmenities,
+  videoLink,
+}) {
+  const draftFieldsToCheck = Object.entries(listingDraft).filter(
+    ([field]) =>
+      !["selectedAmenities", "selectedDuration", "selectedTier"].includes(
+        field,
+      ),
+  );
+  const hasDraftValue = draftFieldsToCheck.some(([, value]) => {
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+
+    return hasListingInputValue(value);
+  });
+  const hasLocationValue =
+    Boolean(listingLocation?.isPinAdjusted) ||
+    hasListingInputValue(listingLocation?.displayName) ||
+    hasListingInputValue(listingLocation?.formattedAddress) ||
+    hasListingInputValue(listingLocation?.mapProvider) ||
+    hasListingInputValue(listingLocation?.placeId) ||
+    hasListingInputValue(listingLocation?.searchText) ||
+    (Array.isArray(listingLocation?.addressComponents) &&
+      listingLocation.addressComponents.length > 0);
+
+  return (
+    hasListingInputValue(listingTitle) ||
+    hasListingInputValue(listingDescription) ||
+    hasListingInputValue(locationNote) ||
+    hasListingInputValue(videoLink) ||
+    hasDraftValue ||
+    hasLocationValue ||
+    listingImages.length > 0 ||
+    selectedAmenities.length > 0
+  );
+}
+
+function getListingDetailMapLocation(draft, detail, fallbackAddress) {
+  const coordinates = hasValidCoordinates(draft.coordinates)
+    ? draft.coordinates
+    : hasValidCoordinates(detail.coordinates)
+      ? detail.coordinates
+      : null;
+
+  if (!coordinates) {
+    return null;
+  }
+
+  return {
+    formattedAddress: draft.formattedAddress || fallbackAddress,
+    lat: Number(coordinates.lat),
+    lng: Number(coordinates.lng),
+  };
+}
+
 function formatCoordinate(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(6) : "--";
+}
+
+function buildGoogleMapsSearchUrl(location) {
+  const query = `${Number(location.lat)},${Number(location.lng)}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function formatMapCacheCoordinate(value) {
@@ -2333,10 +2725,21 @@ function buildMarketingListingRecord(listing, source, index) {
     "1";
   const furnishing = listing.specs?.[1] ?? "Đang cập nhật";
   const gallery = [listing.image, listing.image, listing.image];
+  const mockPublishedDateOffsets =
+    source === "featured"
+      ? [{ hours: 3 }, { days: 6 }, { days: 9 }, { days: 16 }]
+      : [{ hours: 2 }, { hours: 8 }, { days: 1 }, { days: 3 }];
+  const publishedAtRaw =
+    listing.publishedAtRaw ??
+    listing.publishedAt ??
+    createRelativeListingDate(
+      mockPublishedDateOffsets[index] ?? { days: index + 1 },
+    );
 
   return {
     ...listing,
     id: listing.id ?? `${source}-${index + 1}`,
+    publishedAtRaw,
     status: "active",
     statusLabel: "Đang hiển thị",
     packageLabel: source === "featured" ? "Tin nổi bật" : "Tin mới nhất",
@@ -2348,7 +2751,8 @@ function buildMarketingListingRecord(listing, source, index) {
       deposit: "Thỏa thuận",
       minimumStay: "Trao đổi trực tiếp",
       maxOccupants: "2 - 4 người",
-      publishedAt: "Hôm nay",
+      publishedAt: formatApiDateForListing(publishedAtRaw),
+      publishedAtRaw,
       expiresAt: "30 ngày tới",
       coordinates: { lat: null, lng: null },
       gallery,
@@ -2420,6 +2824,12 @@ function getPropertyStatusLabel(status) {
 
 function mapApiPropertyToListingRecord(property, index = 0) {
   const listingId = property.id ?? property._id ?? `api-property-${index + 1}`;
+  const propertyImages = (property.images ?? [])
+    .map((image) => ({
+      publicId: image?.publicId ?? null,
+      url: image?.url ?? "",
+    }))
+    .filter((image) => image.url);
   const imageUrls = (property.images ?? [])
     .map((image) => image?.url)
     .filter(Boolean);
@@ -2456,6 +2866,8 @@ function mapApiPropertyToListingRecord(property, index = 0) {
   const packageLabel = getListingTierOptionByKey(selectedTier).label;
   const gallery = imageUrls.length ? imageUrls : [primaryImage];
   const metrics = property.metrics ?? {};
+  const publishedAtRaw =
+    property.publishedAt ?? property.createdAt ?? property.updatedAt ?? null;
   const draft = {
     ...defaultListingDraft,
     propertyType: property.propertyType || defaultListingDraft.propertyType,
@@ -2504,6 +2916,8 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     owner: ownerName,
     packageLabel,
     price,
+    publishedAtRaw,
+    createdAtRaw: property.createdAt ?? null,
     rejectionReason: property.rejectionReason ?? "",
     specs: [bathroomSpec, furnishing],
     status: property.status ?? "active",
@@ -2511,6 +2925,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     title: property.title || "Tin đăng WeRent",
     area,
     updatedAt: formatApiDateForListing(property.updatedAt, "Hôm nay"),
+    updatedAtRaw: property.updatedAt ?? null,
     metrics: [
       `${metrics.viewCount ?? 0} lượt xem`,
       `${metrics.contactCount ?? 0} liên hệ`,
@@ -2534,9 +2949,11 @@ function mapApiPropertyToListingRecord(property, index = 0) {
         ? `${property.maxOccupants} người`
         : "Trao đổi trực tiếp",
       publishedAt: formatApiDateForListing(property.publishedAt),
+      publishedAtRaw,
       expiresAt: formatApiDateForListing(property.expiresAt, "Theo gói đăng"),
       coordinates: property.coordinates ?? { lat: null, lng: null },
       gallery,
+      images: propertyImages,
       nearbyPlaces:
         Array.isArray(property.nearbyPlaces) && property.nearbyPlaces.length
           ? property.nearbyPlaces
@@ -2916,6 +3333,7 @@ function ListingInput({
   placeholder,
   readOnly = false,
   required = false,
+  error = "",
   suffix,
   type = "text",
   value,
@@ -2927,7 +3345,11 @@ function ListingInput({
     <ListingField label={label} required={required}>
       <div className="relative">
         <input
-          className={`h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15 ${
+          className={`h-12 w-full rounded-xl border bg-white px-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          } ${
             suffix ? "pr-18" : "pr-4"
           } ${readOnly ? "bg-[#F7FAF7] text-[#68717C]" : ""}`}
           name={name}
@@ -2948,12 +3370,14 @@ function ListingInput({
 
 function ListingSelect({
   defaultValue = "",
+  disabled = false,
   label,
   name,
   onChange,
   options,
   placeholder,
   required = false,
+  error = "",
   value,
 }) {
   const selectValueProps =
@@ -2963,7 +3387,12 @@ function ListingSelect({
     <ListingField label={label} required={required}>
       <div className="relative">
         <select
-          className="h-12 w-full appearance-none rounded-xl border border-[#E2E7E3] bg-white px-4 pr-10 text-sm text-[#38404A] outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className={`h-12 w-full appearance-none rounded-xl border bg-white px-4 pr-10 text-sm text-[#38404A] outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#F4F7F5] disabled:text-[#98A0AA] ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
+          disabled={disabled}
           name={name}
           {...selectValueProps}
         >
@@ -2983,6 +3412,7 @@ function ListingSelect({
 }
 
 function ListingCounterTextarea({
+  error = "",
   label,
   maxLength,
   onChange,
@@ -2994,7 +3424,11 @@ function ListingCounterTextarea({
     <ListingField label={label}>
       <div className="relative">
         <textarea
-          className="min-h-[108px] w-full resize-none rounded-xl border border-[#E2E7E3] bg-white px-4 py-3 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className={`min-h-[108px] w-full resize-none rounded-xl border bg-white px-4 py-3 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
           maxLength={maxLength}
           placeholder={placeholder}
           rows={rows}
@@ -3028,6 +3462,7 @@ function ListingHint({ children, icon: Icon = MapPin, tone = "success" }) {
 }
 
 function ListingCounterInput({
+  error = "",
   maxLength,
   onChange,
   placeholder,
@@ -3038,7 +3473,11 @@ function ListingCounterInput({
     <ListingField label="Tiêu đề tin đăng" required={required}>
       <div className="relative">
         <input
-          className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className={`h-12 w-full rounded-xl border bg-white px-4 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
           maxLength={maxLength}
           placeholder={placeholder}
           type="text"
@@ -3053,7 +3492,7 @@ function ListingCounterInput({
   );
 }
 
-function ListingEditor({ maxLength, onChange, value }) {
+function ListingEditor({ error = "", maxLength, onChange, value }) {
   const toolbarItems = [
     "B",
     "I",
@@ -3070,7 +3509,11 @@ function ListingEditor({ maxLength, onChange, value }) {
 
   return (
     <ListingField label="Mô tả chi tiết" required>
-      <div className="overflow-hidden rounded-xl border border-[#E2E7E3] bg-white">
+      <div
+        className={`overflow-hidden rounded-xl border bg-white ${
+          error ? "border-[#E49B9B]" : "border-[#E2E7E3]"
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-1 border-b border-[#EEF1F4] px-3 py-2">
           {toolbarItems.map((item, index) => (
             <button
@@ -3191,10 +3634,12 @@ function ListingProgress({ activeStep = 0 }) {
 function PostListingStepFooter({
   canGoBack,
   canGoNext,
+  isSaveDraftLoading = false,
   isNextLoading = false,
   nextLabel = "Tiếp tục",
   onBackStep,
   onNextStep,
+  onSaveDraft,
   showNextArrow = true,
 }) {
   const isNextDisabled = !canGoNext || isNextLoading;
@@ -3204,8 +3649,13 @@ function PostListingStepFooter({
       <div className="flex flex-col gap-3 border-t border-[#EDF1ED] pt-5 sm:flex-row sm:items-center sm:justify-between">
         <Button
           className="h-12 border-[#BFE0C6] px-6 text-[#2F9C50] hover:bg-[#F4FBF5]"
+          disabled={isSaveDraftLoading}
           variant="outline"
+          onClick={onSaveDraft}
         >
+          {isSaveDraftLoading ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : null}
           Lưu nháp
         </Button>
 
@@ -3242,15 +3692,18 @@ function PostListingBasicInfoStep({
   canGoBack,
   canGoNext,
   draftValues,
+  isSaveDraftLoading,
   listingDescription,
   listingTitle,
   onBackStep,
   onDescriptionChange,
   onDraftValueChange,
   onNextStep,
+  onSaveDraft,
   onTitleChange,
   selectedAmenities,
   toggleAmenity,
+  validationErrors = {},
 }) {
   const getFieldProps = (field) => ({
     value: draftValues[field] ?? "",
@@ -3270,6 +3723,7 @@ function PostListingBasicInfoStep({
 
       <div className="mt-6 space-y-5">
         <ListingCounterInput
+          error={validationErrors.title}
           maxLength={100}
           placeholder="Nhập tiêu đề tin đăng (tối đa 100 ký tự)"
           required
@@ -3278,6 +3732,7 @@ function PostListingBasicInfoStep({
         />
 
         <ListingEditor
+          error={validationErrors.description}
           maxLength={2000}
           value={listingDescription}
           onChange={onDescriptionChange}
@@ -3289,6 +3744,7 @@ function PostListingBasicInfoStep({
             options={["Căn hộ chung cư", ...propertyTypeOptions]}
             placeholder="Chọn loại bất động sản"
             required
+            error={validationErrors.propertyType}
             {...getFieldProps("propertyType")}
           />
           <ListingInput
@@ -3296,18 +3752,21 @@ function PostListingBasicInfoStep({
             required
             suffix="m²"
             type="text"
+            error={validationErrors.area}
             {...getFieldProps("area")}
           />
           <ListingInput
             label="Số phòng ngủ"
             required
             type="text"
+            error={validationErrors.bedrooms}
             {...getFieldProps("bedrooms")}
           />
           <ListingInput
             label="Số phòng tắm"
             required
             type="text"
+            error={validationErrors.bathrooms}
             {...getFieldProps("bathrooms")}
           />
         </div>
@@ -3319,6 +3778,7 @@ function PostListingBasicInfoStep({
               required
               suffix="đ / tháng"
               type="text"
+              error={validationErrors.rentPrice}
               {...getFieldProps("rentPrice")}
             />
           </div>
@@ -3410,8 +3870,10 @@ function PostListingBasicInfoStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
@@ -3463,6 +3925,46 @@ function MapPositionSync({ location }) {
   return null;
 }
 
+function CtrlWheelZoomHandler() {
+  const map = useMap();
+  const lastZoomAtRef = useRef(0);
+
+  useEffect(() => {
+    const container = map.getContainer();
+
+    function handleWheel(event) {
+      if (!event.ctrlKey) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const now = Date.now();
+
+      if (now - lastZoomAtRef.current < 80) {
+        return;
+      }
+
+      lastZoomAtRef.current = now;
+
+      if (event.deltaY < 0) {
+        map.zoomIn(1, { animate: true });
+      } else if (event.deltaY > 0) {
+        map.zoomOut(1, { animate: true });
+      }
+    }
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener("wheel", handleWheel);
+    };
+  }, [map]);
+
+  return null;
+}
+
 function DraggablePropertyMarker({ location, onManualPositionChange }) {
   const markerRef = useRef(null);
   const markerPosition = useMemo(
@@ -3505,6 +4007,79 @@ function DraggablePropertyMarker({ location, onManualPositionChange }) {
       position={markerPosition}
       ref={markerRef}
     />
+  );
+}
+
+function StaticPropertyMarker({ location }) {
+  const markerPosition = useMemo(
+    () => [location.lat, location.lng],
+    [location.lat, location.lng],
+  );
+
+  return (
+    <Marker icon={PROPERTY_MARKER_ICON} position={markerPosition}>
+      <Popup>
+        <div className="max-w-[220px] text-sm font-semibold text-[#27313A]">
+          {location.formattedAddress || "Vị trí bất động sản"}
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
+function ListingDetailMap({ location }) {
+  if (!hasValidCoordinates(location)) {
+    return (
+      <div className="mt-5 rounded-[24px] border border-[#E6ECE8] bg-[#F7FAF8] p-5">
+        <div className="flex min-h-[260px] items-center justify-center rounded-[20px] border border-dashed border-[#C8D8CC] bg-white/70 px-5 text-center">
+          <div>
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#EEF8F0] text-[#35A554]">
+              <MapPin className="size-6" />
+            </span>
+            <p className="mt-4 text-sm font-semibold text-[#27313A]">
+              Chưa có tọa độ bản đồ
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#75808C]">
+              Tin đăng này chưa lưu vị trí ghim chính xác trên bản đồ.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="relative overflow-hidden rounded-[24px] border border-[#DDE8DF] bg-[#EEF3F1] shadow-[0_10px_26px_rgba(46,72,54,0.06)]">
+        <MapContainer
+          center={[location.lat, location.lng]}
+          className="relative z-0 h-[320px] w-full"
+          scrollWheelZoom={false}
+          zoom={16}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <MapPositionSync location={location} />
+          <CtrlWheelZoomHandler />
+          <StaticPropertyMarker location={location} />
+        </MapContainer>
+
+        <a
+          className="absolute left-[54px] top-3 z-[10] inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/95 px-3 py-2 text-xs font-semibold text-[#2F9C50] shadow-[0_10px_22px_rgba(31,37,45,0.14)] backdrop-blur transition hover:bg-white hover:text-[#238C43]"
+          href={buildGoogleMapsSearchUrl(location)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <MapPin className="size-3.5" />
+          Xem trên Google Maps
+        </a>
+      </div>
+      <p className="mt-2 text-xs font-medium text-[#75808C]">
+        Dùng CTRL + cuộn chuột để phóng bản đồ
+      </p>
+    </div>
   );
 }
 
@@ -4054,9 +4629,14 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
   );
 }
 function PostListingLocationStep({
+  administrativeDivisionsNotice,
   canGoBack,
   canGoNext,
+  cityOptions = [],
+  districtOptions = [],
   draftValues,
+  isSaveDraftLoading,
+  isAdministrativeDivisionsLoading = false,
   listingLocation,
   locationNote,
   onBackStep,
@@ -4064,11 +4644,55 @@ function PostListingLocationStep({
   onListingLocationChange,
   onLocationNoteChange,
   onNextStep,
+  onSaveDraft,
+  validationErrors = {},
+  wardOptions = [],
 }) {
+  const hasSelectedCity = Boolean(draftValues.city);
+  const hasSelectedDistrict = Boolean(draftValues.district);
+  const cityPlaceholder =
+    isAdministrativeDivisionsLoading && cityOptions.length === 0
+      ? "Đang tải tỉnh / thành phố"
+      : "Chọn tỉnh / thành phố";
+  const districtPlaceholder = isAdministrativeDivisionsLoading
+    ? "Đang tải quận / huyện"
+    : hasSelectedCity
+      ? "Chọn quận / huyện"
+      : "Chọn tỉnh / thành phố trước";
+  const wardPlaceholder = isAdministrativeDivisionsLoading
+    ? "Đang tải phường / xã"
+    : hasSelectedDistrict
+      ? "Chọn phường / xã"
+      : "Chọn quận / huyện trước";
+  const isCitySelectDisabled =
+    isAdministrativeDivisionsLoading && cityOptions.length === 0;
+  const isDistrictSelectDisabled =
+    isAdministrativeDivisionsLoading ||
+    !hasSelectedCity ||
+    districtOptions.length === 0;
+  const isWardSelectDisabled =
+    isAdministrativeDivisionsLoading ||
+    !hasSelectedDistrict ||
+    wardOptions.length === 0;
   const getFieldProps = (field) => ({
     value: draftValues[field] ?? "",
     onChange: (event) => onDraftValueChange(field, event.target.value),
   });
+  const getAdministrativeFieldProps = (field, options) => {
+    const fieldProps = getFieldProps(field);
+    const normalizedValue = normalizeAdministrativeDivisionName(
+      fieldProps.value,
+    );
+    const matchedOption = options.find(
+      (option) =>
+        normalizeAdministrativeDivisionName(option) === normalizedValue,
+    );
+
+    return {
+      ...fieldProps,
+      value: matchedOption ?? fieldProps.value,
+    };
+  };
 
   return (
     <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
@@ -4102,27 +4726,39 @@ function PostListingLocationStep({
             Địa chỉ
           </h3>
           <div className="mt-5 space-y-4">
+            {administrativeDivisionsNotice ? (
+              <ListingHint icon={Info} tone="neutral">
+                {administrativeDivisionsNotice}
+              </ListingHint>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-3">
               <ListingSelect
                 label="Tỉnh / Thành phố"
                 options={cityOptions}
-                placeholder="Chọn tỉnh / thành phố"
+                placeholder={cityPlaceholder}
                 required
-                {...getFieldProps("city")}
+                disabled={isCitySelectDisabled}
+                error={validationErrors.city}
+                {...getAdministrativeFieldProps("city", cityOptions)}
               />
               <ListingSelect
                 label="Quận / Huyện"
                 options={districtOptions}
-                placeholder="Chọn quận / huyện"
+                placeholder={districtPlaceholder}
                 required
-                {...getFieldProps("district")}
+                disabled={isDistrictSelectDisabled}
+                error={validationErrors.district}
+                {...getAdministrativeFieldProps("district", districtOptions)}
               />
               <ListingSelect
                 label="Phường / Xã"
                 options={wardOptions}
-                placeholder="Chọn phường / xã"
+                placeholder={wardPlaceholder}
                 required
-                {...getFieldProps("ward")}
+                disabled={isWardSelectDisabled}
+                error={validationErrors.ward}
+                {...getAdministrativeFieldProps("ward", wardOptions)}
               />
             </div>
 
@@ -4164,8 +4800,10 @@ function PostListingLocationStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
@@ -4272,12 +4910,14 @@ function PostListingMediaStep({
   canGoNext,
   imageError,
   images,
+  isSaveDraftLoading,
   onAddImages,
   onBackStep,
   onMoveImage,
   onNextStep,
   onRemoveImage,
   onReorderImages,
+  onSaveDraft,
   onSetCoverImage,
   onVideoLinkChange,
   videoLink,
@@ -4547,8 +5187,10 @@ function PostListingMediaStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
@@ -4696,13 +5338,16 @@ function ListingDurationCard({ isSelected, onSelect, option, tierOption }) {
 
 function PostListingPricingStep({
   canGoBack,
+  isSaveDraftLoading = false,
   isSubmittingListing = false,
   selectedDuration,
   selectedTier,
   onBackStep,
   onDurationChange,
   onNextStep,
+  onSaveDraft,
   onTierChange,
+  submitLabel = "Hoàn tất & đăng tin",
   submitNotice,
 }) {
   const [selectedScheduleOption, setSelectedScheduleOption] = useState(
@@ -5096,10 +5741,12 @@ function PostListingPricingStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canSubmitPricing}
+          isSaveDraftLoading={isSaveDraftLoading}
           isNextLoading={isSubmittingListing}
-          nextLabel="Hoàn tất & đăng tin"
+          nextLabel={submitLabel}
           onBackStep={onBackStep}
           onNextStep={handleSubmitPricing}
+          onSaveDraft={onSaveDraft}
           showNextArrow={false}
         />
       </div>
@@ -5205,6 +5852,45 @@ function DeleteListingConfirmModal({
   );
 }
 
+function PostListingViewportNotice({ notice, onClose }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!notice) {
+      return undefined;
+    }
+
+    const resetTimer = window.setTimeout(() => setIsVisible(false), 0);
+    const showTimer = window.setTimeout(() => setIsVisible(true), 40);
+    const hideTimer = window.setTimeout(() => setIsVisible(false), 4700);
+    const closeTimer = window.setTimeout(() => onClose?.(), 5000);
+
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+      window.clearTimeout(closeTimer);
+    };
+  }, [notice, onClose]);
+
+  if (!notice) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
+      <div
+        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border border-[#F0CACA] bg-[#FFF7F7] px-5 py-3 text-sm font-semibold text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)] transition duration-300 ease-out ${
+          isVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+        }`}
+      >
+        <Info className="size-4 shrink-0" />
+        <span>{notice.message}</span>
+      </div>
+    </div>
+  );
+}
+
 function PostListingPage({
   accessToken,
   editingListing,
@@ -5258,15 +5944,142 @@ function PostListingPage({
   const [listingImages, setListingImages] = useState(() =>
     createExistingListingImageItems(editingListing),
   );
+  const [administrativeDivisions, setAdministrativeDivisions] = useState(() =>
+    readCachedAdministrativeDivisions(),
+  );
+  const [
+    isAdministrativeDivisionsLoading,
+    setIsAdministrativeDivisionsLoading,
+  ] = useState(false);
+  const [administrativeDivisionsError, setAdministrativeDivisionsError] =
+    useState("");
   const [imageError, setImageError] = useState("");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [pendingExitAction, setPendingExitAction] = useState(null);
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [submitNotice, setSubmitNotice] = useState(null);
+  const [draftValidationErrors, setDraftValidationErrors] = useState({});
+  const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
   const videoLinkError = getVideoLinkError(videoLink);
+  const selectedProvince = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        administrativeDivisions,
+        listingDraft.city,
+      ),
+    [administrativeDivisions, listingDraft.city],
+  );
+  const selectedDistrict = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        selectedProvince?.districts ?? [],
+        listingDraft.district,
+      ),
+    [listingDraft.district, selectedProvince],
+  );
+  const selectedWard = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        selectedDistrict?.wards ?? [],
+        listingDraft.ward,
+      ),
+    [listingDraft.ward, selectedDistrict],
+  );
+  const cityOptions = useMemo(
+    () => getAdministrativeDivisionOptions(administrativeDivisions),
+    [administrativeDivisions],
+  );
+  const districtOptions = useMemo(
+    () => getAdministrativeDivisionOptions(selectedProvince?.districts ?? []),
+    [selectedProvince],
+  );
+  const wardOptions = useMemo(
+    () => getAdministrativeDivisionOptions(selectedDistrict?.wards ?? []),
+    [selectedDistrict],
+  );
+  const administrativeDivisionsNotice = isAdministrativeDivisionsLoading
+    ? "Đang tải dữ liệu tỉnh/thành, quận/huyện, phường/xã..."
+    : administrativeDivisionsError;
+  const hasUnsavedNewListingInput = useMemo(
+    () =>
+      !isEditingListing &&
+      hasNewListingUserInput({
+        listingDescription,
+        listingDraft,
+        listingImages,
+        listingLocation,
+        listingTitle,
+        locationNote,
+        selectedAmenities,
+        videoLink,
+      }),
+    [
+      isEditingListing,
+      listingDescription,
+      listingDraft,
+      listingImages,
+      listingLocation,
+      listingTitle,
+      locationNote,
+      selectedAmenities,
+      videoLink,
+    ],
+  );
 
   const canGoBack = currentPostListingStep > 0;
   const canGoNext = currentPostListingStep < postListingSteps.length - 1;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAdministrativeDivisions() {
+      setIsAdministrativeDivisionsLoading(true);
+      setAdministrativeDivisionsError("");
+
+      try {
+        const response = await listAdministrativeDivisions();
+        const provinces = Array.isArray(response.data?.provinces)
+          ? response.data.provinces
+          : [];
+
+        if (!isMounted) {
+          return;
+        }
+
+        setAdministrativeDivisions(provinces);
+        writeCachedAdministrativeDivisions(provinces);
+
+        if (provinces.length === 0) {
+          setAdministrativeDivisionsError(
+            "Chưa có dữ liệu địa giới trong hệ thống. Vui lòng seed dữ liệu trước khi đăng tin.",
+          );
+        }
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setAdministrativeDivisionsError(
+          readCachedAdministrativeDivisions().length
+            ? ""
+            : error.message ||
+                "Chưa thể tải dữ liệu địa giới. Vui lòng thử lại sau.",
+        );
+      } finally {
+        if (isMounted) {
+          setIsAdministrativeDivisionsLoading(false);
+        }
+      }
+    }
+
+    loadAdministrativeDivisions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     listingImagesRef.current = listingImages;
@@ -5279,6 +6092,23 @@ function PostListingPage({
     [],
   );
 
+  useEffect(() => {
+    if (!hasUnsavedNewListingInput) {
+      return undefined;
+    }
+
+    function handleBeforeUnload(event) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedNewListingInput]);
+
   function toggleAmenity(key) {
     setSelectedAmenities((current) =>
       current.includes(key)
@@ -5287,11 +6117,60 @@ function PostListingPage({
     );
   }
 
+  function clearDraftValidationError(field) {
+    setDraftValidationErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  }
+
+  function handleListingTitleChange(event) {
+    const nextValue = event.target.value;
+
+    setListingTitle(nextValue);
+
+    if (hasListingInputValue(nextValue)) {
+      clearDraftValidationError("title");
+    }
+  }
+
+  function handleListingDescriptionChange(event) {
+    const nextValue = event.target.value;
+
+    setListingDescription(nextValue);
+
+    if (hasListingInputValue(nextValue)) {
+      clearDraftValidationError("description");
+    }
+  }
+
   function handleDraftValueChange(field, value) {
-    setListingDraft((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setListingDraft((current) => {
+      const nextDraft = {
+        ...current,
+        [field]: value,
+      };
+
+      if (field === "city") {
+        nextDraft.district = "";
+        nextDraft.ward = "";
+      }
+
+      if (field === "district") {
+        nextDraft.ward = "";
+      }
+
+      return nextDraft;
+    });
+
+    if (hasListingInputValue(value)) {
+      clearDraftValidationError(field);
+    }
   }
 
   function handleAddListingImages(fileList) {
@@ -5424,27 +6303,181 @@ function PostListingPage({
     );
   }
 
+  function executeExitAction(action) {
+    if (action?.type === "logout") {
+      onLogout();
+      return;
+    }
+
+    onNavigate(action?.view ?? backTarget);
+  }
+
+  function requestExitAction(action) {
+    if (!hasUnsavedNewListingInput) {
+      executeExitAction(action);
+      return;
+    }
+
+    setPendingExitAction(action);
+    setIsCancelModalOpen(true);
+  }
+
+  function requestPostListingNavigation(view) {
+    if (view === "postListing") {
+      return;
+    }
+
+    requestExitAction({ type: "navigate", view });
+  }
+
+  function revealMissingRequiredDraftFields() {
+    const nextValidationErrors = getDraftRequiredFieldErrors({
+      listingDescription,
+      listingDraft,
+      listingTitle,
+    });
+
+    if (Object.keys(nextValidationErrors).length === 0) {
+      return;
+    }
+
+    setDraftValidationErrors(nextValidationErrors);
+    setCurrentPostListingStep(
+      getFirstDraftValidationStep(nextValidationErrors),
+    );
+  }
+
+  function closeCancelPostListingModal() {
+    revealMissingRequiredDraftFields();
+    setIsCancelModalOpen(false);
+    setPendingExitAction(null);
+  }
+
   function confirmCancelPostListing() {
     setIsCancelModalOpen(false);
-    onNavigate(backTarget);
+    const nextAction = pendingExitAction ?? {
+      type: "navigate",
+      view: backTarget,
+    };
+
+    setPendingExitAction(null);
+    executeExitAction(nextAction);
+  }
+
+  function createCurrentListingFormData({ pricingData = null, status } = {}) {
+    return createPropertyListingFormData({
+      includeExistingImages: isEditingListing,
+      includeEmptyValues: isEditingListing,
+      listingDescription,
+      listingDraft: {
+        ...listingDraft,
+        city: selectedProvince?.name ?? listingDraft.city,
+        district: selectedDistrict?.name ?? listingDraft.district,
+        ward: selectedWard?.name ?? listingDraft.ward,
+      },
+      listingImages,
+      listingLocation,
+      listingTitle,
+      locationNote,
+      pricingData,
+      selectedAmenities,
+      status,
+      user,
+      videoLink,
+    });
+  }
+
+  async function saveListingFormData(formData) {
+    return isEditingListing
+      ? updatePropertyListing(accessToken, editingListing.id, formData)
+      : createPropertyListing(accessToken, formData);
+  }
+
+  async function handleSaveDraft() {
+    if (isSavingDraft || isSubmittingListing) {
+      return;
+    }
+
+    setSubmitNotice(null);
+
+    const nextValidationErrors = getDraftRequiredFieldErrors({
+      listingDescription,
+      listingDraft,
+      listingTitle,
+    });
+
+    if (Object.keys(nextValidationErrors).length > 0) {
+      setDraftValidationErrors(nextValidationErrors);
+      setCurrentPostListingStep(
+        getFirstDraftValidationStep(nextValidationErrors),
+      );
+      setViewportNotice({
+        id: Date.now(),
+        message: draftValidationToastMessage,
+      });
+      return;
+    }
+
+    setDraftValidationErrors({});
+
+    if (!accessToken) {
+      setSubmitNotice({
+        type: "error",
+        message: "Vui lòng đăng nhập lại trước khi lưu nháp.",
+      });
+      return;
+    }
+
+    if (videoLinkError) {
+      setCurrentPostListingStep(2);
+      setViewportNotice({
+        id: Date.now(),
+        message: videoLinkError,
+      });
+      return;
+    }
+
+    setIsSavingDraft(true);
+
+    try {
+      const formData = createCurrentListingFormData({
+        pricingData: createDraftListingPricingData({
+          selectedDuration,
+          selectedTier,
+        }),
+        status: "draft",
+      });
+      const response = await saveListingFormData(formData);
+      const savedProperty = response.data?.property;
+
+      if (savedProperty) {
+        onListingCreated?.(savedProperty, {
+          mode: "draft",
+        });
+      } else {
+        onNavigate("myListings");
+      }
+    } catch (error) {
+      setSubmitNotice({
+        type: "error",
+        message:
+          error.message ||
+          "Chưa thể lưu nháp tin đăng lúc này. Vui lòng thử lại sau.",
+      });
+    } finally {
+      setIsSavingDraft(false);
+    }
   }
 
   async function handleSubmitListing(pricingData) {
     setSubmitNotice(null);
 
-    if (isEditingListing) {
-      setSubmitNotice({
-        type: "error",
-        message:
-          "Chức năng cập nhật tin thật sẽ được nối sau. Hiện tại chỉ hỗ trợ tạo tin mới.",
-      });
-      return;
-    }
-
     if (!accessToken) {
       setSubmitNotice({
         type: "error",
-        message: "Vui lòng đăng nhập lại trước khi đăng tin.",
+        message: isEditingListing
+          ? "Vui lòng đăng nhập lại trước khi cập nhật tin."
+          : "Vui lòng đăng nhập lại trước khi đăng tin.",
       });
       return;
     }
@@ -5470,38 +6503,32 @@ function PostListingPage({
     setIsSubmittingListing(true);
 
     try {
-      const formData = createPropertyListingFormData({
-        listingDescription,
-        listingDraft,
-        listingImages,
-        listingLocation,
-        listingTitle,
-        locationNote,
-        pricingData,
-        selectedAmenities,
-        user,
-        videoLink,
-      });
-      const response = await createPropertyListing(accessToken, formData);
-      const createdProperty = response.data?.property;
+      const formData = createCurrentListingFormData({ pricingData });
+      const response = await saveListingFormData(formData);
+      const savedProperty = response.data?.property;
 
       setSubmitNotice({
         type: "success",
-        message:
-          "Đăng tin thành công. Tin đã hiển thị công khai để bạn kiểm tra.",
+        message: isEditingListing
+          ? "Cập nhật tin thành công."
+          : "Đăng tin thành công. Tin đã hiển thị công khai để bạn kiểm tra.",
       });
 
-      if (createdProperty) {
-        onListingCreated?.(createdProperty);
+      if (savedProperty) {
+        onListingCreated?.(savedProperty, {
+          mode: isEditingListing ? "update" : "create",
+        });
       } else {
-        onNavigate("home");
+        onNavigate(isEditingListing ? "myListings" : "home");
       }
     } catch (error) {
       setSubmitNotice({
         type: "error",
         message:
           error.message ||
-          "Chưa thể tạo tin đăng lúc này. Vui lòng thử lại sau.",
+          (isEditingListing
+            ? "Chưa thể cập nhật tin đăng lúc này. Vui lòng thử lại sau."
+            : "Chưa thể tạo tin đăng lúc này. Vui lòng thử lại sau."),
       });
     } finally {
       setIsSubmittingListing(false);
@@ -5515,17 +6542,18 @@ function PostListingPage({
           canGoBack={canGoBack}
           canGoNext={canGoNext}
           draftValues={listingDraft}
+          isSaveDraftLoading={isSavingDraft}
           listingDescription={listingDescription}
           listingTitle={listingTitle}
           selectedAmenities={selectedAmenities}
           toggleAmenity={toggleAmenity}
+          validationErrors={draftValidationErrors}
           onBackStep={goToPreviousStep}
-          onDescriptionChange={(event) =>
-            setListingDescription(event.target.value)
-          }
+          onDescriptionChange={handleListingDescriptionChange}
           onDraftValueChange={handleDraftValueChange}
           onNextStep={goToNextStep}
-          onTitleChange={(event) => setListingTitle(event.target.value)}
+          onSaveDraft={handleSaveDraft}
+          onTitleChange={handleListingTitleChange}
         />
       );
     }
@@ -5533,9 +6561,14 @@ function PostListingPage({
     if (currentPostListingStep === 1) {
       return (
         <PostListingLocationStep
+          administrativeDivisionsNotice={administrativeDivisionsNotice}
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          cityOptions={cityOptions}
+          districtOptions={districtOptions}
           draftValues={listingDraft}
+          isSaveDraftLoading={isSavingDraft}
+          isAdministrativeDivisionsLoading={isAdministrativeDivisionsLoading}
           listingLocation={listingLocation}
           locationNote={locationNote}
           onBackStep={goToPreviousStep}
@@ -5543,6 +6576,9 @@ function PostListingPage({
           onListingLocationChange={setListingLocation}
           onLocationNoteChange={(event) => setLocationNote(event.target.value)}
           onNextStep={goToNextStep}
+          onSaveDraft={handleSaveDraft}
+          validationErrors={draftValidationErrors}
+          wardOptions={wardOptions}
         />
       );
     }
@@ -5554,12 +6590,14 @@ function PostListingPage({
           canGoNext={canGoNext && !videoLinkError}
           imageError={imageError}
           images={listingImages}
+          isSaveDraftLoading={isSavingDraft}
           onAddImages={handleAddListingImages}
           onBackStep={goToPreviousStep}
           onMoveImage={handleMoveListingImage}
           onNextStep={goToNextStep}
           onRemoveImage={handleRemoveListingImage}
           onReorderImages={handleReorderListingImages}
+          onSaveDraft={handleSaveDraft}
           onSetCoverImage={handleSetCoverImage}
           onVideoLinkChange={(event) => setVideoLink(event.target.value)}
           videoLink={videoLink}
@@ -5571,13 +6609,16 @@ function PostListingPage({
     return (
       <PostListingPricingStep
         canGoBack={canGoBack}
+        isSaveDraftLoading={isSavingDraft}
         isSubmittingListing={isSubmittingListing}
         selectedDuration={selectedDuration}
         selectedTier={selectedTier}
+        submitLabel={isEditingListing ? "Cập nhật tin" : "Hoàn tất & đăng tin"}
         submitNotice={submitNotice}
         onBackStep={goToPreviousStep}
         onDurationChange={setSelectedDuration}
         onNextStep={handleSubmitListing}
+        onSaveDraft={handleSaveDraft}
         onTierChange={setSelectedTier}
       />
     );
@@ -5585,22 +6626,30 @@ function PostListingPage({
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <PostListingViewportNotice
+        notice={viewportNotice}
+        onClose={() => setViewportNotice(null)}
+      />
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="postListing"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
-          onLogoClick={() => onNavigate("home")}
-          onLogout={onLogout}
-          onNavigate={onNavigate}
-          onUserClick={() => onNavigate("profile")}
+          onLogoClick={() =>
+            requestExitAction({ type: "navigate", view: "home" })
+          }
+          onLogout={() => requestExitAction({ type: "logout" })}
+          onNavigate={requestPostListingNavigation}
+          onUserClick={() =>
+            requestExitAction({ type: "navigate", view: "profile" })
+          }
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="postListing"
-            onLogout={onLogout}
-            onNavigate={onNavigate}
+            onLogout={() => requestExitAction({ type: "logout" })}
+            onNavigate={requestPostListingNavigation}
           />
 
           <div className="min-w-0 space-y-5">
@@ -5631,10 +6680,12 @@ function PostListingPage({
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
                   <Button
                     variant="outline"
-                    onClick={() => setIsCancelModalOpen(true)}
+                    onClick={() =>
+                      requestExitAction({ type: "navigate", view: backTarget })
+                    }
                   >
                     <ArrowRight className="size-4 rotate-180" />
-                    Quay lại
+                    Thoát
                   </Button>
                 </div>
               </div>
@@ -5645,7 +6696,7 @@ function PostListingPage({
 
             {isCancelModalOpen ? (
               <CancelPostListingModal
-                onClose={() => setIsCancelModalOpen(false)}
+                onClose={closeCancelPostListingModal}
                 onConfirm={confirmCancelPostListing}
               />
             ) : null}
@@ -5671,12 +6722,35 @@ function PostListingPage({
   );
 }
 
+function ListingDetailHeroImage({ alt, src }) {
+  const [portraitImageSrc, setPortraitImageSrc] = useState("");
+  const isPortraitImage = portraitImageSrc === src;
+
+  return (
+    <img
+      alt={alt}
+      className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
+        isPortraitImage ? "bg-black object-contain" : "object-cover"
+      }`}
+      src={src}
+      onLoad={(event) => {
+        const image = event.currentTarget;
+
+        setPortraitImageSrc(
+          image.naturalHeight > image.naturalWidth ? src : "",
+        );
+      }}
+    />
+  );
+}
+
 function ListingDetailPage({
   backView,
   currentUser,
   listing,
   onLogout,
   onNavigate,
+  showFooter = false,
 }) {
   const detail = listing.detail ?? ownerListingPublicDetails[listing.id] ?? {};
   const draft = listing.draft ?? defaultListingDraft;
@@ -5688,7 +6762,15 @@ function ListingDetailPage({
   const mediaItems = buildListingMediaItems(listing, detail, draft);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
-  const fullAddress = buildListingFullAddress(draft);
+  const fullAddress =
+    draft.formattedAddress ||
+    buildListingFullAddress(draft) ||
+    listing.location;
+  const detailMapLocation = getListingDetailMapLocation(
+    draft,
+    detail,
+    fullAddress,
+  );
   const isAdminViewer = currentUser?.roles?.includes("admin");
   const isOwnerViewer =
     Boolean(currentUser) && backView === "myListings" && !isAdminViewer;
@@ -5735,10 +6817,10 @@ function ListingDetailPage({
       value: listing.id,
     },
   ].filter((item) => item.value);
-  const backLabel =
-    backView === "myListings"
-      ? "Quay lại tin đăng của tôi"
-      : "Quay lại trang chủ";
+  const compactRentPrice = formatCompactMonthlyRent(
+    draft.rentPrice,
+    listing.price,
+  );
 
   function showPreviousMedia() {
     setActiveMediaIndex((current) =>
@@ -5754,8 +6836,8 @@ function ListingDetailPage({
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={currentUser}
           navItems={navItems}
@@ -5768,18 +6850,9 @@ function ListingDetailPage({
           searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
         />
 
-        <main className="mt-5 space-y-5">
+        <main className="mt-3 space-y-5">
           <section className="rounded-[28px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-            <button
-              className="flex items-center gap-2 text-sm font-semibold text-[#27313A] transition hover:text-[#2E9C4D]"
-              type="button"
-              onClick={() => onNavigate(backView)}
-            >
-              <ArrowRight className="size-4 rotate-180" />
-              {backLabel}
-            </button>
-
-            <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="min-w-0 space-y-6">
                 {previewMessage ? (
                   <div className="rounded-[20px] border border-[#E6E8EB] bg-[#FAFBFC] px-4 py-3 text-sm leading-6 text-[#5D6773]">
@@ -5787,20 +6860,20 @@ function ListingDetailPage({
                   </div>
                 ) : null}
 
-                <section className="rounded-[26px] border border-[#EAEDE8] bg-white p-4 shadow-[0_8px_24px_rgba(46,72,54,0.04)]">
-                  <div className="relative overflow-hidden rounded-[22px] bg-[#F4F7F4]">
+                <section className="space-y-3">
+                  <div className="relative overflow-hidden rounded-[22px] bg-black">
                     {activeMedia?.type === "video" ? (
                       activeMedia.embedUrl ? (
                         <iframe
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                           allowFullScreen
-                          className="h-[300px] w-full sm:h-[420px] xl:h-[560px]"
+                          className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
                           referrerPolicy="strict-origin-when-cross-origin"
                           src={activeMedia.embedUrl}
                           title={`${listing.title} video`}
                         />
                       ) : (
-                        <div className="flex h-[300px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[420px] xl:h-[560px]">
+                        <div className="flex h-[260px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]">
                           <span className="flex size-16 items-center justify-center rounded-full bg-white text-[#35A554] shadow-sm">
                             <Video className="size-7" />
                           </span>
@@ -5825,9 +6898,9 @@ function ListingDetailPage({
                         </div>
                       )
                     ) : (
-                      <img
+                      <ListingDetailHeroImage
+                        key={activeMedia?.src ?? listing.image}
                         alt={`${listing.title} - ${activeMedia?.title ?? "ảnh hiển thị"}`}
-                        className="h-[300px] w-full object-cover sm:h-[420px] xl:h-[560px]"
                         src={activeMedia?.src ?? listing.image}
                       />
                     )}
@@ -5858,7 +6931,7 @@ function ListingDetailPage({
                     </div>
                   </div>
 
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
                     {mediaItems.map((item, index) => {
                       const isActive = index === activeMediaIndex;
 
@@ -5894,42 +6967,51 @@ function ListingDetailPage({
                 </section>
 
                 <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
-                        {draft.projectName || draft.propertyType}
-                      </p>
-                      <h1 className="mt-3 text-[32px] font-bold tracking-[-0.03em] text-[#1F252D] sm:text-[38px]">
-                        {listing.title}
-                      </h1>
-                      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
-                        <span className="flex items-center gap-2">
-                          <MapPin className="size-4 text-[#35A554]" />
-                          {listing.location}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <CalendarDays className="size-4 text-[#35A554]" />
-                          Đăng ngày {detail.publishedAt}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <ShieldCheck className="size-4 text-[#35A554]" />
-                          Hết hạn {detail.expiresAt}
-                        </span>
-                      </div>
+                  <div className="max-w-[880px]">
+                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
+                      {draft.projectName || draft.propertyType}
+                    </p>
+                    <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
+                      {listing.title}
+                    </h1>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
+                      <span className="flex items-center gap-2">
+                        <MapPin className="size-4 text-[#35A554]" />
+                        {listing.location}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <CalendarDays className="size-4 text-[#35A554]" />
+                        Đăng ngày {detail.publishedAt}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className="size-4 text-[#35A554]" />
+                        Hết hạn {detail.expiresAt}
+                      </span>
                     </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[360px]">
-                      <div className="rounded-[22px] border border-[#E6ECE8] bg-[#FCFDFC] px-5 py-4">
+                    <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-stretch">
+                      <div className="shrink-0 rounded-[18px] border border-[#E6ECE8] bg-[#FCFDFC] px-4 py-3 xl:min-w-[180px]">
                         <p className="text-sm text-[#7E8792]">Khoảng giá</p>
-                        <p className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                          {listing.price}
+                        <p className="mt-1 text-xl font-bold text-[#1F252D]">
+                          {compactRentPrice}
                         </p>
                       </div>
-                      <div className="rounded-[22px] border border-[#E6ECE8] bg-[#FCFDFC] px-5 py-4">
-                        <p className="text-sm text-[#7E8792]">Diện tích</p>
-                        <p className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                          {draft.area} m²
-                        </p>
+                      <div className="flex flex-col gap-3 rounded-[16px] border border-[#27B36A] bg-[#F7FFFA] px-4 py-3 sm:flex-row sm:items-center sm:justify-between xl:flex-1">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#DDFBE9] px-3 py-1.5 text-sm font-bold text-[#0B9E59]">
+                            <ArrowUp className="size-4" />
+                            16,7%
+                          </span>
+                          <p className="min-w-0 text-sm font-medium leading-6 text-[#3E464E]">
+                            Giá tại dự án này đã tăng trong vòng 1 năm qua
+                          </p>
+                        </div>
+                        <button
+                          className="inline-flex shrink-0 items-center gap-1.5 self-start text-sm font-bold text-[#007F76] transition hover:text-[#006A62] sm:self-center"
+                          type="button"
+                        >
+                          Xem lịch sử giá
+                          <ChevronRight className="size-4" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -6016,29 +7098,7 @@ function ListingDetailPage({
                     <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
                     <span>{fullAddress}</span>
                   </p>
-                  <div className="mt-5 rounded-[24px] border border-[#E6ECE8] bg-[radial-gradient(circle_at_top,#F7FBF8_0%,#EEF5EF_55%,#E8F1EA_100%)] p-5">
-                    <div className="flex min-h-[220px] items-end rounded-[20px] border border-dashed border-[#C8D8CC] bg-white/45 p-4">
-                      <div className="rounded-[18px] bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-                        <p className="text-sm font-semibold text-[#27313A]">
-                          Bản đồ demo cho giai đoạn đầu
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-[#75808C]">
-                          Tọa độ hardcode: {detail.coordinates?.lat},{" "}
-                          {detail.coordinates?.lng}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    {(detail.nearbyPlaces ?? []).map((place) => (
-                      <div
-                        key={place}
-                        className="rounded-[20px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-4 text-sm font-medium text-[#4B5661]"
-                      >
-                        {place}
-                      </div>
-                    ))}
-                  </div>
+                  <ListingDetailMap location={detailMapLocation} />
                 </section>
               </div>
 
@@ -6169,6 +7229,8 @@ function ListingDetailPage({
             </div>
           </section>
         </main>
+
+        {showFooter ? <AppFooter /> : null}
       </div>
     </div>
   );
@@ -6177,6 +7239,7 @@ function ListingDetailPage({
 function MyListingsPage({
   accessToken,
   onEditListing,
+  onListingVisibilityChange,
   onLogout,
   onNavigate,
   onViewListing,
@@ -6206,6 +7269,9 @@ function MyListingsPage({
   const [listingToDelete, setListingToDelete] = useState(null);
   const [isDeletingListing, setIsDeletingListing] = useState(false);
   const [deleteListingError, setDeleteListingError] = useState("");
+  const [visibilityUpdatingListingId, setVisibilityUpdatingListingId] =
+    useState("");
+  const [visibilityListingError, setVisibilityListingError] = useState("");
   const statusQuery = activeStatusTab === "all" ? "" : activeStatusTab;
   const totalListingPages = listingPagination.totalPages || 1;
   const visiblePageNumbers = Array.from(
@@ -6301,6 +7367,7 @@ function MyListingsPage({
   function handleStatusTabChange(status) {
     setActiveStatusTab(status);
     setCurrentListingPage(1);
+    setVisibilityListingError("");
   }
 
   function handlePageSizeChange(event) {
@@ -6314,6 +7381,98 @@ function MyListingsPage({
 
   function refreshListings() {
     setListingRefreshKey((current) => current + 1);
+  }
+
+  function updateListingVisibilityLocally(updatedProperty, previousStatus) {
+    const updatedListing = mapApiPropertyToListingRecord(updatedProperty);
+    const shouldKeepListingInCurrentTab =
+      activeStatusTab === "all" || activeStatusTab === updatedListing.status;
+    const shouldUpdatePaginationTotal =
+      activeStatusTab === previousStatus && previousStatus !== "all";
+
+    setOwnerListings((current) => {
+      const existingIndex = current.findIndex(
+        (listing) => listing.id === updatedListing.id,
+      );
+
+      if (existingIndex < 0) {
+        return current;
+      }
+
+      if (!shouldKeepListingInCurrentTab) {
+        return current.filter((listing) => listing.id !== updatedListing.id);
+      }
+
+      return current.map((listing) =>
+        listing.id === updatedListing.id ? updatedListing : listing,
+      );
+    });
+    setListingCounts((current) => ({
+      ...current,
+      active: Math.max(
+        0,
+        (current.active ?? 0) +
+          (updatedListing.status === "active" ? 1 : 0) -
+          (previousStatus === "active" ? 1 : 0),
+      ),
+      hidden: Math.max(
+        0,
+        (current.hidden ?? 0) +
+          (updatedListing.status === "hidden" ? 1 : 0) -
+          (previousStatus === "hidden" ? 1 : 0),
+      ),
+    }));
+
+    if (shouldUpdatePaginationTotal) {
+      setListingPagination((current) => {
+        const nextTotal = Math.max(0, current.total - 1);
+
+        return {
+          ...current,
+          total: nextTotal,
+          totalPages: Math.max(1, Math.ceil(nextTotal / current.limit)),
+        };
+      });
+    }
+  }
+
+  async function handleToggleListingVisibility(listing) {
+    const nextStatus =
+      listing.status === "active"
+        ? "hidden"
+        : listing.status === "hidden"
+          ? "active"
+          : "";
+
+    if (!nextStatus || visibilityUpdatingListingId) {
+      return;
+    }
+
+    setVisibilityUpdatingListingId(listing.id);
+    setVisibilityListingError("");
+
+    try {
+      const response = await updatePropertyListingStatus(
+        accessToken,
+        listing.id,
+        nextStatus,
+      );
+      const updatedProperty = response.data?.property;
+
+      if (updatedProperty) {
+        updateListingVisibilityLocally(updatedProperty, listing.status);
+        onListingVisibilityChange?.(updatedProperty);
+      }
+    } catch (error) {
+      setVisibilityListingError(
+        error.message ||
+          (nextStatus === "hidden"
+            ? "Không thể ẩn tin đăng lúc này. Vui lòng thử lại."
+            : "Không thể hiện lại tin đăng lúc này. Vui lòng thử lại."),
+      );
+    } finally {
+      setVisibilityUpdatingListingId("");
+    }
   }
 
   function openDeleteListingModal(listing) {
@@ -6365,8 +7524,8 @@ function MyListingsPage({
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="postListing"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
@@ -6376,7 +7535,7 @@ function MyListingsPage({
           onUserClick={() => onNavigate("profile")}
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="myListings"
             onLogout={onLogout}
@@ -6514,6 +7673,12 @@ function MyListingsPage({
                   </div>
                 ) : null}
 
+                {visibilityListingError ? (
+                  <div className="rounded-[18px] border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm font-medium text-[#B73A3A]">
+                    {visibilityListingError}
+                  </div>
+                ) : null}
+
                 {!isLoadingListings && !listingError && ownerListings.length
                   ? ownerListings.map((listing) => (
                       <article
@@ -6568,22 +7733,46 @@ function MyListingsPage({
                               </div>
                             </div>
 
-                            <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+                            <div className="flex shrink-0 flex-wrap items-center gap-1 lg:justify-end">
                               <Button
-                                className="h-10 whitespace-nowrap border-[#F1CACA] px-3 text-xs text-[#B83B3B] hover:bg-[#FFF6F6]"
+                                className="h-9 gap-1 whitespace-nowrap border-[#F1CACA] px-2.5 text-xs text-[#B83B3B] hover:bg-[#FFF6F6]"
                                 variant="outline"
                                 onClick={() => openDeleteListingModal(listing)}
                               >
-                                <Trash2 className="size-3.5" />
-                                Xóa tin
+                                <Trash2 className="size-3.5 shrink-0 self-center" />
+                                <span className="leading-none">Xóa</span>
                               </Button>
+                              {["active", "hidden"].includes(listing.status) ? (
+                                <Button
+                                  className="h-9 gap-1 whitespace-nowrap border-[#D8DEE2] px-2.5 text-xs text-[#66707A] hover:bg-[#F5F7F8]"
+                                  disabled={
+                                    visibilityUpdatingListingId === listing.id
+                                  }
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleToggleListingVisibility(listing)
+                                  }
+                                >
+                                  {visibilityUpdatingListingId ===
+                                  listing.id ? (
+                                    <LoaderCircle className="size-3.5 shrink-0 self-center animate-spin" />
+                                  ) : listing.status === "active" ? (
+                                    <EyeOff className="size-3.5 shrink-0 self-center text-[#6D7580]" />
+                                  ) : (
+                                    <Eye className="size-3.5 shrink-0 self-center text-[#6D7580]" />
+                                  )}
+                                  <span className="leading-none">
+                                    {listing.status === "active" ? "Ẩn" : "Hiện"}
+                                  </span>
+                                </Button>
+                              ) : null}
                               <Button
-                                className="h-10 whitespace-nowrap border-[#BFE0C6] px-3 text-xs text-[#2F9C50] hover:bg-[#F4FBF5]"
+                                className="h-9 gap-1 whitespace-nowrap border-[#BFE0C6] px-2.5 text-xs text-[#2F9C50] hover:bg-[#F4FBF5]"
                                 variant="outline"
                                 onClick={() => onEditListing(listing)}
                               >
-                                <FileText className="size-3.5" />
-                                Chỉnh sửa tin
+                                <FileText className="size-3.5 shrink-0 self-center" />
+                                <span className="leading-none">Sửa</span>
                               </Button>
                             </div>
                           </div>
@@ -6853,8 +8042,8 @@ function ProfilePage({
         />
       ) : null}
 
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
@@ -6864,7 +8053,7 @@ function ProfilePage({
           onUserClick={() => onNavigate("profile")}
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="profile"
             onLogout={onLogout}
@@ -7474,13 +8663,19 @@ function HomePage() {
     setAppliedPropertyKeyword(propertyKeyword.trim());
   }
 
-  function handleListingCreated(property) {
-    const createdListing = mapApiPropertyToListingRecord(property);
+  function handleListingCreated(property, options = {}) {
+    const isUpdate = options.mode === "update";
+    const isDraft = options.mode === "draft";
+    const savedListing = mapApiPropertyToListingRecord(property);
 
-    setApiListings((current) => [
-      createdListing,
-      ...current.filter((listing) => listing.id !== createdListing.id),
-    ]);
+    setApiListings((current) =>
+      savedListing.status === "active"
+        ? [
+            savedListing,
+            ...current.filter((listing) => listing.id !== savedListing.id),
+          ]
+        : current.filter((listing) => listing.id !== savedListing.id),
+    );
     setHasFetchedProperties(true);
     setPropertyKeyword("");
     setAppliedPropertyKeyword("");
@@ -7488,19 +8683,53 @@ function HomePage() {
     setEditingListing(null);
     setSelectedListingDetail(null);
     setListingDetailBackView("home");
-    updateFrontendRoute("home", { replace: true });
-    setCurrentView("home");
+    updateFrontendRoute(isUpdate || isDraft ? "myListings" : "home", {
+      replace: true,
+    });
+    setCurrentView(isUpdate || isDraft ? "myListings" : "home");
     setAuthNotice({
       type: "success",
-      message:
-        "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
+      message: isDraft
+        ? "Lưu nháp tin đăng thành công. Bạn có thể tiếp tục chỉnh sửa trong Tin đăng của tôi."
+        : isUpdate
+          ? "Cập nhật tin thành công. Danh sách tin đăng của bạn đã được làm mới."
+        : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
     });
+  }
+
+  function handleListingVisibilityChange(property) {
+    const updatedListing = mapApiPropertyToListingRecord(property);
+    const keyword = appliedPropertyKeyword.trim().toLowerCase();
+    const matchesCurrentKeyword =
+      !keyword ||
+      [
+        updatedListing.title,
+        updatedListing.location,
+        updatedListing.detail?.formattedAddress,
+        updatedListing.draft?.projectName,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword));
+
+    setApiListings((current) => {
+      const remainingListings = current.filter(
+        (listing) => listing.id !== updatedListing.id,
+      );
+
+      if (updatedListing.status === "active" && matchesCurrentKeyword) {
+        return [updatedListing, ...remainingListings];
+      }
+
+      return remainingListings;
+    });
+    setHasFetchedProperties(true);
+    setPropertyRefreshKey((current) => current + 1);
   }
 
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
   const shouldUseApiListings = hasFetchedProperties && !propertyListError;
   const visibleFeaturedListings = shouldUseApiListings
-    ? apiListings.slice(0, 3)
+    ? apiListings.slice(0, 4)
     : featuredListings;
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
@@ -7540,6 +8769,7 @@ function HomePage() {
         listing={selectedListingDetail}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        showFooter={listingDetailBackView === "home"}
       />
     );
   }
@@ -7549,6 +8779,7 @@ function HomePage() {
       <MyListingsPage
         accessToken={accessToken}
         onEditListing={openListingEditor}
+        onListingVisibilityChange={handleListingVisibilityChange}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
@@ -7582,8 +8813,8 @@ function HomePage() {
         />
       ) : null}
 
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={currentUser}
           navItems={
@@ -7599,14 +8830,14 @@ function HomePage() {
         />
 
         {isCheckingSession ? (
-          <div className="mt-4 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
+          <div className="mt-3 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
             Đang kiểm tra phiên đăng nhập của bạn...
           </div>
         ) : null}
 
         {authNotice ? (
           <div
-            className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
+            className={`mt-3 rounded-2xl px-4 py-3 text-sm ${
               authNotice.type === "error"
                 ? "border border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
                 : "border border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
@@ -7616,8 +8847,8 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-6">
-          <div className="relative lg:h-[390px] overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_18px_50px_rgba(61,91,71,0.08)]">
+        <section className="mt-4">
+          <div className="relative overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[390px]">
             <div className="h-full grid items-stretch lg:grid-cols-[1.9fr_1fr]">
               <div className="px-5 pb-24 pr-0 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pr-0 lg:pb-30 overflow-visible">
                 <h1 className="whitespace-nowrap max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
@@ -7716,10 +8947,10 @@ function HomePage() {
         </section>
 
         <section className="mt-10">
-          <SectionHeading title="Tin nổi bật" />
+          <SectionHeading title="Bất động sản nổi bật" />
           {visibleFeaturedListings.length > 0 ? (
             <>
-              <div className="grid gap-5 xl:grid-cols-3">
+              <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
                 {visibleFeaturedListings.map((listing) => (
                   <PropertyCard
                     key={listing.id}
@@ -7745,7 +8976,7 @@ function HomePage() {
         <section className="mt-10">
           <SectionHeading title="Tin mới nhất" />
           {visibleLatestListings.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {visibleLatestListings.map((listing) => (
                 <MiniPropertyCard
                   key={listing.id}
@@ -7787,75 +9018,7 @@ function HomePage() {
           </div>
         </section>
 
-        <footer className="mt-8 rounded-[24px] bg-white px-5 py-8 shadow-[0_10px_28px_rgba(50,72,59,0.06)] sm:px-7">
-          <div className="grid gap-8 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.05fr]">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-2xl bg-[#E6F5E9] text-[#38A756]">
-                  <Home className="size-5" />
-                </span>
-                <div>
-                  <p className="text-[22px] font-bold leading-none text-[#33A452]">
-                    WeRent
-                  </p>
-                  <p className="mt-1 text-[11px] text-[#89909B]">
-                    Nền tảng nhà ở dành cho bạn
-                  </p>
-                </div>
-              </div>
-              <p className="mt-4 max-w-[260px] text-sm leading-6 text-[#636A75]">
-                Nền tảng kết nối người thuê và chủ nhà nhanh chóng, an toàn và
-                tiện lợi.
-              </p>
-              <div className="mt-4 flex items-center gap-3 text-[#2D323A]">
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[11px] font-semibold uppercase">
-                  Fb
-                </span>
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[10px] font-semibold uppercase">
-                  Ig
-                </span>
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[10px] font-semibold uppercase">
-                  Yt
-                </span>
-              </div>
-            </div>
-
-            {footerColumns.map((column) => (
-              <div key={column.title}>
-                <h3 className="text-sm font-bold text-[#262B34]">
-                  {column.title}
-                </h3>
-                <ul className="mt-4 space-y-3 text-sm text-[#66707A]">
-                  {column.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-
-            <div>
-              <h3 className="text-sm font-bold text-[#262B34]">Liên hệ</h3>
-              <ul className="mt-4 space-y-3 text-sm text-[#66707A]">
-                <li className="flex items-start gap-2.5">
-                  <Phone className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>1900 1234</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Mail className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>support@werent.vn</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <MapPin className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>123 Nguyễn Văn Linh, Quận 7, TP. Hồ Chí Minh</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-8 border-t border-[#F0F2F4] pt-5 text-center text-sm text-[#858B96]">
-            © 2025 WeRent. All rights reserved.
-          </div>
-        </footer>
+        <AppFooter />
       </div>
     </div>
   );

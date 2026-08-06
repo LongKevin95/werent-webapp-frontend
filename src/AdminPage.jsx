@@ -926,7 +926,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1500px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1500px] space-y-5 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
           {activeSection === "overview" ? (
             <DashboardOverview summary={summary} />
           ) : (
