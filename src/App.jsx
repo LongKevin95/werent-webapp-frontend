@@ -105,7 +105,7 @@ const MAP_RECENT_PLACES_STORAGE_KEY = "werent.recentMapPlaces";
 const MAP_RECENT_PLACES_LIMIT = 5;
 const MAP_GEOLOCATION_TIMEOUT_MS = 10000;
 const MAP_API_BASE_URL = getApiBaseUrl();
-const LISTING_MAP_MAX_ZOOM = 21;
+const LISTING_MAP_MAX_ZOOM = 19;
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
   html: '<span class="werent-map-marker"></span>',
