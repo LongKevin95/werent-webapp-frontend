@@ -3,13 +3,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
+  Popup,
   TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
 import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
-import SharedHeader from "./SharedHeader.jsx";
+import AppFooter from "./components/layout/AppFooter";
+import AppHeader from "./components/layout/AppHeader";
+import Button from "./components/ui/Button";
+import Modal from "./components/ui/Modal";
 import {
   changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
@@ -21,7 +25,18 @@ import {
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
+  createPropertyListing,
+  deletePropertyListing,
+  listAdministrativeDivisions,
+  listMyProperties,
+  listProperties,
+  updatePropertyListing,
+  updatePropertyListingStatus,
+} from "./lib/property-client";
+import {
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   Bath,
   BedDouble,
   Building2,
@@ -31,6 +46,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
+  Clock3,
   FileText,
   Heart,
   Home,
@@ -40,6 +56,7 @@ import {
   KeyRound,
   Landmark,
   Link2,
+  LocateFixed,
   LoaderCircle,
   Mail,
   MapPin,
@@ -54,9 +71,12 @@ import {
   Settings,
   ShieldCheck,
   Sofa,
+  Star,
   Store,
+  Trash2,
   UserRound,
   Video,
+  Upload,
   Eye,
   EyeOff,
   Warehouse,
@@ -65,11 +85,25 @@ import {
 } from "lucide-react";
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
+const FRONTEND_ROUTES = Object.freeze({
+  home: "/",
+  myListings: "/my-listings",
+  postListing: "/post-listing",
+});
+const FRONTEND_ROUTE_VIEWS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(FRONTEND_ROUTES).map(([view, path]) => [path, view]),
+  ),
+);
 const DEFAULT_PROPERTY_LOCATION = { lat: 10.7721, lng: 106.6983 };
 const MAP_SEARCH_DEBOUNCE_MS = 250;
 const MAP_SEARCH_MIN_LENGTH = 3;
 const MAP_SEARCH_CACHE_LOCATION_PRECISION = 3;
 const MAP_SEARCH_CACHE_LIMIT = 40;
+const MAP_REVERSE_LOOKUP_DEBOUNCE_MS = 350;
+const MAP_RECENT_PLACES_STORAGE_KEY = "werent.recentMapPlaces";
+const MAP_RECENT_PLACES_LIMIT = 5;
+const MAP_GEOLOCATION_TIMEOUT_MS = 10000;
 const MAP_API_BASE_URL = getApiBaseUrl();
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
@@ -88,6 +122,45 @@ function getStoredAccessToken() {
   }
 
   return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? "";
+}
+
+function getNormalizedRoutePath(pathname = "/") {
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  return normalizedPath || "/";
+}
+
+function getViewFromRoutePath(pathname) {
+  const normalizedPath = getNormalizedRoutePath(pathname);
+  return FRONTEND_ROUTE_VIEWS[normalizedPath] ?? "home";
+}
+
+function getInitialViewFromRoute() {
+  if (typeof window === "undefined") {
+    return "home";
+  }
+
+  return getViewFromRoutePath(window.location.pathname);
+}
+
+function updateFrontendRoute(view, options = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextPath = FRONTEND_ROUTES[view];
+
+  if (!nextPath) {
+    return;
+  }
+
+  const currentPath = getNormalizedRoutePath(window.location.pathname);
+
+  if (currentPath === nextPath) {
+    return;
+  }
+
+  const historyMethod = options.replace ? "replaceState" : "pushState";
+  window.history[historyMethod]({ view }, "", nextPath);
 }
 
 function buildRegisterContactPayload(value) {
@@ -202,6 +275,15 @@ const featuredListings = [
     specs: ["1 WC", "Nội thất cơ bản"],
     owner: "Lê Văn C",
   },
+  {
+    image: createPlaceholderImage("Nhà thuê 04", "#dce3d7", "#f0f4ed"),
+    price: "6.000.000đ",
+    title: "Nhà nguyên căn yên tĩnh, gần chợ và trục đường chính",
+    location: "Quận 3, TP. Hồ Chí Minh",
+    area: "42m²",
+    specs: ["1 WC", "Nội thất cơ bản"],
+    owner: "Phạm Minh D",
+  },
 ].map((listing, index) =>
   buildMarketingListingRecord(listing, "featured", index),
 );
@@ -253,6 +335,7 @@ const latestListings = [
   buildMarketingListingRecord(listing, "latest", index),
 );
 
+// eslint-disable-next-line no-unused-vars -- retained for edit-preview mock data while owner listings use API data.
 const ownerListingRecords = [
   {
     id: "LIST-001",
@@ -278,8 +361,9 @@ const ownerListingRecords = [
       frontage: "8",
       accessRoad: "12",
       moveInDays: "7",
-      waterPrice: "120.000đ/người",
-      electricityPrice: "3.500đ/kWh",
+      waterPrice: "Do chủ nhà quy định",
+      electricityPrice: "Theo giá nhà cung cấp",
+      internetPrice: "Do chủ nhà quy định",
       city: "TP. Hồ Chí Minh",
       district: "Quận 2 (TP. Thủ Đức)",
       ward: "Phường An Khánh",
@@ -326,8 +410,9 @@ const ownerListingRecords = [
       frontage: "6",
       accessRoad: "10",
       moveInDays: "3",
-      waterPrice: "Theo đồng hồ riêng",
-      electricityPrice: "4.000đ/kWh",
+      waterPrice: "Theo giá nhà cung cấp",
+      electricityPrice: "Do chủ nhà quy định",
+      internetPrice: "Thỏa thuận",
       city: "TP. Hồ Chí Minh",
       district: "Quận Bình Thạnh",
       ward: "Phường Bình An",
@@ -374,8 +459,9 @@ const ownerListingRecords = [
       frontage: "5",
       accessRoad: "7",
       moveInDays: "14",
-      waterPrice: "Miễn phí",
-      electricityPrice: "Theo giá nhà nước",
+      waterPrice: "Thỏa thuận",
+      electricityPrice: "Theo giá nhà cung cấp",
+      internetPrice: "Do chủ nhà quy định",
       city: "TP. Hồ Chí Minh",
       district: "Quận 7",
       ward: "Phường An Phú",
@@ -426,8 +512,9 @@ const ownerListingRecords = [
       frontage: "4.5",
       accessRoad: "6",
       moveInDays: "5",
-      waterPrice: "100.000đ/người",
+      waterPrice: "Do chủ nhà quy định",
       electricityPrice: "Thỏa thuận",
+      internetPrice: "Thỏa thuận",
       city: "TP. Hồ Chí Minh",
       district: "Quận 2 (TP. Thủ Đức)",
       ward: "Phường Thảo Điền",
@@ -469,8 +556,9 @@ const ownerListingRecords = [
       frontage: "4",
       accessRoad: "5",
       moveInDays: "2",
-      waterPrice: "120.000đ/người",
-      electricityPrice: "4.000đ/kWh",
+      waterPrice: "Do chủ nhà quy định",
+      electricityPrice: "Do chủ nhà quy định",
+      internetPrice: "Do chủ nhà quy định",
       city: "TP. Hồ Chí Minh",
       district: "Quận 1",
       ward: "Phường Bình An",
@@ -641,31 +729,6 @@ const listingStatusTabs = [
   { key: "rejected", label: "Vi phạm" },
 ];
 
-const footerColumns = [
-  {
-    title: "Về WeRent",
-    items: ["Giới thiệu", "Tin tức", "Tuyển dụng", "Liên hệ"],
-  },
-  {
-    title: "Hỗ trợ",
-    items: [
-      "Trung tâm trợ giúp",
-      "Hướng dẫn sử dụng",
-      "Quy định cộng đồng",
-      "Chính sách bảo mật",
-    ],
-  },
-  {
-    title: "Dành cho chủ nhà",
-    items: [
-      "Đăng tin cho thuê",
-      "Quản lý tin đăng",
-      "Gói dịch vụ",
-      "Hướng dẫn đăng tin",
-    ],
-  },
-];
-
 function SectionHeading({ title }) {
   return (
     <div className="mb-5 flex items-center justify-between gap-4">
@@ -711,6 +774,14 @@ function CategoryCard({ icon: Icon, title, count }) {
 
 function PropertyCard({ listing, onViewListing }) {
   const handleOpen = () => onViewListing?.(listing);
+  const publishedTimeLabel = formatRelativeListingPublishedTime(
+    listing.publishedAtRaw ??
+      listing.detail?.publishedAtRaw ??
+      listing.createdAtRaw ??
+      listing.updatedAtRaw ??
+      listing.updatedAt ??
+      listing.detail?.publishedAt,
+  );
 
   return (
     <article
@@ -728,31 +799,24 @@ function PropertyCard({ listing, onViewListing }) {
       <div className="relative">
         <img
           alt={listing.title}
-          className="h-[198px] w-full object-cover"
+          className="h-[168px] w-full object-cover"
           src={listing.image}
         />
         <span className="absolute left-3 top-3 rounded-lg bg-[#49B96E] px-2 py-1 text-[10px] font-bold text-white">
           VIP
         </span>
-        <button
-          className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-white/95 text-[#77B87B] shadow-sm"
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Heart className="size-4" />
-        </button>
       </div>
-      <div className="space-y-3 p-4">
+      <div className="space-y-2.5 p-3.5">
         <div>
-          <div className="flex items-end gap-1">
-            <span className="text-[26px] font-bold leading-none text-[#31A352]">
+          <h3 className="line-clamp-2 min-h-[44px] break-words text-[16px] font-bold leading-[22px] text-[#232933]">
+            {listing.title}
+          </h3>
+          <div className="mt-2 flex items-end gap-1">
+            <span className="text-[17px] font-bold leading-none text-[#31A352]">
               {listing.price}
             </span>
             <span className="pb-0.5 text-xs text-[#8A909A]">/ tháng</span>
           </div>
-          <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[#232933]">
-            {listing.title}
-          </h3>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-[#858B97]">
           <MapPin className="size-3.5 text-[#7F8591]" />
@@ -772,24 +836,20 @@ function PropertyCard({ listing, onViewListing }) {
             {listing.specs[1]}
           </span>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[#F0F1F3] pt-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#f4d8bd,#f0c295)] text-xs font-semibold text-[#735333]">
-              {listing.owner.slice(0, 1)}
-            </span>
-            <span className="text-[13px] font-medium text-[#3B414B]">
-              {listing.owner}
-            </span>
+        <div className="flex items-center justify-between gap-2 border-t border-[#F0F1F3] pt-3">
+          <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[#6E7782]">
+            <Clock3 className="size-4 shrink-0 text-[#35A554]" />
+            <span className="truncate">{publishedTimeLabel}</span>
           </div>
           <button
-            className="rounded-xl border border-[#D8EEDD] px-4 py-2 text-xs font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
+            aria-label="Lưu tin yêu thích"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#D8EEDD] text-[#77B87B] transition hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              handleOpen();
             }}
           >
-            Xem chi tiết
+            <Heart className="size-4" />
           </button>
         </div>
       </div>
@@ -815,16 +875,16 @@ function MiniPropertyCard({ listing, onViewListing }) {
     >
       <img
         alt={listing.title}
-        className="h-[110px] w-full object-cover"
+        className="h-[155px] w-full object-cover"
         src={listing.image}
       />
-      <div className="space-y-1.5 p-3">
-        <p className="text-[18px] font-bold leading-none text-[#32A553]">
-          {listing.price}
-        </p>
-        <h3 className="min-h-[40px] text-[13px] font-semibold leading-5 text-[#242933]">
+      <div className="space-y-3 p-[18px]">
+        <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
           {listing.title}
         </h3>
+        <p className="text-[16px] font-bold leading-none text-[#32A553]">
+          {listing.price}
+        </p>
         <p className="text-[11px] text-[#818793]">{listing.location}</p>
         <p className="text-[11px] text-[#9095A0]">{listing.meta}</p>
       </div>
@@ -1343,68 +1403,28 @@ const postListingSteps = [
   "Chọn loại tin",
 ];
 const defaultPostListingStep = 0;
-const cityOptions = ["TP. Hồ Chí Minh", "Hà Nội", "Đà Nẵng"];
-const districtOptions = [
-  "Quận 2 (TP. Thủ Đức)",
-  "Quận 1",
-  "Quận Bình Thạnh",
-  "Quận 7",
-];
-const wardOptions = [
-  "Phường An Khánh",
-  "Phường Thảo Điền",
-  "Phường Bình An",
-  "Phường An Phú",
-];
-const mediaPhotoPreviews = [
-  {
-    id: 1,
-    label: "Phòng khách",
-    background:
-      "linear-gradient(145deg, #9b6d44 0%, #d4b28a 32%, #efe2cf 63%, #6b7f8f 100%)",
-  },
-  {
-    id: 2,
-    label: "Phòng ngủ",
-    background:
-      "linear-gradient(145deg, #7a5a47 0%, #d7bfa6 36%, #f2e5d5 66%, #97a8ba 100%)",
-  },
-  {
-    id: 3,
-    label: "Bếp",
-    background:
-      "linear-gradient(145deg, #8a5d3f 0%, #d7b799 34%, #f7efe5 69%, #bfc8ce 100%)",
-  },
-  {
-    id: 4,
-    label: "Phòng ngủ 2",
-    background:
-      "linear-gradient(145deg, #8b6448 0%, #cfb08f 35%, #efe7df 68%, #869bb2 100%)",
-  },
-  {
-    id: 5,
-    label: "Phòng tắm",
-    background:
-      "linear-gradient(145deg, #d7d7d3 0%, #f5f5f0 36%, #d8dfdf 70%, #b7c1c8 100%)",
-  },
-  {
-    id: 6,
-    label: "Ban công",
-    background:
-      "linear-gradient(145deg, #6b88a0 0%, #97b7d5 30%, #d8ebfb 62%, #3d556c 100%)",
-  },
-  {
-    id: 7,
-    label: "Góc làm việc",
-    background:
-      "linear-gradient(145deg, #87634e 0%, #d8bba2 38%, #f1e2d2 69%, #9d8fa0 100%)",
-  },
-];
+const ADMINISTRATIVE_DIVISIONS_CACHE_KEY = "werent:administrative-divisions:v1";
+const PROPERTY_IMAGE_LIMIT = 10;
+const PROPERTY_RECOMMENDED_IMAGE_COUNT = 5;
+const PROPERTY_IMAGE_MAX_SIZE_MB = 5;
+const PROPERTY_IMAGE_MAX_SIZE_BYTES = PROPERTY_IMAGE_MAX_SIZE_MB * 1024 * 1024;
+const ALLOWED_PROPERTY_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+const PROPERTY_IMAGE_ACCEPT = Array.from(ALLOWED_PROPERTY_IMAGE_TYPES).join(
+  ",",
+);
+
+let listingImageIdSequence = 0;
 const listingTierOptions = [
   {
     key: "vipDiamond",
     label: "VIP Kim Cương",
     description: "Hiển thị nổi bật nhất",
+    dailyPrice: 271660,
     multiplier: "X30",
     multiplierNote: "lượt liên hệ\nso với tin thường",
     price: "271.660 đ/ngày",
@@ -1414,6 +1434,7 @@ const listingTierOptions = [
     key: "vipGold",
     label: "VIP Vàng",
     description: "Hiển thị nổi bật",
+    dailyPrice: 106730,
     multiplier: "X15",
     multiplierNote: "lượt liên hệ\nso với tin thường",
     price: "106.730 đ/ngày",
@@ -1423,6 +1444,7 @@ const listingTierOptions = [
     key: "vipSilver",
     label: "VIP Bạc",
     description: "Hiển thị ưu tiên",
+    dailyPrice: 47050,
     multiplier: "X8",
     multiplierNote: "lượt liên hệ\nso với tin thường",
     price: "47.050 đ/ngày",
@@ -1432,6 +1454,7 @@ const listingTierOptions = [
     key: "standard",
     label: "Tin Thường",
     description: "Hiển thị cơ bản",
+    dailyPrice: 2980,
     price: "2.980 đ/ngày",
     tone: "standard",
   },
@@ -1440,70 +1463,77 @@ const listingDurationOptions = [
   {
     key: "custom",
     label: "Tùy chỉnh",
+    discountRate: 1,
     subtitle: "Chọn ngày bắt đầu\nvà ngày kết thúc",
   },
   {
     key: "10days",
+    days: 10,
+    discountRate: 1,
     label: "10 ngày",
-    pricePerDay: "3.720 đ/ngày",
-    totalPrice: "37.200 đ",
   },
   {
     key: "15days",
+    days: 15,
+    discountRate: 0.9,
     label: "15 ngày",
     saving: "Tiết kiệm 10%",
-    pricePerDay: "3.350 đ/ngày",
-    oldPrice: "3.720 đ/ngày",
-    totalPrice: "50.250 đ",
   },
   {
     key: "30days",
+    days: 30,
+    discountRate: 0.8,
     label: "30 ngày",
     saving: "Tiết kiệm 20%",
-    pricePerDay: "2.980 đ/ngày",
-    oldPrice: "3.720 đ/ngày",
-    totalPrice: "89.400 đ",
   },
 ];
 const scheduleOptions = [
-  "Đăng ngay sau khi thanh toán",
-  "Đăng sau khi được duyệt",
-  "Tự chọn thời gian đăng",
+  "Đăng ngay sau khi được duyệt",
+  "Chọn thời gian cụ thể",
 ];
 const defaultListingDraft = {
-  propertyType: "Căn hộ chung cư",
-  area: "72",
-  bedrooms: "2",
-  bathrooms: "2",
-  rentPrice: "12.000.000",
-  furnishing: "Đầy đủ nội thất",
-  orientation: "Đông Nam",
-  floor: "12",
-  totalFloors: "25",
-  frontage: "8",
-  accessRoad: "12",
-  moveInDays: "7",
-  waterPrice: "120.000đ/người",
-  electricityPrice: "3.500đ/kWh",
-  city: "TP. Hồ Chí Minh",
-  district: "Quận 2 (TP. Thủ Đức)",
-  ward: "Phường An Khánh",
-  street: "Đường Nguyễn Cơ Thạch",
-  addressLine: "Số 15, Tòa A, Căn 12A",
-  projectName: "Vinhomes Metropolis",
+  propertyType: "",
+  area: "",
+  bedrooms: "",
+  bathrooms: "",
+  rentPrice: "",
+  furnishing: "",
+  orientation: "",
+  floor: "",
+  totalFloors: "",
+  frontage: "",
+  accessRoad: "",
+  moveInDays: "",
+  waterPrice: "",
+  electricityPrice: "",
+  internetPrice: "",
+  city: "",
+  district: "",
+  ward: "",
+  street: "",
+  addressLine: "",
+  projectName: "",
   description: "",
   locationNote: "",
   videoLink: "",
   selectedTier: "standard",
   selectedDuration: "custom",
-  selectedAmenities: [
-    "airConditioner",
-    "washingMachine",
-    "wifi",
-    "security",
-    "camera",
-  ],
+  selectedAmenities: [],
 };
+const draftRequiredFieldSteps = {
+  area: 0,
+  bathrooms: 0,
+  bedrooms: 0,
+  city: 1,
+  description: 0,
+  district: 1,
+  propertyType: 0,
+  rentPrice: 0,
+  title: 0,
+  ward: 1,
+};
+const draftValidationToastMessage =
+  "Vui lòng nhập đủ các trường thông tin bắt buộc trước khi lưu nháp!";
 
 const propertyTypeOptions = [
   "Phòng trọ",
@@ -1513,6 +1543,53 @@ const propertyTypeOptions = [
   "Mặt bằng kinh doanh",
 ];
 
+function getDraftRequiredFieldErrors({
+  listingDescription,
+  listingDraft,
+  listingTitle,
+}) {
+  const requiredValues = {
+    area: listingDraft.area,
+    bathrooms: listingDraft.bathrooms,
+    bedrooms: listingDraft.bedrooms,
+    city: listingDraft.city,
+    description: listingDescription,
+    district: listingDraft.district,
+    propertyType: listingDraft.propertyType,
+    rentPrice: listingDraft.rentPrice,
+    title: listingTitle,
+    ward: listingDraft.ward,
+  };
+
+  return Object.entries(requiredValues).reduce((errors, [field, value]) => {
+    if (!hasListingInputValue(value)) {
+      errors[field] = true;
+    }
+
+    return errors;
+  }, {});
+}
+
+function getFirstDraftValidationStep(validationErrors) {
+  const invalidSteps = Object.keys(validationErrors)
+    .map((field) => draftRequiredFieldSteps[field])
+    .filter((step) => Number.isInteger(step));
+
+  return invalidSteps.length ? Math.min(...invalidSteps) : 0;
+}
+
+function createDraftListingPricingData({ selectedDuration, selectedTier }) {
+  return {
+    package: {
+      durationDays: 0,
+      durationKey: selectedDuration,
+      pricePerDay: 0,
+      tier: selectedTier,
+      totalPrice: 0,
+    },
+  };
+}
+
 const furnishingOptions = [
   "Nội thất cơ bản",
   "Đầy đủ nội thất",
@@ -1520,23 +1597,19 @@ const furnishingOptions = [
   "Cao cấp",
 ];
 const orientationOptions = ["Đông", "Tây", "Nam", "Bắc", "Đông Nam", "Tây Bắc"];
-const electricityPriceOptions = [
-  "3.500đ/kWh",
-  "4.000đ/kWh",
-  "Theo giá nhà nước",
+const utilityPriceOptions = [
   "Thỏa thuận",
+  "Theo giá nhà cung cấp",
+  "Do chủ nhà quy định",
 ];
-const waterPriceOptions = [
-  "100.000đ/người",
-  "120.000đ/người",
-  "Theo đồng hồ riêng",
-  "Miễn phí",
-];
+const waterPriceOptions = utilityPriceOptions;
+const electricityPriceOptions = utilityPriceOptions;
+const internetPriceOptions = ["Thỏa thuận", "Do chủ nhà quy định"];
 const indoorAmenities = [
-  { key: "airConditioner", icon: Wind, label: "Máy lạnh", selected: true },
+  { key: "airConditioner", icon: Wind, label: "Máy lạnh" },
   { key: "refrigerator", icon: Home, label: "Tủ lạnh" },
-  { key: "washingMachine", icon: Save, label: "Máy giặt", selected: true },
-  { key: "wifi", icon: MessageSquare, label: "Wi-Fi", selected: true },
+  { key: "washingMachine", icon: Save, label: "Máy giặt" },
+  { key: "wifi", icon: MessageSquare, label: "Wi-Fi" },
   { key: "kitchen", icon: Store, label: "Bếp" },
   { key: "waterHeater", icon: Bath, label: "Nóng lạnh" },
   { key: "bed", icon: BedDouble, label: "Giường" },
@@ -1549,8 +1622,8 @@ const indoorAmenities = [
 const areaAmenities = [
   { key: "elevator", icon: Building2, label: "Thang máy" },
   { key: "parkingBasement", icon: CarFront, label: "Hầm để xe" },
-  { key: "security", icon: ShieldCheck, label: "Bảo vệ 24/7", selected: true },
-  { key: "camera", icon: Camera, label: "Camera an ninh", selected: true },
+  { key: "security", icon: ShieldCheck, label: "Bảo vệ 24/7" },
+  { key: "camera", icon: Camera, label: "Camera an ninh" },
   { key: "park", icon: Landmark, label: "Công viên" },
   { key: "pool", icon: Bath, label: "Hồ bơi" },
   { key: "gym", icon: Ruler, label: "Phòng gym" },
@@ -1573,8 +1646,675 @@ function getListingTierOptionByKey(key) {
   );
 }
 
+function getListingDurationOptionByKey(key) {
+  return (
+    listingDurationOptions.find((option) => option.key === key) ??
+    listingDurationOptions[0]
+  );
+}
+
+function formatListingCurrency(value) {
+  return `${new Intl.NumberFormat("vi-VN").format(Math.max(0, value))} đ`;
+}
+
+function formatCompactMonthlyRent(value, fallback = "Thỏa thuận") {
+  const rentValue =
+    parseListingMoneyInput(value) || parseListingMoneyInput(fallback);
+
+  if (!rentValue) {
+    return fallback || "Thỏa thuận";
+  }
+
+  const compactParts = [
+    { minimum: 1_000_000_000, unit: "tỷ", divisor: 1_000_000_000 },
+    { minimum: 1_000_000, unit: "triệu", divisor: 1_000_000 },
+    { minimum: 1_000, unit: "nghìn", divisor: 1_000 },
+  ];
+  const matchedPart = compactParts.find((part) => rentValue >= part.minimum);
+
+  if (!matchedPart) {
+    return `${formatListingCurrency(rentValue)}/tháng`;
+  }
+
+  const compactValue = rentValue / matchedPart.divisor;
+  const maximumFractionDigits =
+    compactValue < 10 ? 2 : compactValue < 100 ? 1 : 0;
+  const formattedValue = new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits,
+  }).format(compactValue);
+
+  return `${formattedValue} ${matchedPart.unit}/tháng`;
+}
+
+function createRelativeListingDate({
+  days = 0,
+  hours = 0,
+  minutes = 0,
+  months = 0,
+} = {}) {
+  const date = new Date();
+
+  if (months) {
+    date.setMonth(date.getMonth() - months);
+  }
+
+  if (days) {
+    date.setDate(date.getDate() - days);
+  }
+
+  if (hours) {
+    date.setHours(date.getHours() - hours);
+  }
+
+  if (minutes) {
+    date.setMinutes(date.getMinutes() - minutes);
+  }
+
+  return date.toISOString();
+}
+
+function parseListingTimestamp(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "number") {
+    const numericDate = new Date(value);
+
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate;
+  }
+
+  const stringValue = String(value ?? "").trim();
+
+  if (!stringValue) {
+    return null;
+  }
+
+  const dateOnlyMatch = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(stringValue);
+
+  if (dateOnlyMatch) {
+    const [, day, month, year] = dateOnlyMatch;
+    const dateOnlyValue = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+    );
+
+    return Number.isNaN(dateOnlyValue.getTime()) ? null : dateOnlyValue;
+  }
+
+  const parsedDate = new Date(stringValue);
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function formatRelativeListingPublishedTime(value) {
+  const publishedDate = parseListingTimestamp(value);
+
+  if (!publishedDate) {
+    return "Đăng gần đây";
+  }
+
+  const diffMs = Math.max(0, Date.now() - publishedDate.getTime());
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (diffMs < minuteMs) {
+    return "Đăng vừa xong";
+  }
+
+  if (diffMs < hourMs) {
+    const minutes = Math.floor(diffMs / minuteMs);
+
+    return `Đăng ${minutes} phút trước`;
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs);
+
+    return `Đăng ${hours} giờ trước`;
+  }
+
+  const days = Math.floor(diffMs / dayMs);
+
+  if (days < 7) {
+    return `Đăng ${days} ngày trước`;
+  }
+
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+
+    return `Đăng ${weeks} tuần trước`;
+  }
+
+  const months = Math.floor(days / 30);
+
+  return `Đăng ${months} tháng trước`;
+}
+
+function parseListingDate(value = "") {
+  const normalizedValue = value.trim().replaceAll("-", "/");
+  const [day, month, year] = normalizedValue.split("/").map(Number);
+
+  if (!day || !month || !year) {
+    return null;
+  }
+
+  const parsedDate = new Date(year, month - 1, day);
+
+  if (
+    parsedDate.getFullYear() !== year ||
+    parsedDate.getMonth() !== month - 1 ||
+    parsedDate.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsedDate;
+}
+
+function formatListingDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+
+  return `${day}/${month}/${year}`;
+}
+
+function addListingDays(date, days) {
+  if (!date || !Number.isFinite(days)) {
+    return null;
+  }
+
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function getListingDayCount(startDate, endDate) {
+  if (!startDate || !endDate) {
+    return 0;
+  }
+
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.round((endDate - startDate) / millisecondsPerDay));
+}
+
+function getListingDiscountRateForDays(days) {
+  if (days >= 30) {
+    return 0.8;
+  }
+
+  if (days >= 15) {
+    return 0.9;
+  }
+
+  return 1;
+}
+
+function getListingDailyPrice(tierOption, discountRate = 1) {
+  const fullDailyPrice = Math.round(tierOption.dailyPrice / 0.8);
+  return Math.round(fullDailyPrice * discountRate);
+}
+
+function formatSchedulePart(value, shouldPad = false) {
+  if (value === "") {
+    return "--";
+  }
+
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "--";
+  }
+
+  const normalizedValue = String(Math.trunc(numericValue));
+  return shouldPad ? normalizedValue.padStart(2, "0") : normalizedValue;
+}
+
 function getListingAmenityItems(keys = []) {
   return keys.map((key) => listingAmenityMap[key]).filter(Boolean);
+}
+
+function getSelectOptionValue(value, options) {
+  return options.includes(value) ? value : "";
+}
+
+function normalizeAdministrativeDivisionName(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\btp\b/g, "thanh pho")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function findAdministrativeDivisionByName(items = [], name) {
+  const normalizedName = normalizeAdministrativeDivisionName(name);
+
+  if (!normalizedName) {
+    return null;
+  }
+
+  return (
+    items.find((item) => item.name === name) ??
+    items.find(
+      (item) =>
+        normalizeAdministrativeDivisionName(item.name) === normalizedName,
+    ) ??
+    null
+  );
+}
+
+function getAdministrativeDivisionOptions(items = []) {
+  return items.map((item) => item.name);
+}
+
+function readCachedAdministrativeDivisions() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const cachedValue = window.localStorage.getItem(
+      ADMINISTRATIVE_DIVISIONS_CACHE_KEY,
+    );
+    const parsedValue = cachedValue ? JSON.parse(cachedValue) : null;
+
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedAdministrativeDivisions(provinces) {
+  if (typeof window === "undefined" || !Array.isArray(provinces)) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      ADMINISTRATIVE_DIVISIONS_CACHE_KEY,
+      JSON.stringify(provinces),
+    );
+  } catch {
+    // localStorage can be unavailable in private browsing or restricted contexts.
+  }
+}
+
+function parseListingMoneyInput(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  return Number(String(value ?? "").replace(/[^\d]/g, "")) || 0;
+}
+
+function parseListingNumericInput(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const normalizedValue = String(value ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^\d.]/g, "");
+
+  if (!normalizedValue) {
+    return 0;
+  }
+
+  const parts = normalizedValue.split(".");
+
+  if (parts.length > 2) {
+    return Number(parts.join("")) || 0;
+  }
+
+  return Number(normalizedValue) || 0;
+}
+
+function formatListingDateForApi(value) {
+  const parsedDate = parseListingDate(value);
+
+  if (!parsedDate) {
+    return "";
+  }
+
+  const day = String(parsedDate.getDate()).padStart(2, "0");
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+  const year = parsedDate.getFullYear();
+
+  return `${year}-${month}-${day}`;
+}
+
+function appendFormValue(formData, key, value, options = {}) {
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  const stringValue = String(value);
+
+  if (!options.includeEmpty && stringValue === "") {
+    return;
+  }
+
+  formData.append(key, stringValue);
+}
+
+function appendFormNumber(formData, key, value) {
+  if (!Number.isFinite(value)) {
+    return;
+  }
+
+  formData.append(key, String(value));
+}
+
+function hasListingInputValue(value) {
+  return String(value ?? "").trim().length > 0;
+}
+
+function getUserDisplayName(user) {
+  return user?.fullName || user?.name || user?.email || user?.phone || "";
+}
+
+function createPropertyListingFormData({
+  includeExistingImages = false,
+  includeEmptyValues = false,
+  listingDescription,
+  listingDraft,
+  listingImages,
+  listingLocation,
+  listingTitle,
+  locationNote,
+  pricingData = null,
+  selectedAmenities,
+  status,
+  user,
+  videoLink,
+}) {
+  const formData = new FormData();
+  const fullAddress =
+    buildListingFullAddress(listingDraft) ||
+    listingLocation.formattedAddress ||
+    listingDraft.projectName ||
+    listingTitle;
+  const coordinates = hasValidCoordinates(listingLocation)
+    ? {
+        lat: Number(listingLocation.lat),
+        lng: Number(listingLocation.lng),
+      }
+    : null;
+
+  appendFormValue(formData, "title", listingTitle.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "propertyType", listingDraft.propertyType, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "description", listingDescription.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "address", fullAddress);
+  appendFormValue(formData, "city", listingDraft.city, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "district", listingDraft.district, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "ward", listingDraft.ward, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "street", listingDraft.street, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "addressLine", listingDraft.addressLine, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "projectName", listingDraft.projectName, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "locationNote", locationNote.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(
+    formData,
+    "formattedAddress",
+    listingLocation.formattedAddress || fullAddress,
+  );
+  appendFormValue(formData, "placeId", listingLocation.placeId);
+  appendFormValue(formData, "mapProvider", listingLocation.mapProvider, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "isPinAdjusted", listingLocation.isPinAdjusted);
+  appendFormValue(
+    formData,
+    "addressComponents",
+    JSON.stringify(listingLocation.addressComponents ?? []),
+  );
+
+  if (coordinates) {
+    appendFormValue(formData, "coordinates", JSON.stringify(coordinates));
+  }
+
+  appendFormNumber(
+    formData,
+    "price",
+    parseListingMoneyInput(listingDraft.rentPrice),
+  );
+  appendFormNumber(
+    formData,
+    "area",
+    parseListingNumericInput(listingDraft.area),
+  );
+  appendFormNumber(
+    formData,
+    "bedrooms",
+    Math.trunc(parseListingNumericInput(listingDraft.bedrooms)),
+  );
+  appendFormNumber(
+    formData,
+    "bathrooms",
+    Math.trunc(parseListingNumericInput(listingDraft.bathrooms)),
+  );
+  appendFormValue(formData, "furnishing", listingDraft.furnishing, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "orientation", listingDraft.orientation, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "floor", listingDraft.floor, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormNumber(
+    formData,
+    "totalFloors",
+    Math.trunc(parseListingNumericInput(listingDraft.totalFloors)),
+  );
+  appendFormNumber(
+    formData,
+    "frontage",
+    parseListingNumericInput(listingDraft.frontage),
+  );
+  appendFormNumber(
+    formData,
+    "accessRoad",
+    parseListingNumericInput(listingDraft.accessRoad),
+  );
+  appendFormNumber(
+    formData,
+    "moveInDays",
+    Math.trunc(parseListingNumericInput(listingDraft.moveInDays)),
+  );
+  appendFormValue(formData, "waterPrice", listingDraft.waterPrice, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "electricityPrice", listingDraft.electricityPrice, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "internetPrice", listingDraft.internetPrice, {
+    includeEmpty: includeEmptyValues,
+  });
+  appendFormValue(formData, "amenities", JSON.stringify(selectedAmenities));
+  appendFormValue(formData, "videoUrl", videoLink.trim(), {
+    includeEmpty: includeEmptyValues,
+  });
+  if (pricingData?.package) {
+    appendFormValue(formData, "package", JSON.stringify(pricingData.package));
+  }
+  appendFormValue(formData, "availableFrom", pricingData?.startDate);
+  appendFormValue(formData, "expiresAt", pricingData?.endDate);
+  appendFormValue(formData, "contactName", getUserDisplayName(user));
+  appendFormValue(formData, "contactPhone", user?.phone);
+  appendFormValue(formData, "contactEmail", user?.email);
+  appendFormValue(formData, "status", status);
+
+  const localFileIndexByImageId = new Map();
+  let nextLocalFileIndex = 0;
+
+  listingImages.forEach((image) => {
+    if (image.source === "local" && image.file) {
+      localFileIndexByImageId.set(image.id, nextLocalFileIndex);
+      nextLocalFileIndex += 1;
+      formData.append("images", image.file);
+    }
+  });
+
+  if (includeExistingImages) {
+    const existingImages = listingImages
+      .filter((image) => image.source === "existing" && image.previewUrl)
+      .map((image) => ({
+        publicId: image.publicId ?? null,
+        url: image.url ?? image.previewUrl,
+      }));
+    const imageOrder = listingImages
+      .map((image) => {
+        if (image.source === "existing" && image.previewUrl) {
+          return {
+            publicId: image.publicId ?? null,
+            source: "existing",
+            url: image.url ?? image.previewUrl,
+          };
+        }
+
+        if (image.source === "local" && image.file) {
+          return {
+            fileIndex: localFileIndexByImageId.get(image.id),
+            source: "new",
+          };
+        }
+
+        return null;
+      })
+      .filter(Boolean);
+
+    appendFormValue(formData, "existingImages", JSON.stringify(existingImages));
+    appendFormValue(formData, "imageOrder", JSON.stringify(imageOrder));
+  }
+
+  return formData;
+}
+
+function createListingImageId() {
+  listingImageIdSequence += 1;
+  return `listing-image-${Date.now()}-${listingImageIdSequence}`;
+}
+
+function createListingImageItem(file) {
+  return {
+    id: createListingImageId(),
+    file,
+    name: file.name,
+    previewUrl: typeof URL !== "undefined" ? URL.createObjectURL(file) : "",
+    size: file.size,
+    source: "local",
+  };
+}
+
+function createExistingListingImageItems(listing) {
+  if (!listing) {
+    return [];
+  }
+
+  const detail =
+    listing.detail ??
+    (listing.id ? ownerListingPublicDetails[listing.id] : null);
+  const images = detail?.images?.length
+    ? detail.images
+    : detail?.gallery?.length
+      ? detail.gallery.map((url) => ({ publicId: null, url }))
+      : listing.image
+        ? [{ publicId: null, url: listing.image }]
+        : [];
+
+  return images.slice(0, PROPERTY_IMAGE_LIMIT).map((image, index) => ({
+    id: `existing-${listing.id ?? "listing"}-${index}`,
+    name: `Ảnh ${index + 1}`,
+    previewUrl: image.url,
+    publicId: image.publicId ?? null,
+    size: null,
+    source: "existing",
+    url: image.url,
+  }));
+}
+
+function revokeListingImagePreview(image) {
+  if (
+    image?.source === "local" &&
+    image.previewUrl &&
+    typeof URL !== "undefined"
+  ) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
+function getVideoLinkError(value = "") {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return "Link video phải bắt đầu bằng http:// hoặc https://.";
+    }
+  } catch {
+    return "Link video chưa đúng định dạng.";
+  }
+
+  return "";
+}
+
+function getVideoProviderLabel(value = "") {
+  try {
+    const hostname = new URL(value).hostname.replace(/^www\./, "");
+
+    if (hostname.includes("youtu.be") || hostname.includes("youtube.com")) {
+      return "YouTube";
+    }
+
+    if (hostname.includes("tiktok.com")) {
+      return "TikTok";
+    }
+
+    if (hostname.includes("facebook.com") || hostname.includes("fb.watch")) {
+      return "Facebook";
+    }
+
+    return hostname;
+  } catch {
+    return "Video";
+  }
 }
 
 function buildListingFullAddress(draft) {
@@ -1617,8 +2357,76 @@ function createDraftLocation(draft) {
   };
 }
 
+function hasNewListingUserInput({
+  listingDescription,
+  listingDraft,
+  listingImages,
+  listingLocation,
+  listingTitle,
+  locationNote,
+  selectedAmenities,
+  videoLink,
+}) {
+  const draftFieldsToCheck = Object.entries(listingDraft).filter(
+    ([field]) =>
+      !["selectedAmenities", "selectedDuration", "selectedTier"].includes(
+        field,
+      ),
+  );
+  const hasDraftValue = draftFieldsToCheck.some(([, value]) => {
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+
+    return hasListingInputValue(value);
+  });
+  const hasLocationValue =
+    Boolean(listingLocation?.isPinAdjusted) ||
+    hasListingInputValue(listingLocation?.displayName) ||
+    hasListingInputValue(listingLocation?.formattedAddress) ||
+    hasListingInputValue(listingLocation?.mapProvider) ||
+    hasListingInputValue(listingLocation?.placeId) ||
+    hasListingInputValue(listingLocation?.searchText) ||
+    (Array.isArray(listingLocation?.addressComponents) &&
+      listingLocation.addressComponents.length > 0);
+
+  return (
+    hasListingInputValue(listingTitle) ||
+    hasListingInputValue(listingDescription) ||
+    hasListingInputValue(locationNote) ||
+    hasListingInputValue(videoLink) ||
+    hasDraftValue ||
+    hasLocationValue ||
+    listingImages.length > 0 ||
+    selectedAmenities.length > 0
+  );
+}
+
+function getListingDetailMapLocation(draft, detail, fallbackAddress) {
+  const coordinates = hasValidCoordinates(draft.coordinates)
+    ? draft.coordinates
+    : hasValidCoordinates(detail.coordinates)
+      ? detail.coordinates
+      : null;
+
+  if (!coordinates) {
+    return null;
+  }
+
+  return {
+    formattedAddress: draft.formattedAddress || fallbackAddress,
+    lat: Number(coordinates.lat),
+    lng: Number(coordinates.lng),
+  };
+}
+
 function formatCoordinate(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(6) : "--";
+}
+
+function buildGoogleMapsSearchUrl(location) {
+  const query = `${Number(location.lat)},${Number(location.lng)}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function formatMapCacheCoordinate(value) {
@@ -1647,6 +2455,137 @@ function rememberAutocompletePredictions(cache, key, predictions) {
       cache.delete(oldestKey);
     }
   }
+}
+
+function normalizeMapSearchText(value = "") {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase();
+}
+
+function getHighlightRange(text = "", query = "") {
+  const normalizedChars = [];
+  const originalIndexes = [];
+
+  Array.from(text).forEach((character, index) => {
+    const normalizedCharacter = normalizeMapSearchText(character);
+
+    Array.from(normalizedCharacter).forEach((normalizedPart) => {
+      normalizedChars.push(normalizedPart);
+      originalIndexes.push(index);
+    });
+  });
+
+  const normalizedText = normalizedChars.join("");
+  const needles = [
+    normalizeMapSearchText(query).trim(),
+    ...normalizeMapSearchText(query)
+      .split(/\s+/)
+      .filter((token) => token.length >= 2)
+      .sort((left, right) => right.length - left.length),
+  ].filter(Boolean);
+
+  for (const needle of needles) {
+    const matchIndex = normalizedText.indexOf(needle);
+
+    if (matchIndex >= 0) {
+      const start = originalIndexes[matchIndex];
+      const end = originalIndexes[matchIndex + needle.length - 1] + 1;
+
+      return { end, start };
+    }
+  }
+
+  return null;
+}
+
+function HighlightedSuggestionText({ text = "", query = "" }) {
+  const highlightRange = getHighlightRange(text, query);
+
+  if (!highlightRange) {
+    return text;
+  }
+
+  return (
+    <>
+      {text.slice(0, highlightRange.start)}
+      <mark className="rounded-sm bg-[#E7F7EC] px-0.5 font-semibold text-[#258D45]">
+        {text.slice(highlightRange.start, highlightRange.end)}
+      </mark>
+      {text.slice(highlightRange.end)}
+    </>
+  );
+}
+
+function normalizeRecentMapPlace(place) {
+  if (
+    !place?.placeId ||
+    !Number.isFinite(Number(place.lat)) ||
+    !Number.isFinite(Number(place.lng))
+  ) {
+    return null;
+  }
+
+  return {
+    addressComponents: place.addressComponents ?? {},
+    displayName:
+      place.displayName || place.formattedAddress || "Vị trí đã chọn",
+    formattedAddress:
+      place.formattedAddress || place.displayName || "Vị trí đã chọn",
+    isPinAdjusted: Boolean(place.isPinAdjusted),
+    lat: Number(place.lat),
+    lng: Number(place.lng),
+    mapProvider: place.mapProvider ?? "geoapify",
+    placeId: place.placeId,
+    searchText:
+      place.searchText || place.formattedAddress || place.displayName || "",
+  };
+}
+
+function getStoredRecentMapPlaces() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsedPlaces = JSON.parse(
+      window.localStorage.getItem(MAP_RECENT_PLACES_STORAGE_KEY) ?? "[]",
+    );
+
+    return Array.isArray(parsedPlaces)
+      ? parsedPlaces.map(normalizeRecentMapPlace).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentMapPlace(place) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const normalizedPlace = normalizeRecentMapPlace(place);
+
+  if (!normalizedPlace) {
+    return getStoredRecentMapPlaces();
+  }
+
+  const nextPlaces = [
+    normalizedPlace,
+    ...getStoredRecentMapPlaces().filter(
+      (recentPlace) => recentPlace.placeId !== normalizedPlace.placeId,
+    ),
+  ].slice(0, MAP_RECENT_PLACES_LIMIT);
+
+  window.localStorage.setItem(
+    MAP_RECENT_PLACES_STORAGE_KEY,
+    JSON.stringify(nextPlaces),
+  );
+
+  return nextPlaces;
 }
 
 function buildMapApiUrl(path, params = {}) {
@@ -1724,9 +2663,15 @@ function getEmbeddedVideoUrl(url) {
         return `https://www.youtube.com/embed/${videoId}`;
       }
 
-      if (parsedUrl.pathname.startsWith("/shorts/")) {
-        const shortId = parsedUrl.pathname.split("/")[2];
-        return shortId ? `https://www.youtube.com/embed/${shortId}` : "";
+      if (
+        parsedUrl.pathname.startsWith("/shorts/") ||
+        parsedUrl.pathname.startsWith("/embed/") ||
+        parsedUrl.pathname.startsWith("/live/")
+      ) {
+        const pathVideoId = parsedUrl.pathname.split("/")[2];
+        return pathVideoId
+          ? `https://www.youtube.com/embed/${pathVideoId}`
+          : "";
       }
     }
   } catch {
@@ -1780,10 +2725,21 @@ function buildMarketingListingRecord(listing, source, index) {
     "1";
   const furnishing = listing.specs?.[1] ?? "Đang cập nhật";
   const gallery = [listing.image, listing.image, listing.image];
+  const mockPublishedDateOffsets =
+    source === "featured"
+      ? [{ hours: 3 }, { days: 6 }, { days: 9 }, { days: 16 }]
+      : [{ hours: 2 }, { hours: 8 }, { days: 1 }, { days: 3 }];
+  const publishedAtRaw =
+    listing.publishedAtRaw ??
+    listing.publishedAt ??
+    createRelativeListingDate(
+      mockPublishedDateOffsets[index] ?? { days: index + 1 },
+    );
 
   return {
     ...listing,
     id: listing.id ?? `${source}-${index + 1}`,
+    publishedAtRaw,
     status: "active",
     statusLabel: "Đang hiển thị",
     packageLabel: source === "featured" ? "Tin nổi bật" : "Tin mới nhất",
@@ -1795,7 +2751,8 @@ function buildMarketingListingRecord(listing, source, index) {
       deposit: "Thỏa thuận",
       minimumStay: "Trao đổi trực tiếp",
       maxOccupants: "2 - 4 người",
-      publishedAt: "Hôm nay",
+      publishedAt: formatApiDateForListing(publishedAtRaw),
+      publishedAtRaw,
       expiresAt: "30 ngày tới",
       coordinates: { lat: null, lng: null },
       gallery,
@@ -1818,6 +2775,7 @@ function buildMarketingListingRecord(listing, source, index) {
       moveInDays: "7",
       waterPrice: "Thỏa thuận",
       electricityPrice: "Thỏa thuận",
+      internetPrice: "Thỏa thuận",
       city,
       district,
       ward: "",
@@ -1831,6 +2789,181 @@ function buildMarketingListingRecord(listing, source, index) {
       selectedDuration: "30days",
       selectedAmenities: [],
     },
+  };
+}
+
+function formatApiDateForListing(value, fallback = "Hôm nay") {
+  if (!value) {
+    return fallback;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return fallback;
+  }
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function getPropertyStatusLabel(status) {
+  return (
+    {
+      active: "Đang hiển thị",
+      draft: "Nháp",
+      hidden: "Đã ẩn",
+      pending: "Chờ duyệt",
+      rejected: "Vi phạm",
+    }[status] ?? "Đang hiển thị"
+  );
+}
+
+function mapApiPropertyToListingRecord(property, index = 0) {
+  const listingId = property.id ?? property._id ?? `api-property-${index + 1}`;
+  const propertyImages = (property.images ?? [])
+    .map((image) => ({
+      publicId: image?.publicId ?? null,
+      url: image?.url ?? "",
+    }))
+    .filter((image) => image.url);
+  const imageUrls = (property.images ?? [])
+    .map((image) => image?.url)
+    .filter(Boolean);
+  const primaryImage =
+    imageUrls[0] ??
+    createPlaceholderImage(
+      property.propertyType || "WeRent",
+      "#dce8d9",
+      "#f4f7f4",
+    );
+  const ownerName =
+    property.contactName ||
+    property.owner?.fullName ||
+    property.owner?.email ||
+    property.owner?.phone ||
+    "Chủ nhà";
+  const city = property.city || "";
+  const district = property.district || "";
+  const location =
+    [district, city].filter(Boolean).join(", ") ||
+    property.formattedAddress ||
+    property.address ||
+    "Đang cập nhật vị trí";
+  const price = property.price
+    ? formatListingCurrency(Number(property.price))
+    : "Thỏa thuận";
+  const area = property.area ? `${property.area}m²` : "Đang cập nhật";
+  const bathroomSpec = property.bathrooms
+    ? `${property.bathrooms} WC`
+    : "Đang cập nhật";
+  const furnishing = property.furnishing || "Đang cập nhật";
+  const selectedTier = property.package?.tier ?? "standard";
+  const selectedDuration = property.package?.durationKey ?? "custom";
+  const packageLabel = getListingTierOptionByKey(selectedTier).label;
+  const gallery = imageUrls.length ? imageUrls : [primaryImage];
+  const metrics = property.metrics ?? {};
+  const publishedAtRaw =
+    property.publishedAt ?? property.createdAt ?? property.updatedAt ?? null;
+  const draft = {
+    ...defaultListingDraft,
+    propertyType: property.propertyType || defaultListingDraft.propertyType,
+    area: property.area ? String(property.area) : "",
+    bedrooms: property.bedrooms ? String(property.bedrooms) : "0",
+    bathrooms: property.bathrooms ? String(property.bathrooms) : "0",
+    rentPrice: property.price ? String(property.price) : "",
+    furnishing,
+    orientation: property.orientation || "",
+    floor: property.floor || "",
+    totalFloors: property.totalFloors ? String(property.totalFloors) : "",
+    frontage: property.frontage ? String(property.frontage) : "",
+    accessRoad: property.accessRoad ? String(property.accessRoad) : "",
+    moveInDays: property.moveInDays ? String(property.moveInDays) : "",
+    waterPrice: property.waterPrice || defaultListingDraft.waterPrice,
+    electricityPrice:
+      property.electricityPrice || defaultListingDraft.electricityPrice,
+    internetPrice: property.internetPrice || defaultListingDraft.internetPrice,
+    city,
+    district,
+    ward: property.ward || "",
+    street: property.street || "",
+    addressLine: property.addressLine || property.address || "",
+    projectName: property.projectName || "",
+    description: property.description || property.title || "",
+    locationNote: property.locationNote || "",
+    videoLink: property.videoUrl || "",
+    selectedTier,
+    selectedDuration,
+    selectedAmenities: Array.isArray(property.amenities)
+      ? property.amenities
+      : [],
+    addressComponents: property.addressComponents ?? [],
+    coordinates: property.coordinates ?? null,
+    formattedAddress: property.formattedAddress || property.address || "",
+    isPinAdjusted: Boolean(property.isPinAdjusted),
+    mapProvider: property.mapProvider || "",
+    placeId: property.placeId ?? null,
+  };
+
+  return {
+    id: listingId,
+    image: primaryImage,
+    location,
+    meta: `${area} • ${bathroomSpec}`,
+    owner: ownerName,
+    packageLabel,
+    price,
+    publishedAtRaw,
+    createdAtRaw: property.createdAt ?? null,
+    rejectionReason: property.rejectionReason ?? "",
+    specs: [bathroomSpec, furnishing],
+    status: property.status ?? "active",
+    statusLabel: getPropertyStatusLabel(property.status),
+    title: property.title || "Tin đăng WeRent",
+    area,
+    updatedAt: formatApiDateForListing(property.updatedAt, "Hôm nay"),
+    updatedAtRaw: property.updatedAt ?? null,
+    metrics: [
+      `${metrics.viewCount ?? 0} lượt xem`,
+      `${metrics.contactCount ?? 0} liên hệ`,
+      `${metrics.favoriteCount ?? 0} lượt lưu`,
+    ],
+    detail: {
+      ownerName,
+      ownerPhone:
+        property.contactPhone || property.owner?.phone || "Liên hệ chủ nhà",
+      ownerLabel: packageLabel,
+      availableFrom: property.availableFrom
+        ? formatApiDateForListing(property.availableFrom)
+        : "Trao đổi trực tiếp",
+      deposit: property.depositAmount
+        ? formatListingCurrency(Number(property.depositAmount))
+        : "Thỏa thuận",
+      minimumStay: property.minimumStayMonths
+        ? `${property.minimumStayMonths} tháng`
+        : "Trao đổi trực tiếp",
+      maxOccupants: property.maxOccupants
+        ? `${property.maxOccupants} người`
+        : "Trao đổi trực tiếp",
+      publishedAt: formatApiDateForListing(property.publishedAt),
+      publishedAtRaw,
+      expiresAt: formatApiDateForListing(property.expiresAt, "Theo gói đăng"),
+      coordinates: property.coordinates ?? { lat: null, lng: null },
+      gallery,
+      images: propertyImages,
+      nearbyPlaces:
+        Array.isArray(property.nearbyPlaces) && property.nearbyPlaces.length
+          ? property.nearbyPlaces
+          : [district, city, "Liên hệ để xem nhà"].filter(Boolean),
+      houseRules:
+        Array.isArray(property.houseRules) && property.houseRules.length
+          ? property.houseRules
+          : ["Trao đổi trực tiếp khi xem nhà"],
+    },
+    draft,
   };
 }
 
@@ -2195,23 +3328,35 @@ function ListingField({ children, label, required }) {
 function ListingInput({
   defaultValue,
   label,
+  name,
+  onChange,
   placeholder,
   readOnly = false,
   required = false,
+  error = "",
   suffix,
   type = "text",
+  value,
 }) {
+  const inputValueProps =
+    value === undefined ? { defaultValue } : { value, onChange };
+
   return (
     <ListingField label={label} required={required}>
       <div className="relative">
         <input
-          className={`h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15 ${
+          className={`h-12 w-full rounded-xl border bg-white px-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          } ${
             suffix ? "pr-18" : "pr-4"
           } ${readOnly ? "bg-[#F7FAF7] text-[#68717C]" : ""}`}
-          defaultValue={defaultValue}
+          name={name}
           placeholder={placeholder}
           readOnly={readOnly}
           type={type}
+          {...inputValueProps}
         />
         {suffix ? (
           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[#7F8791]">
@@ -2225,17 +3370,31 @@ function ListingInput({
 
 function ListingSelect({
   defaultValue = "",
+  disabled = false,
   label,
+  name,
+  onChange,
   options,
   placeholder,
   required = false,
+  error = "",
+  value,
 }) {
+  const selectValueProps =
+    value === undefined ? { defaultValue } : { value, onChange };
+
   return (
     <ListingField label={label} required={required}>
       <div className="relative">
         <select
-          className="h-12 w-full appearance-none rounded-xl border border-[#E2E7E3] bg-white px-4 pr-10 text-sm text-[#38404A] outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-          defaultValue={defaultValue}
+          className={`h-12 w-full appearance-none rounded-xl border bg-white px-4 pr-10 text-sm text-[#38404A] outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#F4F7F5] disabled:text-[#98A0AA] ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
+          disabled={disabled}
+          name={name}
+          {...selectValueProps}
         >
           <option disabled value="">
             {placeholder}
@@ -2253,6 +3412,7 @@ function ListingSelect({
 }
 
 function ListingCounterTextarea({
+  error = "",
   label,
   maxLength,
   onChange,
@@ -2264,7 +3424,11 @@ function ListingCounterTextarea({
     <ListingField label={label}>
       <div className="relative">
         <textarea
-          className="min-h-[108px] w-full resize-none rounded-xl border border-[#E2E7E3] bg-white px-4 py-3 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className={`min-h-[108px] w-full resize-none rounded-xl border bg-white px-4 py-3 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
           maxLength={maxLength}
           placeholder={placeholder}
           rows={rows}
@@ -2298,6 +3462,7 @@ function ListingHint({ children, icon: Icon = MapPin, tone = "success" }) {
 }
 
 function ListingCounterInput({
+  error = "",
   maxLength,
   onChange,
   placeholder,
@@ -2308,7 +3473,11 @@ function ListingCounterInput({
     <ListingField label="Tiêu đề tin đăng" required={required}>
       <div className="relative">
         <input
-          className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className={`h-12 w-full rounded-xl border bg-white px-4 pr-16 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+            error
+              ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+              : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+          }`}
           maxLength={maxLength}
           placeholder={placeholder}
           type="text"
@@ -2323,7 +3492,7 @@ function ListingCounterInput({
   );
 }
 
-function ListingEditor({ maxLength, onChange, value }) {
+function ListingEditor({ error = "", maxLength, onChange, value }) {
   const toolbarItems = [
     "B",
     "I",
@@ -2340,7 +3509,11 @@ function ListingEditor({ maxLength, onChange, value }) {
 
   return (
     <ListingField label="Mô tả chi tiết" required>
-      <div className="overflow-hidden rounded-xl border border-[#E2E7E3] bg-white">
+      <div
+        className={`overflow-hidden rounded-xl border bg-white ${
+          error ? "border-[#E49B9B]" : "border-[#E2E7E3]"
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-1 border-b border-[#EEF1F4] px-3 py-2">
           {toolbarItems.map((item, index) => (
             <button
@@ -2461,54 +3634,56 @@ function ListingProgress({ activeStep = 0 }) {
 function PostListingStepFooter({
   canGoBack,
   canGoNext,
+  isSaveDraftLoading = false,
+  isNextLoading = false,
   nextLabel = "Tiếp tục",
   onBackStep,
   onNextStep,
+  onSaveDraft,
   showNextArrow = true,
 }) {
+  const isNextDisabled = !canGoNext || isNextLoading;
+
   return (
     <>
       <div className="flex flex-col gap-3 border-t border-[#EDF1ED] pt-5 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          className="h-12 rounded-xl border border-[#BFE0C6] px-6 text-sm font-semibold text-[#2F9C50] transition hover:bg-[#F4FBF5]"
-          type="button"
+        <Button
+          className="h-12 border-[#BFE0C6] px-6 text-[#2F9C50] hover:bg-[#F4FBF5]"
+          disabled={isSaveDraftLoading}
+          variant="outline"
+          onClick={onSaveDraft}
         >
+          {isSaveDraftLoading ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : null}
           Lưu nháp
-        </button>
+        </Button>
 
         <div className="flex flex-col gap-3 sm:flex-row">
-          <button
-            className={`h-12 rounded-xl border px-6 text-sm font-semibold transition ${
-              canGoBack
-                ? "border-[#D8E5DA] text-[#355C41] hover:bg-[#F6FAF7]"
-                : "cursor-not-allowed border-[#E6EBE7] bg-[#F7F8F8] text-[#A6AFB7]"
-            }`}
+          <Button
+            className="h-12 px-6 disabled:border-[#E6EBE7] disabled:bg-[#F7F8F8] disabled:text-[#A6AFB7]"
             disabled={!canGoBack}
-            type="button"
+            variant="outline"
             onClick={onBackStep}
           >
             Quay lại
-          </button>
-          <button
-            className={`flex h-12 items-center justify-center gap-2 rounded-xl px-7 text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition ${
-              canGoNext
-                ? "bg-[#35A554] hover:bg-[#2C9349]"
-                : "cursor-not-allowed bg-[#A9D9B5] shadow-none"
-            }`}
-            disabled={!canGoNext}
-            type="button"
+          </Button>
+          <Button
+            className="h-12 px-7 disabled:bg-[#A9D9B5] disabled:shadow-none"
+            disabled={isNextDisabled}
+            variant="primary"
             onClick={onNextStep}
           >
+            {isNextLoading ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : null}
             {nextLabel}
-            {showNextArrow ? <ArrowRight className="size-4" /> : null}
-          </button>
+            {showNextArrow && !isNextLoading ? (
+              <ArrowRight className="size-4" />
+            ) : null}
+          </Button>
         </div>
       </div>
-
-      <p className="flex items-center justify-center gap-2 text-center text-xs text-[#8A919B]">
-        <Lock className="size-3.5 text-[#7E8791]" />
-        Tin đăng của bạn sẽ được kiểm duyệt trước khi hiển thị công khai.
-      </p>
     </>
   );
 }
@@ -2517,15 +3692,24 @@ function PostListingBasicInfoStep({
   canGoBack,
   canGoNext,
   draftValues,
+  isSaveDraftLoading,
   listingDescription,
   listingTitle,
   onBackStep,
   onDescriptionChange,
+  onDraftValueChange,
   onNextStep,
+  onSaveDraft,
   onTitleChange,
   selectedAmenities,
   toggleAmenity,
+  validationErrors = {},
 }) {
+  const getFieldProps = (field) => ({
+    value: draftValues[field] ?? "",
+    onChange: (event) => onDraftValueChange(field, event.target.value),
+  });
+
   return (
     <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
       <div>
@@ -2539,6 +3723,7 @@ function PostListingBasicInfoStep({
 
       <div className="mt-6 space-y-5">
         <ListingCounterInput
+          error={validationErrors.title}
           maxLength={100}
           placeholder="Nhập tiêu đề tin đăng (tối đa 100 ký tự)"
           required
@@ -2547,6 +3732,7 @@ function PostListingBasicInfoStep({
         />
 
         <ListingEditor
+          error={validationErrors.description}
           maxLength={2000}
           value={listingDescription}
           onChange={onDescriptionChange}
@@ -2554,108 +3740,117 @@ function PostListingBasicInfoStep({
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <ListingSelect
-            defaultValue={draftValues.propertyType}
             label="Loại bất động sản"
             options={["Căn hộ chung cư", ...propertyTypeOptions]}
             placeholder="Chọn loại bất động sản"
             required
+            error={validationErrors.propertyType}
+            {...getFieldProps("propertyType")}
           />
           <ListingInput
-            defaultValue={draftValues.area}
             label="Diện tích"
             required
             suffix="m²"
             type="text"
+            error={validationErrors.area}
+            {...getFieldProps("area")}
           />
           <ListingInput
-            defaultValue={draftValues.bedrooms}
             label="Số phòng ngủ"
             required
             type="text"
+            error={validationErrors.bedrooms}
+            {...getFieldProps("bedrooms")}
           />
           <ListingInput
-            defaultValue={draftValues.bathrooms}
             label="Số phòng tắm"
             required
             type="text"
+            error={validationErrors.bathrooms}
+            {...getFieldProps("bathrooms")}
           />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-4">
           <div className="xl:col-span-1">
             <ListingInput
-              defaultValue={draftValues.rentPrice}
               label="Giá cho thuê"
               required
               suffix="đ / tháng"
               type="text"
+              error={validationErrors.rentPrice}
+              {...getFieldProps("rentPrice")}
             />
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <ListingSelect
-            defaultValue={draftValues.furnishing}
             label="Tình trạng nội thất"
             options={furnishingOptions}
             placeholder="Chọn tình trạng nội thất"
+            {...getFieldProps("furnishing")}
           />
           <ListingSelect
-            defaultValue={draftValues.orientation}
             label="Hướng nhà"
             options={orientationOptions}
             placeholder="Chọn hướng nhà"
+            {...getFieldProps("orientation")}
           />
           <ListingInput
-            defaultValue={draftValues.floor}
             label="Tầng"
             placeholder="Nhập tầng"
             type="text"
+            {...getFieldProps("floor")}
           />
           <ListingInput
-            defaultValue={draftValues.totalFloors}
             label="Tổng số tầng"
             placeholder="Nhập tổng số tầng"
             type="text"
+            {...getFieldProps("totalFloors")}
           />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <ListingInput
-            defaultValue={draftValues.frontage}
             label="Mặt tiền"
             placeholder="Nhập mặt tiền"
             suffix="m"
+            {...getFieldProps("frontage")}
           />
           <ListingInput
-            defaultValue={draftValues.accessRoad}
             label="Đường vào"
             placeholder="Nhập đường vào"
             suffix="m"
+            {...getFieldProps("accessRoad")}
           />
           <ListingInput
-            defaultValue={draftValues.moveInDays}
             label="Thời gian vào ở dự kiến"
             placeholder="Nhập số ngày"
             type="text"
-          />
-          <ListingSelect
-            defaultValue={draftValues.waterPrice}
-            label="Giá nước"
-            options={waterPriceOptions}
-            placeholder="Chọn giá nước"
+            {...getFieldProps("moveInDays")}
           />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4">
-          <div className="xl:col-span-1">
-            <ListingSelect
-              defaultValue={draftValues.electricityPrice}
-              label="Giá điện"
-              options={electricityPriceOptions}
-              placeholder="Chọn giá điện"
-            />
-          </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ListingSelect
+            label="Giá nước"
+            options={waterPriceOptions}
+            placeholder="Chọn giá nước"
+            {...getFieldProps("waterPrice")}
+          />
+          <ListingSelect
+            label="Giá điện"
+            options={electricityPriceOptions}
+            placeholder="Chọn giá điện"
+            {...getFieldProps("electricityPrice")}
+          />
+          <ListingSelect
+            label="Giá Internet"
+            options={internetPriceOptions}
+            placeholder="Chọn giá Internet"
+            {...getFieldProps("internetPrice")}
+          />
         </div>
 
         <AmenityGroup
@@ -2675,8 +3870,10 @@ function PostListingBasicInfoStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
@@ -2728,10 +3925,47 @@ function MapPositionSync({ location }) {
   return null;
 }
 
-function DraggablePropertyMarker({
-  location,
-  onManualPositionChange,
-}) {
+function CtrlWheelZoomHandler() {
+  const map = useMap();
+  const lastZoomAtRef = useRef(0);
+
+  useEffect(() => {
+    const container = map.getContainer();
+
+    function handleWheel(event) {
+      if (!event.ctrlKey) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const now = Date.now();
+
+      if (now - lastZoomAtRef.current < 80) {
+        return;
+      }
+
+      lastZoomAtRef.current = now;
+
+      if (event.deltaY < 0) {
+        map.zoomIn(1, { animate: true });
+      } else if (event.deltaY > 0) {
+        map.zoomOut(1, { animate: true });
+      }
+    }
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener("wheel", handleWheel);
+    };
+  }, [map]);
+
+  return null;
+}
+
+function DraggablePropertyMarker({ location, onManualPositionChange }) {
   const markerRef = useRef(null);
   const markerPosition = useMemo(
     () => [location.lat, location.lng],
@@ -2776,14 +4010,92 @@ function DraggablePropertyMarker({
   );
 }
 
+function StaticPropertyMarker({ location }) {
+  const markerPosition = useMemo(
+    () => [location.lat, location.lng],
+    [location.lat, location.lng],
+  );
+
+  return (
+    <Marker icon={PROPERTY_MARKER_ICON} position={markerPosition}>
+      <Popup>
+        <div className="max-w-[220px] text-sm font-semibold text-[#27313A]">
+          {location.formattedAddress || "Vị trí bất động sản"}
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
+function ListingDetailMap({ location }) {
+  if (!hasValidCoordinates(location)) {
+    return (
+      <div className="mt-5 rounded-[24px] border border-[#E6ECE8] bg-[#F7FAF8] p-5">
+        <div className="flex min-h-[260px] items-center justify-center rounded-[20px] border border-dashed border-[#C8D8CC] bg-white/70 px-5 text-center">
+          <div>
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#EEF8F0] text-[#35A554]">
+              <MapPin className="size-6" />
+            </span>
+            <p className="mt-4 text-sm font-semibold text-[#27313A]">
+              Chưa có tọa độ bản đồ
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#75808C]">
+              Tin đăng này chưa lưu vị trí ghim chính xác trên bản đồ.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="relative overflow-hidden rounded-[24px] border border-[#DDE8DF] bg-[#EEF3F1] shadow-[0_10px_26px_rgba(46,72,54,0.06)]">
+        <MapContainer
+          center={[location.lat, location.lng]}
+          className="relative z-0 h-[320px] w-full"
+          scrollWheelZoom={false}
+          zoom={16}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <MapPositionSync location={location} />
+          <CtrlWheelZoomHandler />
+          <StaticPropertyMarker location={location} />
+        </MapContainer>
+
+        <a
+          className="absolute left-[54px] top-3 z-[10] inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/95 px-3 py-2 text-xs font-semibold text-[#2F9C50] shadow-[0_10px_22px_rgba(31,37,45,0.14)] backdrop-blur transition hover:bg-white hover:text-[#238C43]"
+          href={buildGoogleMapsSearchUrl(location)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <MapPin className="size-3.5" />
+          Xem trên Google Maps
+        </a>
+      </div>
+      <p className="mt-2 text-xs font-medium text-[#75808C]">
+        Dùng CTRL + cuộn chuột để phóng bản đồ
+      </p>
+    </div>
+  );
+}
+
 function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
   const [query, setQuery] = useState(
     location.searchText || location.formattedAddress || "",
   );
   const [predictions, setPredictions] = useState([]);
+  const [activePredictionIndex, setActivePredictionIndex] = useState(-1);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [recentPlaces, setRecentPlaces] = useState(() =>
+    getStoredRecentMapPlaces(),
+  );
   const [searchStatus, setSearchStatus] = useState("idle");
   const [selectionStatus, setSelectionStatus] = useState("idle");
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
   const [notice, setNotice] = useState("");
   const autocompleteAbortRef = useRef(null);
   const autocompleteCacheRef = useRef(new Map());
@@ -2791,7 +4103,9 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
   const locationRef = useRef(location);
   const onLocationChangeRef = useRef(onLocationChange);
   const reverseAbortRef = useRef(null);
+  const reverseLookupTimeoutRef = useRef(null);
   const searchBoxRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
     locationRef.current = location;
@@ -2801,6 +4115,15 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     onLocationChangeRef.current = onLocationChange;
   }, [onLocationChange]);
 
+  useEffect(
+    () => () => {
+      autocompleteAbortRef.current?.abort();
+      reverseAbortRef.current?.abort();
+      window.clearTimeout(reverseLookupTimeoutRef.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     function handlePointerDown(event) {
       if (searchBoxRef.current?.contains(event.target)) {
@@ -2808,6 +4131,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       }
 
       setIsSuggestionsOpen(false);
+      setActivePredictionIndex(-1);
     }
 
     document.addEventListener("mousedown", handlePointerDown);
@@ -2819,6 +4143,13 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     };
   }, []);
 
+  function showAutocompleteResults(nextPredictions) {
+    setPredictions(nextPredictions);
+    setSearchStatus(nextPredictions.length > 0 ? "ready" : "empty");
+    setIsSuggestionsOpen(nextPredictions.length > 0);
+    setActivePredictionIndex(nextPredictions.length > 0 ? 0 : -1);
+  }
+
   useEffect(() => {
     const trimmedQuery = query.trim();
 
@@ -2829,14 +4160,15 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       return undefined;
     }
 
-    const cacheKey = buildAutocompleteCacheKey(trimmedQuery, locationRef.current);
+    const cacheKey = buildAutocompleteCacheKey(
+      trimmedQuery,
+      locationRef.current,
+    );
     const cachedPredictions = autocompleteCacheRef.current.get(cacheKey);
 
     if (cachedPredictions) {
       autocompleteAbortRef.current?.abort();
-      setPredictions(cachedPredictions);
-      setSearchStatus(cachedPredictions.length > 0 ? "ready" : "empty");
-      setIsSuggestionsOpen(cachedPredictions.length > 0);
+      showAutocompleteResults(cachedPredictions);
       return undefined;
     }
 
@@ -2856,9 +4188,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
         autocompleteCacheRef.current.get(requestCacheKey);
 
       if (lateCachedPredictions) {
-        setPredictions(lateCachedPredictions);
-        setSearchStatus(lateCachedPredictions.length > 0 ? "ready" : "empty");
-        setIsSuggestionsOpen(lateCachedPredictions.length > 0);
+        showAutocompleteResults(lateCachedPredictions);
         return;
       }
 
@@ -2886,9 +4216,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
             requestCacheKey,
             normalizedPredictions,
           );
-          setPredictions(normalizedPredictions);
-          setSearchStatus(normalizedPredictions.length > 0 ? "ready" : "empty");
-          setIsSuggestionsOpen(normalizedPredictions.length > 0);
+          showAutocompleteResults(normalizedPredictions);
         })
         .catch((error) => {
           if (!isActive || error.name === "AbortError") {
@@ -2896,6 +4224,7 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
           }
 
           setPredictions([]);
+          setActivePredictionIndex(-1);
           setSearchStatus("error");
           setNotice(error.message);
         });
@@ -2928,10 +4257,12 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     if (syncSearchInput) {
       lastSelectedQueryRef.current = nextLocation.formattedAddress;
       setQuery(nextLocation.formattedAddress);
+      setRecentPlaces(rememberRecentMapPlace(nextLocation));
     }
 
     setPredictions([]);
     setIsSuggestionsOpen(false);
+    setActivePredictionIndex(-1);
     setSelectionStatus("ready");
     onLocationChangeRef.current(nextLocation);
   }
@@ -2946,15 +4277,42 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     applySelectedPlace(prediction, { syncSearchInput: true });
   }
 
+  function selectRecentPlace(place) {
+    applySelectedPlace(place, { syncSearchInput: true });
+  }
+
   function handleSearchKeyDown(event) {
-    if (event.key !== "Enter") {
+    if (event.key === "Escape") {
+      setIsSuggestionsOpen(false);
+      setActivePredictionIndex(-1);
       return;
     }
 
-    event.preventDefault();
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (predictions.length === 0) {
+        return;
+      }
 
-    if (predictions.length > 0) {
-      selectPrediction(predictions[0]);
+      event.preventDefault();
+      setIsSuggestionsOpen(true);
+      setActivePredictionIndex((currentIndex) => {
+        if (event.key === "ArrowDown") {
+          return currentIndex >= predictions.length - 1 ? 0 : currentIndex + 1;
+        }
+
+        return currentIndex <= 0 ? predictions.length - 1 : currentIndex - 1;
+      });
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+
+      if (predictions.length > 0) {
+        selectPrediction(
+          predictions[Math.max(activePredictionIndex, 0)] ?? predictions[0],
+        );
+      }
     }
   }
 
@@ -2962,20 +4320,48 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     const nextQuery = event.target.value;
     lastSelectedQueryRef.current = "";
     setQuery(nextQuery);
-    setIsSuggestionsOpen(predictions.length > 0);
+    setIsSuggestionsOpen(
+      nextQuery.trim().length < MAP_SEARCH_MIN_LENGTH
+        ? recentPlaces.length > 0
+        : predictions.length > 0,
+    );
 
     if (nextQuery.trim().length < MAP_SEARCH_MIN_LENGTH) {
       autocompleteAbortRef.current?.abort();
       setPredictions([]);
-      setIsSuggestionsOpen(false);
+      setActivePredictionIndex(-1);
       setSearchStatus("idle");
+    } else if (predictions.length > 0) {
+      setActivePredictionIndex(0);
     }
   }
 
   function handleSearchFocus() {
     if (predictions.length > 0) {
       setIsSuggestionsOpen(true);
+      setActivePredictionIndex(0);
+      return;
     }
+
+    if (
+      query.trim().length < MAP_SEARCH_MIN_LENGTH &&
+      recentPlaces.length > 0
+    ) {
+      setIsSuggestionsOpen(true);
+      setActivePredictionIndex(-1);
+    }
+  }
+
+  function handleClearSearch() {
+    autocompleteAbortRef.current?.abort();
+    lastSelectedQueryRef.current = "";
+    setQuery("");
+    setPredictions([]);
+    setActivePredictionIndex(-1);
+    setSearchStatus("idle");
+    setNotice("");
+    setIsSuggestionsOpen(recentPlaces.length > 0);
+    searchInputRef.current?.focus();
   }
 
   function reverseLookup(nextPosition) {
@@ -3010,6 +4396,16 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       });
   }
 
+  function scheduleReverseLookup(nextPosition) {
+    window.clearTimeout(reverseLookupTimeoutRef.current);
+    reverseAbortRef.current?.abort();
+    setSelectionStatus("loading");
+
+    reverseLookupTimeoutRef.current = window.setTimeout(() => {
+      reverseLookup(nextPosition);
+    }, MAP_REVERSE_LOOKUP_DEBOUNCE_MS);
+  }
+
   function handleManualPositionChange(nextPosition) {
     const nextLocation = {
       ...locationRef.current,
@@ -3021,8 +4417,54 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
 
     onLocationChangeRef.current(nextLocation);
     setNotice("");
-    reverseLookup(nextPosition);
+    scheduleReverseLookup(nextPosition);
   }
+
+  function handleUseCurrentLocation(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!navigator.geolocation) {
+      setNotice("Trình duyệt chưa hỗ trợ lấy vị trí hiện tại.");
+      return;
+    }
+
+    setIsLocatingUser(true);
+    setSelectionStatus("loading");
+    setNotice("");
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setIsLocatingUser(false);
+        handleManualPositionChange({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {
+        setIsLocatingUser(false);
+        setSelectionStatus("error");
+        setNotice(
+          "Không thể lấy vị trí hiện tại. Vui lòng kiểm tra quyền truy cập vị trí.",
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: MAP_GEOLOCATION_TIMEOUT_MS,
+      },
+    );
+  }
+
+  const trimmedQuery = query.trim();
+  const isSearchLoading = searchStatus === "loading";
+  const isSelectionLoading = selectionStatus === "loading";
+  const showPredictions = isSuggestionsOpen && predictions.length > 0;
+  const showRecentPlaces =
+    isSuggestionsOpen &&
+    predictions.length === 0 &&
+    trimmedQuery.length < MAP_SEARCH_MIN_LENGTH &&
+    recentPlaces.length > 0;
 
   return (
     <div className="space-y-4">
@@ -3031,7 +4473,16 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#97A0AA]" />
             <input
-              className="h-12 w-full rounded-2xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm text-[#38404A] shadow-[0_12px_30px_rgba(26,40,34,0.08)] outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+              aria-activedescendant={
+                activePredictionIndex >= 0
+                  ? `map-suggestion-${activePredictionIndex}`
+                  : undefined
+              }
+              aria-autocomplete="list"
+              aria-expanded={showPredictions || showRecentPlaces}
+              ref={searchInputRef}
+              role="combobox"
+              className="h-12 w-full rounded-2xl border border-[#E2E7E3] bg-white pl-11 pr-20 text-sm text-[#38404A] shadow-[0_12px_30px_rgba(26,40,34,0.08)] outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
               placeholder="Tìm địa điểm, tòa nhà, tên đường..."
               type="text"
               value={query}
@@ -3039,27 +4490,81 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
               onFocus={handleSearchFocus}
               onKeyDown={handleSearchKeyDown}
             />
-            {searchStatus === "loading" || selectionStatus === "loading" ? (
+            {query ? (
+              <button
+                aria-label="Xóa nội dung tìm kiếm"
+                className="absolute right-10 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-[#7D8791] transition hover:bg-[#EEF4EF] hover:text-[#2F9C50]"
+                type="button"
+                onClick={handleClearSearch}
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
+            {isSearchLoading || isSelectionLoading ? (
               <LoaderCircle className="absolute right-4 top-1/2 size-4 -translate-y-1/2 animate-spin text-[#35A554]" />
             ) : null}
           </div>
 
-          {isSuggestionsOpen && predictions.length > 0 ? (
-            <div className="absolute left-0 right-0 top-full z-[1200] mt-2 max-h-[260px] overflow-auto rounded-2xl border border-[#E2E7E3] bg-white shadow-[0_16px_36px_rgba(26,40,34,0.12)]">
-              {predictions.map((prediction) => (
+          {showPredictions ? (
+            <div
+              className="absolute left-0 right-0 top-full z-[1200] mt-2 max-h-[260px] overflow-auto rounded-2xl border border-[#E2E7E3] bg-white shadow-[0_16px_36px_rgba(26,40,34,0.12)]"
+              role="listbox"
+            >
+              {predictions.map((prediction, index) => (
                 <button
                   key={prediction.placeId}
-                  className="flex w-full items-start gap-3 border-b border-[#F0F3F1] px-4 py-3 text-left transition last:border-b-0 hover:bg-[#F7FCF8]"
+                  aria-selected={index === activePredictionIndex}
+                  className={`flex w-full items-start gap-3 border-b border-[#F0F3F1] px-4 py-3 text-left transition last:border-b-0 ${
+                    index === activePredictionIndex
+                      ? "bg-[#EEF9F1]"
+                      : "hover:bg-[#F7FCF8]"
+                  }`}
+                  id={`map-suggestion-${index}`}
+                  role="option"
                   type="button"
+                  onMouseEnter={() => setActivePredictionIndex(index)}
                   onClick={() => selectPrediction(prediction)}
                 >
                   <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
                   <span>
                     <span className="block text-sm font-semibold text-[#27313A]">
-                      {prediction.displayName}
+                      <HighlightedSuggestionText
+                        query={query}
+                        text={prediction.displayName}
+                      />
                     </span>
                     <span className="mt-0.5 block text-xs text-[#737D88]">
-                      {prediction.formattedAddress}
+                      <HighlightedSuggestionText
+                        query={query}
+                        text={prediction.formattedAddress}
+                      />
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {showRecentPlaces ? (
+            <div className="absolute left-0 right-0 top-full z-[1200] mt-2 max-h-[260px] overflow-auto rounded-2xl border border-[#E2E7E3] bg-white shadow-[0_16px_36px_rgba(26,40,34,0.12)]">
+              <div className="flex items-center gap-2 border-b border-[#F0F3F1] px-4 py-2 text-xs font-semibold uppercase text-[#8A949F]">
+                <Clock3 className="size-3.5" />
+                Địa điểm gần đây
+              </div>
+              {recentPlaces.map((place) => (
+                <button
+                  key={place.placeId}
+                  className="flex w-full items-start gap-3 border-b border-[#F0F3F1] px-4 py-3 text-left transition last:border-b-0 hover:bg-[#F7FCF8]"
+                  type="button"
+                  onClick={() => selectRecentPlace(place)}
+                >
+                  <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
+                  <span>
+                    <span className="block text-sm font-semibold text-[#27313A]">
+                      {place.displayName}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-[#737D88]">
+                      {place.formattedAddress}
                     </span>
                   </span>
                 </button>
@@ -3083,6 +4588,21 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
         </div>
 
         <div className="relative mt-4 overflow-hidden rounded-[20px] border border-[#E2E7E3] bg-[#EEF3F1]">
+          <button
+            aria-label="Dùng vị trí hiện tại"
+            className="absolute right-3 top-3 z-[1000] flex size-10 items-center justify-center rounded-full border border-[#DDE7DF] bg-white text-[#2F9C50] shadow-[0_10px_25px_rgba(26,40,34,0.14)] transition hover:bg-[#F2FBF4] disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isLocatingUser}
+            title="Dùng vị trí hiện tại"
+            type="button"
+            onClick={handleUseCurrentLocation}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {isLocatingUser ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <LocateFixed className="size-4" />
+            )}
+          </button>
           <MapContainer
             center={[location.lat, location.lng]}
             className="h-[420px] w-full"
@@ -3109,16 +4629,71 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
   );
 }
 function PostListingLocationStep({
+  administrativeDivisionsNotice,
   canGoBack,
   canGoNext,
+  cityOptions = [],
+  districtOptions = [],
   draftValues,
+  isSaveDraftLoading,
+  isAdministrativeDivisionsLoading = false,
   listingLocation,
   locationNote,
   onBackStep,
+  onDraftValueChange,
   onListingLocationChange,
   onLocationNoteChange,
   onNextStep,
+  onSaveDraft,
+  validationErrors = {},
+  wardOptions = [],
 }) {
+  const hasSelectedCity = Boolean(draftValues.city);
+  const hasSelectedDistrict = Boolean(draftValues.district);
+  const cityPlaceholder =
+    isAdministrativeDivisionsLoading && cityOptions.length === 0
+      ? "Đang tải tỉnh / thành phố"
+      : "Chọn tỉnh / thành phố";
+  const districtPlaceholder = isAdministrativeDivisionsLoading
+    ? "Đang tải quận / huyện"
+    : hasSelectedCity
+      ? "Chọn quận / huyện"
+      : "Chọn tỉnh / thành phố trước";
+  const wardPlaceholder = isAdministrativeDivisionsLoading
+    ? "Đang tải phường / xã"
+    : hasSelectedDistrict
+      ? "Chọn phường / xã"
+      : "Chọn quận / huyện trước";
+  const isCitySelectDisabled =
+    isAdministrativeDivisionsLoading && cityOptions.length === 0;
+  const isDistrictSelectDisabled =
+    isAdministrativeDivisionsLoading ||
+    !hasSelectedCity ||
+    districtOptions.length === 0;
+  const isWardSelectDisabled =
+    isAdministrativeDivisionsLoading ||
+    !hasSelectedDistrict ||
+    wardOptions.length === 0;
+  const getFieldProps = (field) => ({
+    value: draftValues[field] ?? "",
+    onChange: (event) => onDraftValueChange(field, event.target.value),
+  });
+  const getAdministrativeFieldProps = (field, options) => {
+    const fieldProps = getFieldProps(field);
+    const normalizedValue = normalizeAdministrativeDivisionName(
+      fieldProps.value,
+    );
+    const matchedOption = options.find(
+      (option) =>
+        normalizeAdministrativeDivisionName(option) === normalizedValue,
+    );
+
+    return {
+      ...fieldProps,
+      value: matchedOption ?? fieldProps.value,
+    };
+  };
+
   return (
     <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
       <div className="flex items-start gap-3">
@@ -3151,46 +4726,58 @@ function PostListingLocationStep({
             Địa chỉ
           </h3>
           <div className="mt-5 space-y-4">
+            {administrativeDivisionsNotice ? (
+              <ListingHint icon={Info} tone="neutral">
+                {administrativeDivisionsNotice}
+              </ListingHint>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-3">
               <ListingSelect
-                defaultValue={draftValues.city}
                 label="Tỉnh / Thành phố"
                 options={cityOptions}
-                placeholder="Chọn tỉnh / thành phố"
+                placeholder={cityPlaceholder}
                 required
+                disabled={isCitySelectDisabled}
+                error={validationErrors.city}
+                {...getAdministrativeFieldProps("city", cityOptions)}
               />
               <ListingSelect
-                defaultValue={draftValues.district}
                 label="Quận / Huyện"
                 options={districtOptions}
-                placeholder="Chọn quận / huyện"
+                placeholder={districtPlaceholder}
                 required
+                disabled={isDistrictSelectDisabled}
+                error={validationErrors.district}
+                {...getAdministrativeFieldProps("district", districtOptions)}
               />
               <ListingSelect
-                defaultValue={draftValues.ward}
                 label="Phường / Xã"
                 options={wardOptions}
-                placeholder="Chọn phường / xã"
+                placeholder={wardPlaceholder}
                 required
+                disabled={isWardSelectDisabled}
+                error={validationErrors.ward}
+                {...getAdministrativeFieldProps("ward", wardOptions)}
               />
             </div>
 
             <ListingInput
-              defaultValue={draftValues.street}
               label="Đường / Phố"
               placeholder="Nhập đường / phố"
+              {...getFieldProps("street")}
             />
 
             <div className="grid gap-4 md:grid-cols-2">
               <ListingInput
-                defaultValue={draftValues.addressLine}
                 label="Địa chỉ chi tiết"
                 placeholder="Nhập số nhà, khu phố, ngõ hẻm, căn hộ..."
+                {...getFieldProps("addressLine")}
               />
               <ListingInput
-                defaultValue={draftValues.projectName}
                 label="Tên tòa nhà / Dự án (nếu có)"
                 placeholder="Nhập tên tòa nhà / dự án"
+                {...getFieldProps("projectName")}
               />
             </div>
 
@@ -3213,38 +4800,107 @@ function PostListingLocationStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
   );
 }
 
-function MediaPreviewCard({ preview }) {
+function MediaPreviewCard({
+  image,
+  index,
+  isCover,
+  isDragging,
+  totalImages,
+  onDragEnd,
+  onDragStart,
+  onDropImage,
+  onMove,
+  onRemove,
+  onSetCover,
+}) {
   return (
-    <div className="group relative aspect-[1.02] overflow-hidden rounded-[18px] border border-[#E2E7E3] bg-white shadow-[0_10px_24px_rgba(36,54,43,0.08)]">
-      <div
-        className="absolute inset-0"
-        style={{ backgroundImage: preview.background }}
+    <div
+      className={`group relative aspect-[1.02] overflow-hidden rounded-[18px] border bg-white shadow-[0_10px_24px_rgba(36,54,43,0.08)] transition ${
+        isDragging
+          ? "border-[#35A554] opacity-70 ring-2 ring-[#35A554]/25"
+          : "border-[#E2E7E3]"
+      }`}
+      draggable
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => event.preventDefault()}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", image.id);
+        onDragStart(image.id);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDropImage(image.id);
+      }}
+    >
+      <img
+        alt={image.name}
+        className="absolute inset-0 h-full w-full object-cover"
+        src={image.previewUrl}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(18,26,32,0.04),rgba(18,26,32,0.28))]" />
-      <div className="absolute left-3 right-3 top-3 flex items-start justify-between">
-        <span className="flex size-6 items-center justify-center rounded-full bg-[#111827] text-xs font-bold text-white shadow-sm">
-          {preview.id}
-        </span>
-        <button
-          className="flex size-6 items-center justify-center rounded-full bg-white/95 text-[#7B838E] shadow-sm transition hover:bg-white hover:text-[#27313A]"
-          type="button"
-        >
-          <X className="size-3.5" />
-        </button>
-      </div>
-      <div className="absolute inset-x-4 bottom-4">
-        <div className="rounded-2xl bg-white/88 px-3 py-2 text-xs font-semibold text-[#2B3440] shadow-[0_6px_16px_rgba(22,35,28,0.08)] backdrop-blur-sm">
-          {preview.label}
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(18,26,32,0.12),rgba(18,26,32,0.34))]" />
+      <div className="absolute left-3 right-3 top-3 flex items-start justify-end">
+        <div className="flex items-center gap-1.5">
+          <Button
+            aria-label="Đặt làm ảnh đại diện"
+            className={`size-8 rounded-lg border bg-white/95 text-[#5F6974] shadow-sm backdrop-blur-sm hover:bg-white hover:text-[#249245] disabled:opacity-55 ${
+              isCover ? "border-[#CFE7D4] text-[#249245]" : "border-white/80"
+            }`}
+            disabled={isCover}
+            size="icon"
+            title="Đặt làm ảnh đại diện"
+            variant="ghost"
+            onClick={() => onSetCover(image.id)}
+          >
+            <Star className={`size-4 ${isCover ? "fill-current" : ""}`} />
+          </Button>
+          <Button
+            aria-label="Đưa ảnh lên trước"
+            className="size-8 rounded-lg border border-white/80 bg-white/95 text-[#5F6974] shadow-sm backdrop-blur-sm hover:bg-white hover:text-[#249245] disabled:opacity-55"
+            disabled={index === 0}
+            size="icon"
+            title="Đưa ảnh lên trước"
+            variant="ghost"
+            onClick={() => onMove(image.id, -1)}
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+          <Button
+            aria-label="Đưa ảnh xuống sau"
+            className="size-8 rounded-lg border border-white/80 bg-white/95 text-[#5F6974] shadow-sm backdrop-blur-sm hover:bg-white hover:text-[#249245] disabled:opacity-55"
+            disabled={index === totalImages - 1}
+            size="icon"
+            title="Đưa ảnh xuống sau"
+            variant="ghost"
+            onClick={() => onMove(image.id, 1)}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+          <Button
+            aria-label={`Xóa ${image.name}`}
+            className="size-8 rounded-lg border border-white/80 bg-white/95 text-[#7B2830] shadow-sm backdrop-blur-sm hover:bg-white hover:text-[#BE303B]"
+            size="icon"
+            title="Xóa ảnh"
+            variant="ghost"
+            onClick={() => onRemove(image.id)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
         </div>
       </div>
+      <span className="absolute bottom-3 right-3 flex size-7 items-center justify-center rounded-full bg-[#111827] text-xs font-bold text-white shadow-sm">
+        {index + 1}
+      </span>
     </div>
   );
 }
@@ -3252,11 +4908,72 @@ function MediaPreviewCard({ preview }) {
 function PostListingMediaStep({
   canGoBack,
   canGoNext,
+  imageError,
+  images,
+  isSaveDraftLoading,
+  onAddImages,
   onBackStep,
+  onMoveImage,
   onNextStep,
+  onRemoveImage,
+  onReorderImages,
+  onSaveDraft,
+  onSetCoverImage,
   onVideoLinkChange,
   videoLink,
+  videoLinkError,
 }) {
+  const fileInputRef = useRef(null);
+  const [draggedImageId, setDraggedImageId] = useState("");
+  const [isUploadDragging, setIsUploadDragging] = useState(false);
+  const isImageLimitReached = images.length >= PROPERTY_IMAGE_LIMIT;
+  const trimmedVideoLink = videoLink.trim();
+  const videoPreviewUrl = videoLinkError
+    ? ""
+    : getEmbeddedVideoUrl(trimmedVideoLink);
+  const videoProviderLabel = trimmedVideoLink
+    ? getVideoProviderLabel(trimmedVideoLink)
+    : "";
+
+  function openImagePicker() {
+    if (!isImageLimitReached) {
+      fileInputRef.current?.click();
+    }
+  }
+
+  function handleImageInputChange(event) {
+    onAddImages(event.target.files);
+    event.target.value = "";
+  }
+
+  function handleUploadDragOver(event) {
+    event.preventDefault();
+
+    if (!isImageLimitReached) {
+      setIsUploadDragging(true);
+    }
+  }
+
+  function handleUploadDrop(event) {
+    event.preventDefault();
+    setIsUploadDragging(false);
+
+    if (isImageLimitReached || event.dataTransfer.files.length === 0) {
+      return;
+    }
+
+    onAddImages(event.dataTransfer.files);
+  }
+
+  function handlePreviewDrop(targetImageId) {
+    if (!draggedImageId) {
+      return;
+    }
+
+    onReorderImages(draggedImageId, targetImageId);
+    setDraggedImageId("");
+  }
+
   return (
     <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
       <div>
@@ -3272,49 +4989,117 @@ function PostListingMediaStep({
         <div className="flex items-center gap-2 rounded-2xl border border-[#E2F2E6] bg-[#F7FCF8] px-4 py-3 text-sm text-[#2F9C50]">
           <Info className="size-4 shrink-0" />
           <span>
-            Nên đăng ít nhất 5 hình ảnh rõ nét, đa dạng góc chụp (tối đa 15
-            ảnh).
+            Nên đăng ít nhất {PROPERTY_RECOMMENDED_IMAGE_COUNT} hình ảnh rõ nét,
+            đa dạng góc chụp (tối đa {PROPERTY_IMAGE_LIMIT} ảnh).
           </span>
         </div>
 
-        <div className="rounded-[24px] border border-dashed border-[#CFD8D3] bg-[#FBFCFB] px-6 py-10 text-center">
+        <input
+          ref={fileInputRef}
+          accept={PROPERTY_IMAGE_ACCEPT}
+          className="sr-only"
+          multiple
+          type="file"
+          onChange={handleImageInputChange}
+        />
+
+        <div
+          aria-disabled={isImageLimitReached}
+          className={`rounded-[24px] border border-dashed px-6 py-10 text-center transition ${
+            isImageLimitReached
+              ? "border-[#DFE5E1] bg-[#F7F9F8]"
+              : isUploadDragging
+                ? "border-[#35A554] bg-[#F2FBF4]"
+                : "border-[#CFD8D3] bg-[#FBFCFB] hover:border-[#BFD4C3] hover:bg-[#F7FAF7]"
+          }`}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              setIsUploadDragging(false);
+            }
+          }}
+          onDragOver={handleUploadDragOver}
+          onDrop={handleUploadDrop}
+        >
           <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-[#F0F4F1] text-[#1F252D]">
-            <ImagePlus className="size-8" />
+            {isUploadDragging ? (
+              <Upload className="size-8" />
+            ) : (
+              <ImagePlus className="size-8" />
+            )}
           </span>
           <p className="mt-4 text-sm font-medium text-[#28323C]">
-            Kéo thả ảnh vào đây
+            {isImageLimitReached ? "Đã đủ số lượng ảnh" : "Kéo thả ảnh vào đây"}
           </p>
-          <p className="mt-1 text-sm text-[#7A828C]">hoặc</p>
+          <p className="mt-1 text-sm text-[#7A828C]">
+            {images.length}/{PROPERTY_IMAGE_LIMIT} ảnh đã chọn
+          </p>
           <button
-            className="mt-4 h-11 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white transition hover:bg-[#2C9349]"
+            className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:bg-[#A9D9B5]"
+            disabled={isImageLimitReached}
             type="button"
+            onClick={openImagePicker}
           >
+            <Upload className="size-4" />
             Chọn ảnh từ thiết bị
           </button>
           <p className="mt-4 text-xs text-[#8A919B]">
-            Định dạng: JPG, PNG, Kích thước tối đa 10MB/ảnh
+            Định dạng: JPG, PNG, WEBP, GIF. Kích thước tối đa{" "}
+            {PROPERTY_IMAGE_MAX_SIZE_MB}MB/ảnh.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {mediaPhotoPreviews.map((preview) => (
-            <MediaPreviewCard key={preview.id} preview={preview} />
-          ))}
+        {imageError ? (
+          <div className="flex items-center gap-2 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-4 py-3 text-sm text-[#B83B3B]">
+            <Info className="size-4 shrink-0" />
+            <span>{imageError}</span>
+          </div>
+        ) : null}
 
-          <button
-            className="flex aspect-[1.02] flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-[#D7DFDB] bg-[#FBFCFB] text-[#5D6671] transition hover:border-[#BFD4C3] hover:bg-[#F7FAF7]"
-            type="button"
-          >
-            <span className="flex size-11 items-center justify-center rounded-full bg-white text-[#27313A] shadow-sm">
-              <Plus className="size-5" />
-            </span>
-            <span className="text-sm font-medium">Thêm ảnh</span>
-          </button>
-        </div>
+        {images.length > 0 ? (
+          <>
+            <div className="flex flex-col gap-2 rounded-2xl border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-3 text-sm text-[#69717B] sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Ảnh đầu tiên là ảnh đại diện. Kéo thả hoặc dùng nút mũi tên để
+                đổi thứ tự.
+              </span>
+              <span className="font-semibold text-[#2F9C50]">
+                {images.length}/{PROPERTY_IMAGE_LIMIT} ảnh
+              </span>
+            </div>
 
-        <p className="text-sm text-[#7B838E]">
-          * Kéo thả để sắp xếp thứ tự ảnh. Ảnh đại diện sẽ là ảnh đầu tiên.
-        </p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {images.map((image, index) => (
+                <MediaPreviewCard
+                  key={image.id}
+                  image={image}
+                  index={index}
+                  isCover={index === 0}
+                  isDragging={draggedImageId === image.id}
+                  totalImages={images.length}
+                  onDragEnd={() => setDraggedImageId("")}
+                  onDragStart={setDraggedImageId}
+                  onDropImage={handlePreviewDrop}
+                  onMove={onMoveImage}
+                  onRemove={onRemoveImage}
+                  onSetCover={onSetCoverImage}
+                />
+              ))}
+
+              {!isImageLimitReached ? (
+                <button
+                  className="flex aspect-[1.02] flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-[#D7DFDB] bg-[#FBFCFB] text-[#5D6671] transition hover:border-[#BFD4C3] hover:bg-[#F7FAF7]"
+                  type="button"
+                  onClick={openImagePicker}
+                >
+                  <span className="flex size-11 items-center justify-center rounded-full bg-white text-[#27313A] shadow-sm">
+                    <Plus className="size-5" />
+                  </span>
+                  <span className="text-sm font-medium">Thêm ảnh</span>
+                </button>
+              ) : null}
+            </div>
+          </>
+        ) : null}
 
         <div className="border-t border-[#EDF1ED] pt-6">
           <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
@@ -3335,16 +5120,66 @@ function PostListingMediaStep({
               <div className="relative mt-2">
                 <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#929AA5]" />
                 <input
-                  className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                  className={`h-12 w-full rounded-xl border bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:ring-2 ${
+                    videoLinkError
+                      ? "border-[#E49B9B] focus:border-[#D05252] focus:ring-[#D05252]/15"
+                      : "border-[#E2E7E3] focus:border-[#35A554] focus:ring-[#35A554]/15"
+                  }`}
                   placeholder="Dán link YouTube, Facebook, TikTok..."
                   type="text"
                   value={videoLink}
                   onChange={onVideoLinkChange}
                 />
               </div>
-              <p className="mt-2 text-xs text-[#8A919B]">
-                Ví dụ: https://www.youtube.com/watch?v=xxxxxxxx
-              </p>
+              {videoLinkError ? (
+                <p className="mt-2 text-xs font-medium text-[#B83B3B]">
+                  {videoLinkError}
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-[#8A919B]">
+                  Ví dụ: https://www.youtube.com/watch?v=xxxxxxxx
+                </p>
+              )}
+
+              {trimmedVideoLink && !videoLinkError ? (
+                <div className="mt-4 overflow-hidden rounded-[18px] border border-[#E2E7E3] bg-white">
+                  {videoPreviewUrl ? (
+                    <iframe
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                      className="aspect-video w-full"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      src={videoPreviewUrl}
+                      title="Xem trước video"
+                    />
+                  ) : (
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-11 items-center justify-center rounded-full bg-[#EEF7F0] text-[#35A554]">
+                          <Video className="size-5" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-[#29313B]">
+                            {videoProviderLabel}
+                          </p>
+                          <p className="mt-1 max-w-[380px] truncate text-xs text-[#7A828C]">
+                            {trimmedVideoLink}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#CFE7D4] px-4 text-sm font-semibold text-[#2F9C50] transition hover:bg-[#F3FBF5]"
+                        href={trimmedVideoLink}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <Link2 className="size-4" />
+                        Mở link
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -3352,8 +5187,10 @@ function PostListingMediaStep({
         <PostListingStepFooter
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          isSaveDraftLoading={isSaveDraftLoading}
           onBackStep={onBackStep}
           onNextStep={onNextStep}
+          onSaveDraft={onSaveDraft}
         />
       </div>
     </section>
@@ -3433,7 +5270,16 @@ function ListingTierCard({ isSelected, onSelect, option }) {
   );
 }
 
-function ListingDurationCard({ isSelected, onSelect, option }) {
+function ListingDurationCard({ isSelected, onSelect, option, tierOption }) {
+  const dailyPrice = option.days
+    ? getListingDailyPrice(tierOption, option.discountRate)
+    : 0;
+  const originalDailyPrice =
+    option.days && option.discountRate < 1
+      ? getListingDailyPrice(tierOption, 1)
+      : 0;
+  const totalPrice = option.days ? dailyPrice * option.days : 0;
+
   return (
     <button
       className={`rounded-[20px] border p-4 text-left transition ${
@@ -3472,11 +5318,11 @@ function ListingDurationCard({ isSelected, onSelect, option }) {
       ) : (
         <div className="mt-3 space-y-1.5">
           <p className="text-sm font-medium text-[#3D4854]">
-            {option.pricePerDay}
+            {formatListingCurrency(dailyPrice)}/ngày
           </p>
-          {option.oldPrice ? (
+          {originalDailyPrice ? (
             <p className="text-xs text-[#A7AEB7] line-through">
-              {option.oldPrice}
+              {formatListingCurrency(originalDailyPrice)}/ngày
             </p>
           ) : (
             <div className="h-4" />
@@ -3484,7 +5330,7 @@ function ListingDurationCard({ isSelected, onSelect, option }) {
         </div>
       )}
       <p className="mt-5 text-xl font-bold text-[#1F252D]">
-        {option.totalPrice ?? ""}
+        {totalPrice ? formatListingCurrency(totalPrice) : ""}
       </p>
     </button>
   );
@@ -3492,13 +5338,92 @@ function ListingDurationCard({ isSelected, onSelect, option }) {
 
 function PostListingPricingStep({
   canGoBack,
+  isSaveDraftLoading = false,
+  isSubmittingListing = false,
   selectedDuration,
   selectedTier,
   onBackStep,
   onDurationChange,
   onNextStep,
+  onSaveDraft,
   onTierChange,
+  submitLabel = "Hoàn tất & đăng tin",
+  submitNotice,
 }) {
+  const [selectedScheduleOption, setSelectedScheduleOption] = useState(
+    scheduleOptions[0],
+  );
+  const [listingStartDate, setListingStartDate] = useState("06/08/2026");
+  const [listingEndDate, setListingEndDate] = useState("16/08/2026");
+  const [scheduleHour, setScheduleHour] = useState("08");
+  const [scheduleMinute, setScheduleMinute] = useState("00");
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
+  const selectedTierOption = getListingTierOptionByKey(selectedTier);
+  const selectedDurationOption =
+    getListingDurationOptionByKey(selectedDuration);
+  const isCustomSchedule = selectedScheduleOption === "Chọn thời gian cụ thể";
+  const isCustomDuration = selectedDurationOption.key === "custom";
+  const parsedStartDate = parseListingDate(listingStartDate);
+  const fixedEndDate = selectedDurationOption.days
+    ? addListingDays(parsedStartDate, selectedDurationOption.days)
+    : null;
+  const displayedEndDate = isCustomDuration
+    ? listingEndDate
+    : formatListingDate(fixedEndDate);
+  const parsedEndDate = parseListingDate(displayedEndDate);
+  const selectedDurationDays = selectedDurationOption.days
+    ? selectedDurationOption.days
+    : getListingDayCount(parsedStartDate, parsedEndDate);
+  const selectedDiscountRate = selectedDurationOption.days
+    ? selectedDurationOption.discountRate
+    : getListingDiscountRateForDays(selectedDurationDays);
+  const selectedDailyPrice = selectedDurationDays
+    ? getListingDailyPrice(selectedTierOption, selectedDiscountRate)
+    : 0;
+  const originalDailyPrice =
+    selectedDurationDays && selectedDiscountRate < 1
+      ? getListingDailyPrice(selectedTierOption, 1)
+      : 0;
+  const selectedTotalPrice = selectedDailyPrice * selectedDurationDays;
+  const durationDateError =
+    isCustomDuration &&
+    (!parsedStartDate || !parsedEndDate || selectedDurationDays <= 0)
+      ? "Ngày kết thúc cần sau ngày bắt đầu."
+      : "";
+  const scheduleDateLabel = parsedStartDate
+    ? formatListingDate(parsedStartDate)
+    : "ngày bắt đầu";
+  const scheduleHourLabel = formatSchedulePart(scheduleHour);
+  const scheduleMinuteLabel = formatSchedulePart(scheduleMinute, true);
+  const customScheduleMessage = `Tin sau khi được duyệt, sẽ tự động đăng vào lúc ${scheduleHourLabel} giờ ${scheduleMinuteLabel} phút ngày ${scheduleDateLabel}.`;
+  const scheduleSummary = isCustomSchedule
+    ? customScheduleMessage
+    : "Đăng ngay sau khi được duyệt.";
+  const startDateForApi = formatListingDateForApi(listingStartDate);
+  const endDateForApi = formatListingDateForApi(displayedEndDate);
+  const canSubmitPricing =
+    Boolean(parsedStartDate) && selectedDurationDays > 0 && !durationDateError;
+
+  function handleSubmitPricing() {
+    onNextStep({
+      endDate: endDateForApi,
+      package: {
+        durationDays: selectedDurationDays,
+        durationKey: selectedDuration,
+        pricePerDay: selectedDailyPrice,
+        tier: selectedTier,
+        totalPrice: selectedTotalPrice,
+      },
+      schedule: {
+        hour: scheduleHour,
+        minute: scheduleMinute,
+        option: selectedScheduleOption,
+        summary: scheduleSummary,
+      },
+      startDate: startDateForApi,
+    });
+  }
+
   return (
     <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3514,8 +5439,9 @@ function PostListingPricingStep({
         <button
           className="inline-flex items-center gap-1 self-start text-xs font-medium text-[#7B838E] transition hover:text-[#355C41]"
           type="button"
+          onClick={() => setIsComparisonOpen((current) => !current)}
         >
-          So sánh các loại tin và giá
+          {isComparisonOpen ? "Ẩn so sánh" : "So sánh các loại tin và giá"}
           <Info className="size-3.5" />
         </button>
       </div>
@@ -3531,6 +5457,50 @@ function PostListingPricingStep({
             />
           ))}
         </div>
+
+        {isComparisonOpen ? (
+          <div className="overflow-x-auto rounded-[22px] border border-[#E7ECE8] bg-[#FCFDFC]">
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-[1.2fr_repeat(4,minmax(0,1fr))] border-b border-[#E7ECE8] bg-[#F7FAF7] text-xs font-bold uppercase text-[#64707A]">
+                <div className="px-4 py-3">Tiêu chí</div>
+                {listingTierOptions.map((option) => (
+                  <div key={option.key} className="px-4 py-3">
+                    {option.label}
+                  </div>
+                ))}
+              </div>
+              {[
+                ["Độ ưu tiên", "Nổi bật nhất", "Nổi bật", "Ưu tiên", "Cơ bản"],
+                ["Lượt liên hệ dự kiến", "X30", "X15", "X8", "Tiêu chuẩn"],
+                [
+                  "Giá từ",
+                  ...listingTierOptions.map(
+                    (option) =>
+                      `${formatListingCurrency(option.dailyPrice)}/ngày`,
+                  ),
+                ],
+              ].map((row) => (
+                <div
+                  key={row[0]}
+                  className="grid grid-cols-[1.2fr_repeat(4,minmax(0,1fr))] border-b border-[#EEF1ED] text-sm last:border-b-0"
+                >
+                  {row.map((cell, index) => (
+                    <div
+                      key={`${row[0]}-${cell}`}
+                      className={`px-4 py-3 ${
+                        index === 0
+                          ? "font-semibold text-[#29313B]"
+                          : "text-[#68717C]"
+                      }`}
+                    >
+                      {cell}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <ListingHint icon={Info}>
           Tin VIP có lượt liên hệ cao hơn Tin Thường từ 8-30 lần
@@ -3551,6 +5521,7 @@ function PostListingPricingStep({
               key={option.key}
               isSelected={selectedDuration === option.key}
               option={option}
+              tierOption={selectedTierOption}
               onSelect={onDurationChange}
             />
           ))}
@@ -3566,27 +5537,45 @@ function PostListingPricingStep({
               <div className="relative">
                 <input
                   className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-11 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  defaultValue="06-08-2026"
+                  placeholder="dd/mm/yyyy"
+                  value={listingStartDate}
                   type="text"
+                  onChange={(event) => setListingStartDate(event.target.value)}
                 />
                 <CalendarDays className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
               </div>
               <p className="mt-2 text-xs text-[#8A919B]">
-                Kết thúc ngày 16/08/2026
+                {displayedEndDate
+                  ? `Kết thúc ngày ${displayedEndDate}`
+                  : "Nhập ngày bắt đầu theo định dạng dd/mm/yyyy."}
               </p>
             </ListingField>
 
             <ListingField label="Ngày kết thúc" required>
               <div className="relative">
                 <input
-                  className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-11 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  placeholder="Chọn ngày kết thúc"
+                  className={`h-12 w-full rounded-xl border px-4 pr-11 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15 ${
+                    isCustomDuration
+                      ? "border-[#E2E7E3] bg-white"
+                      : "border-[#E2E7E3] bg-[#F7FAF7] text-[#68717C]"
+                  }`}
+                  placeholder="dd/mm/yyyy"
+                  readOnly={!isCustomDuration}
                   type="text"
+                  value={displayedEndDate}
+                  onChange={(event) => setListingEndDate(event.target.value)}
                 />
                 <CalendarDays className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
               </div>
-              <p className="mt-2 text-xs text-[#8A919B]">
-                (Chỉ áp dụng khi chọn gói Tùy chỉnh)
+              <p
+                className={`mt-2 text-xs ${
+                  durationDateError ? "text-[#B83B3B]" : "text-[#8A919B]"
+                }`}
+              >
+                {durationDateError ||
+                  (isCustomDuration
+                    ? "Nhập ngày kết thúc để tính số ngày đăng."
+                    : "Ngày kết thúc được tự tính theo gói đăng đã chọn.")}
               </p>
             </ListingField>
           </div>
@@ -3596,7 +5585,10 @@ function PostListingPricingStep({
               <div className="relative">
                 <select
                   className="h-12 w-full appearance-none rounded-xl border border-[#E2E7E3] bg-white px-4 pr-10 text-sm text-[#38404A] outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  defaultValue={scheduleOptions[0]}
+                  value={selectedScheduleOption}
+                  onChange={(event) =>
+                    setSelectedScheduleOption(event.target.value)
+                  }
                 >
                   {scheduleOptions.map((option) => (
                     <option key={option} value={option}>
@@ -3607,24 +5599,154 @@ function PostListingPricingStep({
                 <ChevronDown className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
               </div>
               <p className="mt-2 text-xs text-[#8A919B]">
-                Chọn thời điểm hệ thống sẽ tự động đăng tin giúp bạn.
+                {isCustomSchedule
+                  ? customScheduleMessage
+                  : "Tin sẽ được đăng ngay sau khi hệ thống duyệt thành công."}
               </p>
+              {isCustomSchedule ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <span className="mb-2 block text-xs font-semibold uppercase text-[#7A828C]">
+                      Giờ
+                    </span>
+                    <div className="relative">
+                      <input
+                        className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-11 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                        inputMode="numeric"
+                        max="23"
+                        min="0"
+                        placeholder="00"
+                        type="number"
+                        value={scheduleHour}
+                        onChange={(event) =>
+                          setScheduleHour(event.target.value)
+                        }
+                      />
+                      <Clock3 className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="mb-2 block text-xs font-semibold uppercase text-[#7A828C]">
+                      Phút
+                    </span>
+                    <div className="relative">
+                      <input
+                        className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white px-4 pr-11 text-sm outline-none transition placeholder:text-[#A0A7B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                        inputMode="numeric"
+                        max="59"
+                        min="0"
+                        placeholder="00"
+                        step="5"
+                        type="number"
+                        value={scheduleMinute}
+                        onChange={(event) =>
+                          setScheduleMinute(event.target.value)
+                        }
+                      />
+                      <Clock3 className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </ListingField>
           </div>
 
           <div className="mt-4">
             <ListingHint icon={Info}>
-              Tin sẽ được kiểm duyệt và đăng theo thời gian bạn chọn.
+              {isCustomSchedule
+                ? "Tin vẫn cần được duyệt trước, sau đó sẽ hiển thị theo giờ bạn đã chọn."
+                : "Tin sẽ được kiểm duyệt trước khi hiển thị công khai."}
             </ListingHint>
           </div>
         </div>
 
+        <div className="rounded-[22px] border border-[#DDEFE2] bg-[#F7FCF8] p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+                Tóm tắt gói đăng
+              </h3>
+              <p className="mt-2 text-sm text-[#68717C]">
+                Kiểm tra lại chi phí và lịch hiển thị trước khi hoàn tất.
+              </p>
+            </div>
+            {selectedDiscountRate < 1 ? (
+              <span className="inline-flex self-start rounded-full border border-[#F4D8AF] bg-[#FFF8EC] px-3 py-1 text-xs font-bold text-[#B7791F]">
+                Tiết kiệm {Math.round((1 - selectedDiscountRate) * 100)}%
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["Loại tin", selectedTierOption.label],
+              [
+                "Thời gian",
+                selectedDurationDays
+                  ? `${selectedDurationDays} ngày`
+                  : "Chưa xác định",
+              ],
+              [
+                "Đơn giá",
+                selectedDailyPrice
+                  ? `${formatListingCurrency(selectedDailyPrice)}/ngày`
+                  : "Chưa xác định",
+              ],
+              [
+                "Tổng thanh toán",
+                selectedTotalPrice
+                  ? formatListingCurrency(selectedTotalPrice)
+                  : "Chưa xác định",
+              ],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-[#E2ECE5] bg-white px-4 py-3"
+              >
+                <p className="text-xs font-semibold uppercase text-[#8A949F]">
+                  {label}
+                </p>
+                <p className="mt-2 text-sm font-bold text-[#25303A]">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {originalDailyPrice ? (
+            <p className="mt-3 text-xs text-[#7A828C]">
+              Đơn giá gốc:{" "}
+              <span className="line-through">
+                {formatListingCurrency(originalDailyPrice)}/ngày
+              </span>
+            </p>
+          ) : null}
+
+          <div className="mt-4 rounded-2xl border border-[#E2ECE5] bg-white px-4 py-3 text-sm text-[#5F6974]">
+            <span className="font-semibold text-[#29313B]">Lịch đăng: </span>
+            {scheduleSummary}
+          </div>
+        </div>
+
+        {submitNotice ? (
+          <div
+            className={`rounded-2xl border px-4 py-3 text-sm ${
+              submitNotice.type === "error"
+                ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
+                : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
+            }`}
+          >
+            {submitNotice.message}
+          </div>
+        ) : null}
+
         <PostListingStepFooter
           canGoBack={canGoBack}
-          canGoNext
-          nextLabel="Hoàn tất & đăng tin"
+          canGoNext={canSubmitPricing}
+          isSaveDraftLoading={isSaveDraftLoading}
+          isNextLoading={isSubmittingListing}
+          nextLabel={submitLabel}
           onBackStep={onBackStep}
-          onNextStep={onNextStep}
+          onNextStep={handleSubmitPricing}
+          onSaveDraft={onSaveDraft}
           showNextArrow={false}
         />
       </div>
@@ -3632,7 +5754,151 @@ function PostListingPricingStep({
   );
 }
 
-function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
+function CancelPostListingModal({ onClose, onConfirm }) {
+  return (
+    <Modal
+      headerVariant="brand"
+      size="sm"
+      title="Thoát trang đăng tin"
+      footer={
+        <>
+          <Button
+            className="border-[#CFE5D3] px-5 text-[#2F9C50] hover:bg-[#F4FBF5]"
+            variant="outline"
+            onClick={onClose}
+          >
+            Ở lại
+          </Button>
+          <Button className="px-5" variant="danger" onClick={onConfirm}>
+            Rời khỏi trang
+          </Button>
+        </>
+      }
+      contentClassName="pt-5"
+      footerClassName="pb-4 pt-4 sm:pb-5"
+      onClose={onClose}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#E06666] text-[34px] font-extrabold leading-none text-white shadow-[0_12px_24px_rgba(224,102,102,0.18)]">
+        !
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        Các thông tin bạn đang nhập sẽ không được lưu nếu rời khỏi trang vào lúc
+        này.
+      </p>
+      <p className="text-center text-sm leading-6 text-[#68717C]">
+        Bạn có thể bổ sung đủ các thông tin bắt buộc để lưu nháp trước và tiếp
+        tục chỉnh sửa sau.
+      </p>
+    </Modal>
+  );
+}
+
+function DeleteListingConfirmModal({
+  error,
+  isDeleting,
+  listing,
+  onClose,
+  onConfirm,
+}) {
+  return (
+    <Modal
+      closeDisabled={isDeleting}
+      footer={
+        <>
+          <Button
+            className="border-[#CFE5D3] px-5 text-[#2F9C50] hover:bg-[#F4FBF5]"
+            disabled={isDeleting}
+            variant="outline"
+            onClick={onClose}
+          >
+            Ở lại
+          </Button>
+          <Button
+            className="px-5"
+            disabled={isDeleting}
+            variant="danger"
+            onClick={onConfirm}
+          >
+            {isDeleting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            Xóa tin
+          </Button>
+        </>
+      }
+      footerClassName="pb-5 pt-5"
+      size="sm"
+      title="Xóa tin đăng"
+      onClose={onClose}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#E06666] text-white shadow-[0_12px_24px_rgba(224,102,102,0.18)]">
+        <Trash2 className="size-7" />
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        Bạn có chắc chắn muốn xóa tin này?
+      </p>
+      <p className="mt-2 text-center text-sm leading-6 text-[#68717C]">
+        Tin "{listing.title}" sẽ bị xóa khỏi danh sách của bạn và không còn hiển
+        thị trên WeRent.
+      </p>
+      {error ? (
+        <div className="mt-4 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B33A3A]">
+          {error}
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+function PostListingViewportNotice({ notice, onClose }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!notice) {
+      return undefined;
+    }
+
+    const resetTimer = window.setTimeout(() => setIsVisible(false), 0);
+    const showTimer = window.setTimeout(() => setIsVisible(true), 40);
+    const hideTimer = window.setTimeout(() => setIsVisible(false), 4700);
+    const closeTimer = window.setTimeout(() => onClose?.(), 5000);
+
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+      window.clearTimeout(closeTimer);
+    };
+  }, [notice, onClose]);
+
+  if (!notice) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
+      <div
+        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border border-[#F0CACA] bg-[#FFF7F7] px-5 py-3 text-sm font-semibold text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)] transition duration-300 ease-out ${
+          isVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+        }`}
+      >
+        <Info className="size-4 shrink-0" />
+        <span>{notice.message}</span>
+      </div>
+    </div>
+  );
+}
+
+function PostListingPage({
+  accessToken,
+  editingListing,
+  onListingCreated,
+  onLogout,
+  onNavigate,
+  user,
+}) {
   const draftValues = editingListing?.draft ?? defaultListingDraft;
   const isEditingListing = Boolean(editingListing);
   const headingTitle = isEditingListing
@@ -3645,6 +5911,20 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
   const [currentPostListingStep, setCurrentPostListingStep] = useState(
     defaultPostListingStep,
   );
+  const [listingDraft, setListingDraft] = useState(() => ({
+    ...defaultListingDraft,
+    ...draftValues,
+    electricityPrice: getSelectOptionValue(
+      draftValues.electricityPrice,
+      electricityPriceOptions,
+    ),
+    internetPrice: getSelectOptionValue(
+      draftValues.internetPrice,
+      internetPriceOptions,
+    ),
+    propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
+    waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
+  }));
   const [listingTitle, setListingTitle] = useState(editingListing?.title ?? "");
   const [listingDescription, setListingDescription] = useState(
     draftValues.description,
@@ -3661,9 +5941,173 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
   const [selectedAmenities, setSelectedAmenities] = useState(
     () => draftValues.selectedAmenities,
   );
+  const [listingImages, setListingImages] = useState(() =>
+    createExistingListingImageItems(editingListing),
+  );
+  const [administrativeDivisions, setAdministrativeDivisions] = useState(() =>
+    readCachedAdministrativeDivisions(),
+  );
+  const [
+    isAdministrativeDivisionsLoading,
+    setIsAdministrativeDivisionsLoading,
+  ] = useState(false);
+  const [administrativeDivisionsError, setAdministrativeDivisionsError] =
+    useState("");
+  const [imageError, setImageError] = useState("");
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [pendingExitAction, setPendingExitAction] = useState(null);
+  const [isSubmittingListing, setIsSubmittingListing] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [submitNotice, setSubmitNotice] = useState(null);
+  const [draftValidationErrors, setDraftValidationErrors] = useState({});
+  const [viewportNotice, setViewportNotice] = useState(null);
+  const listingImagesRef = useRef(listingImages);
+  const videoLinkError = getVideoLinkError(videoLink);
+  const selectedProvince = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        administrativeDivisions,
+        listingDraft.city,
+      ),
+    [administrativeDivisions, listingDraft.city],
+  );
+  const selectedDistrict = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        selectedProvince?.districts ?? [],
+        listingDraft.district,
+      ),
+    [listingDraft.district, selectedProvince],
+  );
+  const selectedWard = useMemo(
+    () =>
+      findAdministrativeDivisionByName(
+        selectedDistrict?.wards ?? [],
+        listingDraft.ward,
+      ),
+    [listingDraft.ward, selectedDistrict],
+  );
+  const cityOptions = useMemo(
+    () => getAdministrativeDivisionOptions(administrativeDivisions),
+    [administrativeDivisions],
+  );
+  const districtOptions = useMemo(
+    () => getAdministrativeDivisionOptions(selectedProvince?.districts ?? []),
+    [selectedProvince],
+  );
+  const wardOptions = useMemo(
+    () => getAdministrativeDivisionOptions(selectedDistrict?.wards ?? []),
+    [selectedDistrict],
+  );
+  const administrativeDivisionsNotice = isAdministrativeDivisionsLoading
+    ? "Đang tải dữ liệu tỉnh/thành, quận/huyện, phường/xã..."
+    : administrativeDivisionsError;
+  const hasUnsavedNewListingInput = useMemo(
+    () =>
+      !isEditingListing &&
+      hasNewListingUserInput({
+        listingDescription,
+        listingDraft,
+        listingImages,
+        listingLocation,
+        listingTitle,
+        locationNote,
+        selectedAmenities,
+        videoLink,
+      }),
+    [
+      isEditingListing,
+      listingDescription,
+      listingDraft,
+      listingImages,
+      listingLocation,
+      listingTitle,
+      locationNote,
+      selectedAmenities,
+      videoLink,
+    ],
+  );
 
   const canGoBack = currentPostListingStep > 0;
   const canGoNext = currentPostListingStep < postListingSteps.length - 1;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAdministrativeDivisions() {
+      setIsAdministrativeDivisionsLoading(true);
+      setAdministrativeDivisionsError("");
+
+      try {
+        const response = await listAdministrativeDivisions();
+        const provinces = Array.isArray(response.data?.provinces)
+          ? response.data.provinces
+          : [];
+
+        if (!isMounted) {
+          return;
+        }
+
+        setAdministrativeDivisions(provinces);
+        writeCachedAdministrativeDivisions(provinces);
+
+        if (provinces.length === 0) {
+          setAdministrativeDivisionsError(
+            "Chưa có dữ liệu địa giới trong hệ thống. Vui lòng seed dữ liệu trước khi đăng tin.",
+          );
+        }
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setAdministrativeDivisionsError(
+          readCachedAdministrativeDivisions().length
+            ? ""
+            : error.message ||
+                "Chưa thể tải dữ liệu địa giới. Vui lòng thử lại sau.",
+        );
+      } finally {
+        if (isMounted) {
+          setIsAdministrativeDivisionsLoading(false);
+        }
+      }
+    }
+
+    loadAdministrativeDivisions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    listingImagesRef.current = listingImages;
+  }, [listingImages]);
+
+  useEffect(
+    () => () => {
+      listingImagesRef.current.forEach(revokeListingImagePreview);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedNewListingInput) {
+      return undefined;
+    }
+
+    function handleBeforeUnload(event) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedNewListingInput]);
 
   function toggleAmenity(key) {
     setSelectedAmenities((current) =>
@@ -3671,6 +6115,182 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
         ? current.filter((item) => item !== key)
         : [...current, key],
     );
+  }
+
+  function clearDraftValidationError(field) {
+    setDraftValidationErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  }
+
+  function handleListingTitleChange(event) {
+    const nextValue = event.target.value;
+
+    setListingTitle(nextValue);
+
+    if (hasListingInputValue(nextValue)) {
+      clearDraftValidationError("title");
+    }
+  }
+
+  function handleListingDescriptionChange(event) {
+    const nextValue = event.target.value;
+
+    setListingDescription(nextValue);
+
+    if (hasListingInputValue(nextValue)) {
+      clearDraftValidationError("description");
+    }
+  }
+
+  function handleDraftValueChange(field, value) {
+    setListingDraft((current) => {
+      const nextDraft = {
+        ...current,
+        [field]: value,
+      };
+
+      if (field === "city") {
+        nextDraft.district = "";
+        nextDraft.ward = "";
+      }
+
+      if (field === "district") {
+        nextDraft.ward = "";
+      }
+
+      return nextDraft;
+    });
+
+    if (hasListingInputValue(value)) {
+      clearDraftValidationError(field);
+    }
+  }
+
+  function handleAddListingImages(fileList) {
+    const selectedFiles = Array.from(fileList ?? []);
+
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
+    const availableSlots = PROPERTY_IMAGE_LIMIT - listingImages.length;
+
+    if (availableSlots <= 0) {
+      setImageError(`Bạn chỉ có thể đăng tối đa ${PROPERTY_IMAGE_LIMIT} ảnh.`);
+      return;
+    }
+
+    const acceptedImages = [];
+    const rejectedMessages = [];
+
+    selectedFiles.forEach((file) => {
+      if (acceptedImages.length >= availableSlots) {
+        rejectedMessages.push(
+          `Chỉ nhận thêm ${availableSlots} ảnh cho tin đăng này.`,
+        );
+        return;
+      }
+
+      if (!ALLOWED_PROPERTY_IMAGE_TYPES.has(file.type)) {
+        rejectedMessages.push(`${file.name}: định dạng ảnh chưa được hỗ trợ.`);
+        return;
+      }
+
+      if (file.size > PROPERTY_IMAGE_MAX_SIZE_BYTES) {
+        rejectedMessages.push(
+          `${file.name}: dung lượng vượt ${PROPERTY_IMAGE_MAX_SIZE_MB}MB.`,
+        );
+        return;
+      }
+
+      acceptedImages.push(createListingImageItem(file));
+    });
+
+    if (acceptedImages.length > 0) {
+      setListingImages((current) => [...current, ...acceptedImages]);
+    }
+
+    if (rejectedMessages.length === 0) {
+      setImageError("");
+      return;
+    }
+
+    setImageError(
+      rejectedMessages.length === 1
+        ? rejectedMessages[0]
+        : `${rejectedMessages[0]} Còn ${rejectedMessages.length - 1} lỗi khác.`,
+    );
+  }
+
+  function handleRemoveListingImage(imageId) {
+    const image = listingImages.find((item) => item.id === imageId);
+    revokeListingImagePreview(image);
+    setListingImages((current) =>
+      current.filter((item) => item.id !== imageId),
+    );
+    setImageError("");
+  }
+
+  function handleSetCoverImage(imageId) {
+    setListingImages((current) => {
+      const targetIndex = current.findIndex((item) => item.id === imageId);
+
+      if (targetIndex <= 0) {
+        return current;
+      }
+
+      const nextImages = [...current];
+      const [targetImage] = nextImages.splice(targetIndex, 1);
+      nextImages.unshift(targetImage);
+      return nextImages;
+    });
+  }
+
+  function handleMoveListingImage(imageId, direction) {
+    setListingImages((current) => {
+      const currentIndex = current.findIndex((item) => item.id === imageId);
+      const nextIndex = currentIndex + direction;
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const nextImages = [...current];
+      const [targetImage] = nextImages.splice(currentIndex, 1);
+      nextImages.splice(nextIndex, 0, targetImage);
+      return nextImages;
+    });
+  }
+
+  function handleReorderListingImages(sourceImageId, targetImageId) {
+    if (sourceImageId === targetImageId) {
+      return;
+    }
+
+    setListingImages((current) => {
+      const sourceIndex = current.findIndex(
+        (item) => item.id === sourceImageId,
+      );
+      const targetIndex = current.findIndex(
+        (item) => item.id === targetImageId,
+      );
+
+      if (sourceIndex < 0 || targetIndex < 0) {
+        return current;
+      }
+
+      const nextImages = [...current];
+      const [sourceImage] = nextImages.splice(sourceIndex, 1);
+      nextImages.splice(targetIndex, 0, sourceImage);
+      return nextImages;
+    });
   }
 
   function goToPreviousStep() {
@@ -3683,23 +6303,257 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
     );
   }
 
+  function executeExitAction(action) {
+    if (action?.type === "logout") {
+      onLogout();
+      return;
+    }
+
+    onNavigate(action?.view ?? backTarget);
+  }
+
+  function requestExitAction(action) {
+    if (!hasUnsavedNewListingInput) {
+      executeExitAction(action);
+      return;
+    }
+
+    setPendingExitAction(action);
+    setIsCancelModalOpen(true);
+  }
+
+  function requestPostListingNavigation(view) {
+    if (view === "postListing") {
+      return;
+    }
+
+    requestExitAction({ type: "navigate", view });
+  }
+
+  function revealMissingRequiredDraftFields() {
+    const nextValidationErrors = getDraftRequiredFieldErrors({
+      listingDescription,
+      listingDraft,
+      listingTitle,
+    });
+
+    if (Object.keys(nextValidationErrors).length === 0) {
+      return;
+    }
+
+    setDraftValidationErrors(nextValidationErrors);
+    setCurrentPostListingStep(
+      getFirstDraftValidationStep(nextValidationErrors),
+    );
+  }
+
+  function closeCancelPostListingModal() {
+    revealMissingRequiredDraftFields();
+    setIsCancelModalOpen(false);
+    setPendingExitAction(null);
+  }
+
+  function confirmCancelPostListing() {
+    setIsCancelModalOpen(false);
+    const nextAction = pendingExitAction ?? {
+      type: "navigate",
+      view: backTarget,
+    };
+
+    setPendingExitAction(null);
+    executeExitAction(nextAction);
+  }
+
+  function createCurrentListingFormData({ pricingData = null, status } = {}) {
+    return createPropertyListingFormData({
+      includeExistingImages: isEditingListing,
+      includeEmptyValues: isEditingListing,
+      listingDescription,
+      listingDraft: {
+        ...listingDraft,
+        city: selectedProvince?.name ?? listingDraft.city,
+        district: selectedDistrict?.name ?? listingDraft.district,
+        ward: selectedWard?.name ?? listingDraft.ward,
+      },
+      listingImages,
+      listingLocation,
+      listingTitle,
+      locationNote,
+      pricingData,
+      selectedAmenities,
+      status,
+      user,
+      videoLink,
+    });
+  }
+
+  async function saveListingFormData(formData) {
+    return isEditingListing
+      ? updatePropertyListing(accessToken, editingListing.id, formData)
+      : createPropertyListing(accessToken, formData);
+  }
+
+  async function handleSaveDraft() {
+    if (isSavingDraft || isSubmittingListing) {
+      return;
+    }
+
+    setSubmitNotice(null);
+
+    const nextValidationErrors = getDraftRequiredFieldErrors({
+      listingDescription,
+      listingDraft,
+      listingTitle,
+    });
+
+    if (Object.keys(nextValidationErrors).length > 0) {
+      setDraftValidationErrors(nextValidationErrors);
+      setCurrentPostListingStep(
+        getFirstDraftValidationStep(nextValidationErrors),
+      );
+      setViewportNotice({
+        id: Date.now(),
+        message: draftValidationToastMessage,
+      });
+      return;
+    }
+
+    setDraftValidationErrors({});
+
+    if (!accessToken) {
+      setSubmitNotice({
+        type: "error",
+        message: "Vui lòng đăng nhập lại trước khi lưu nháp.",
+      });
+      return;
+    }
+
+    if (videoLinkError) {
+      setCurrentPostListingStep(2);
+      setViewportNotice({
+        id: Date.now(),
+        message: videoLinkError,
+      });
+      return;
+    }
+
+    setIsSavingDraft(true);
+
+    try {
+      const formData = createCurrentListingFormData({
+        pricingData: createDraftListingPricingData({
+          selectedDuration,
+          selectedTier,
+        }),
+        status: "draft",
+      });
+      const response = await saveListingFormData(formData);
+      const savedProperty = response.data?.property;
+
+      if (savedProperty) {
+        onListingCreated?.(savedProperty, {
+          mode: "draft",
+        });
+      } else {
+        onNavigate("myListings");
+      }
+    } catch (error) {
+      setSubmitNotice({
+        type: "error",
+        message:
+          error.message ||
+          "Chưa thể lưu nháp tin đăng lúc này. Vui lòng thử lại sau.",
+      });
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }
+
+  async function handleSubmitListing(pricingData) {
+    setSubmitNotice(null);
+
+    if (!accessToken) {
+      setSubmitNotice({
+        type: "error",
+        message: isEditingListing
+          ? "Vui lòng đăng nhập lại trước khi cập nhật tin."
+          : "Vui lòng đăng nhập lại trước khi đăng tin.",
+      });
+      return;
+    }
+
+    if (!listingTitle.trim()) {
+      setCurrentPostListingStep(0);
+      setSubmitNotice({
+        type: "error",
+        message: "Vui lòng nhập tiêu đề tin đăng.",
+      });
+      return;
+    }
+
+    if (videoLinkError) {
+      setCurrentPostListingStep(2);
+      setSubmitNotice({
+        type: "error",
+        message: videoLinkError,
+      });
+      return;
+    }
+
+    setIsSubmittingListing(true);
+
+    try {
+      const formData = createCurrentListingFormData({ pricingData });
+      const response = await saveListingFormData(formData);
+      const savedProperty = response.data?.property;
+
+      setSubmitNotice({
+        type: "success",
+        message: isEditingListing
+          ? "Cập nhật tin thành công."
+          : "Đăng tin thành công. Tin đã hiển thị công khai để bạn kiểm tra.",
+      });
+
+      if (savedProperty) {
+        onListingCreated?.(savedProperty, {
+          mode: isEditingListing ? "update" : "create",
+        });
+      } else {
+        onNavigate(isEditingListing ? "myListings" : "home");
+      }
+    } catch (error) {
+      setSubmitNotice({
+        type: "error",
+        message:
+          error.message ||
+          (isEditingListing
+            ? "Chưa thể cập nhật tin đăng lúc này. Vui lòng thử lại sau."
+            : "Chưa thể tạo tin đăng lúc này. Vui lòng thử lại sau."),
+      });
+    } finally {
+      setIsSubmittingListing(false);
+    }
+  }
+
   function renderCurrentPostListingStep() {
     if (currentPostListingStep === 0) {
       return (
         <PostListingBasicInfoStep
           canGoBack={canGoBack}
           canGoNext={canGoNext}
-          draftValues={draftValues}
+          draftValues={listingDraft}
+          isSaveDraftLoading={isSavingDraft}
           listingDescription={listingDescription}
           listingTitle={listingTitle}
           selectedAmenities={selectedAmenities}
           toggleAmenity={toggleAmenity}
+          validationErrors={draftValidationErrors}
           onBackStep={goToPreviousStep}
-          onDescriptionChange={(event) =>
-            setListingDescription(event.target.value)
-          }
+          onDescriptionChange={handleListingDescriptionChange}
+          onDraftValueChange={handleDraftValueChange}
           onNextStep={goToNextStep}
-          onTitleChange={(event) => setListingTitle(event.target.value)}
+          onSaveDraft={handleSaveDraft}
+          onTitleChange={handleListingTitleChange}
         />
       );
     }
@@ -3707,15 +6561,24 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
     if (currentPostListingStep === 1) {
       return (
         <PostListingLocationStep
+          administrativeDivisionsNotice={administrativeDivisionsNotice}
           canGoBack={canGoBack}
           canGoNext={canGoNext}
-          draftValues={draftValues}
+          cityOptions={cityOptions}
+          districtOptions={districtOptions}
+          draftValues={listingDraft}
+          isSaveDraftLoading={isSavingDraft}
+          isAdministrativeDivisionsLoading={isAdministrativeDivisionsLoading}
           listingLocation={listingLocation}
           locationNote={locationNote}
           onBackStep={goToPreviousStep}
+          onDraftValueChange={handleDraftValueChange}
           onListingLocationChange={setListingLocation}
           onLocationNoteChange={(event) => setLocationNote(event.target.value)}
           onNextStep={goToNextStep}
+          onSaveDraft={handleSaveDraft}
+          validationErrors={draftValidationErrors}
+          wardOptions={wardOptions}
         />
       );
     }
@@ -3724,11 +6587,21 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
       return (
         <PostListingMediaStep
           canGoBack={canGoBack}
-          canGoNext={canGoNext}
+          canGoNext={canGoNext && !videoLinkError}
+          imageError={imageError}
+          images={listingImages}
+          isSaveDraftLoading={isSavingDraft}
+          onAddImages={handleAddListingImages}
           onBackStep={goToPreviousStep}
+          onMoveImage={handleMoveListingImage}
           onNextStep={goToNextStep}
+          onRemoveImage={handleRemoveListingImage}
+          onReorderImages={handleReorderListingImages}
+          onSaveDraft={handleSaveDraft}
+          onSetCoverImage={handleSetCoverImage}
           onVideoLinkChange={(event) => setVideoLink(event.target.value)}
           videoLink={videoLink}
+          videoLinkError={videoLinkError}
         />
       );
     }
@@ -3736,11 +6609,16 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
     return (
       <PostListingPricingStep
         canGoBack={canGoBack}
+        isSaveDraftLoading={isSavingDraft}
+        isSubmittingListing={isSubmittingListing}
         selectedDuration={selectedDuration}
         selectedTier={selectedTier}
+        submitLabel={isEditingListing ? "Cập nhật tin" : "Hoàn tất & đăng tin"}
+        submitNotice={submitNotice}
         onBackStep={goToPreviousStep}
         onDurationChange={setSelectedDuration}
-        onNextStep={goToNextStep}
+        onNextStep={handleSubmitListing}
+        onSaveDraft={handleSaveDraft}
         onTierChange={setSelectedTier}
       />
     );
@@ -3748,57 +6626,93 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <PostListingViewportNotice
+        notice={viewportNotice}
+        onClose={() => setViewportNotice(null)}
+      />
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="postListing"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
-          onLogoClick={() => onNavigate("home")}
-          onLogout={onLogout}
-          onNavigate={onNavigate}
-          onUserClick={() => onNavigate("profile")}
+          onLogoClick={() =>
+            requestExitAction({ type: "navigate", view: "home" })
+          }
+          onLogout={() => requestExitAction({ type: "logout" })}
+          onNavigate={requestPostListingNavigation}
+          onUserClick={() =>
+            requestExitAction({ type: "navigate", view: "profile" })
+          }
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="postListing"
-            onLogout={onLogout}
-            onNavigate={onNavigate}
+            onLogout={() => requestExitAction({ type: "logout" })}
+            onNavigate={requestPostListingNavigation}
           />
 
           <div className="min-w-0 space-y-5">
             <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-              <button
-                className="flex items-center gap-2 text-sm font-semibold text-[#27313A] transition hover:text-[#2E9C4D]"
-                type="button"
-                onClick={() => onNavigate(backTarget)}
-              >
-                <ArrowRight className="size-4 rotate-180" />
-                Quay lại
-              </button>
-              <h1 className="mt-5 text-[34px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                {headingTitle}
-              </h1>
-              <p className="mt-2 text-sm text-[#69717B] sm:text-base">
-                {headingDescription}
-              </p>
-              {isEditingListing ? (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-[#D7E9DB] bg-[#F4FBF5] px-3 py-1 text-xs font-semibold text-[#238C43]">
-                    {editingListing.statusLabel}
-                  </span>
-                  <span className="rounded-full bg-[#EEF2F1] px-3 py-1 text-xs font-medium text-[#5C6672]">
-                    {editingListing.id}
-                  </span>
-                  <span className="rounded-full bg-[#EEF2F1] px-3 py-1 text-xs font-medium text-[#5C6672]">
-                    {editingListing.packageLabel}
-                  </span>
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <h1 className="text-[34px] font-bold tracking-[-0.03em] text-[#1F252D]">
+                    {headingTitle}
+                  </h1>
+                  <p className="mt-2 text-sm text-[#69717B] sm:text-base">
+                    {headingDescription}
+                  </p>
+                  {isEditingListing ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-[#D7E9DB] bg-[#F4FBF5] px-3 py-1 text-xs font-semibold text-[#238C43]">
+                        {editingListing.statusLabel}
+                      </span>
+                      <span className="rounded-full bg-[#EEF2F1] px-3 py-1 text-xs font-medium text-[#5C6672]">
+                        {editingListing.id}
+                      </span>
+                      <span className="rounded-full bg-[#EEF2F1] px-3 py-1 text-xs font-medium text-[#5C6672]">
+                        {editingListing.packageLabel}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+
+                <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      requestExitAction({ type: "navigate", view: backTarget })
+                    }
+                  >
+                    <ArrowRight className="size-4 rotate-180" />
+                    Thoát
+                  </Button>
+                </div>
+              </div>
               <div className="mt-7">
                 <ListingProgress activeStep={currentPostListingStep} />
               </div>
             </section>
+
+            {isCancelModalOpen ? (
+              <CancelPostListingModal
+                onClose={closeCancelPostListingModal}
+                onConfirm={confirmCancelPostListing}
+              />
+            ) : null}
+
+            {submitNotice &&
+            currentPostListingStep !== postListingSteps.length - 1 ? (
+              <div
+                className={`rounded-2xl border px-4 py-3 text-sm ${
+                  submitNotice.type === "error"
+                    ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
+                    : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
+                }`}
+              >
+                {submitNotice.message}
+              </div>
+            ) : null}
 
             {renderCurrentPostListingStep()}
           </div>
@@ -3808,12 +6722,35 @@ function PostListingPage({ editingListing, onLogout, onNavigate, user }) {
   );
 }
 
+function ListingDetailHeroImage({ alt, src }) {
+  const [portraitImageSrc, setPortraitImageSrc] = useState("");
+  const isPortraitImage = portraitImageSrc === src;
+
+  return (
+    <img
+      alt={alt}
+      className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
+        isPortraitImage ? "bg-black object-contain" : "object-cover"
+      }`}
+      src={src}
+      onLoad={(event) => {
+        const image = event.currentTarget;
+
+        setPortraitImageSrc(
+          image.naturalHeight > image.naturalWidth ? src : "",
+        );
+      }}
+    />
+  );
+}
+
 function ListingDetailPage({
   backView,
   currentUser,
   listing,
   onLogout,
   onNavigate,
+  showFooter = false,
 }) {
   const detail = listing.detail ?? ownerListingPublicDetails[listing.id] ?? {};
   const draft = listing.draft ?? defaultListingDraft;
@@ -3825,7 +6762,15 @@ function ListingDetailPage({
   const mediaItems = buildListingMediaItems(listing, detail, draft);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
-  const fullAddress = buildListingFullAddress(draft);
+  const fullAddress =
+    draft.formattedAddress ||
+    buildListingFullAddress(draft) ||
+    listing.location;
+  const detailMapLocation = getListingDetailMapLocation(
+    draft,
+    detail,
+    fullAddress,
+  );
   const isAdminViewer = currentUser?.roles?.includes("admin");
   const isOwnerViewer =
     Boolean(currentUser) && backView === "myListings" && !isAdminViewer;
@@ -3872,10 +6817,10 @@ function ListingDetailPage({
       value: listing.id,
     },
   ].filter((item) => item.value);
-  const backLabel =
-    backView === "myListings"
-      ? "Quay lại tin đăng của tôi"
-      : "Quay lại trang chủ";
+  const compactRentPrice = formatCompactMonthlyRent(
+    draft.rentPrice,
+    listing.price,
+  );
 
   function showPreviousMedia() {
     setActiveMediaIndex((current) =>
@@ -3891,8 +6836,8 @@ function ListingDetailPage({
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={currentUser}
           navItems={navItems}
@@ -3905,18 +6850,9 @@ function ListingDetailPage({
           searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
         />
 
-        <main className="mt-5 space-y-5">
+        <main className="mt-3 space-y-5">
           <section className="rounded-[28px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-            <button
-              className="flex items-center gap-2 text-sm font-semibold text-[#27313A] transition hover:text-[#2E9C4D]"
-              type="button"
-              onClick={() => onNavigate(backView)}
-            >
-              <ArrowRight className="size-4 rotate-180" />
-              {backLabel}
-            </button>
-
-            <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="min-w-0 space-y-6">
                 {previewMessage ? (
                   <div className="rounded-[20px] border border-[#E6E8EB] bg-[#FAFBFC] px-4 py-3 text-sm leading-6 text-[#5D6773]">
@@ -3924,20 +6860,20 @@ function ListingDetailPage({
                   </div>
                 ) : null}
 
-                <section className="rounded-[26px] border border-[#EAEDE8] bg-white p-4 shadow-[0_8px_24px_rgba(46,72,54,0.04)]">
-                  <div className="relative overflow-hidden rounded-[22px] bg-[#F4F7F4]">
+                <section className="space-y-3">
+                  <div className="relative overflow-hidden rounded-[22px] bg-black">
                     {activeMedia?.type === "video" ? (
                       activeMedia.embedUrl ? (
                         <iframe
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                           allowFullScreen
-                          className="h-[300px] w-full sm:h-[420px] xl:h-[560px]"
+                          className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
                           referrerPolicy="strict-origin-when-cross-origin"
                           src={activeMedia.embedUrl}
                           title={`${listing.title} video`}
                         />
                       ) : (
-                        <div className="flex h-[300px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[420px] xl:h-[560px]">
+                        <div className="flex h-[260px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]">
                           <span className="flex size-16 items-center justify-center rounded-full bg-white text-[#35A554] shadow-sm">
                             <Video className="size-7" />
                           </span>
@@ -3962,9 +6898,9 @@ function ListingDetailPage({
                         </div>
                       )
                     ) : (
-                      <img
+                      <ListingDetailHeroImage
+                        key={activeMedia?.src ?? listing.image}
                         alt={`${listing.title} - ${activeMedia?.title ?? "ảnh hiển thị"}`}
-                        className="h-[300px] w-full object-cover sm:h-[420px] xl:h-[560px]"
                         src={activeMedia?.src ?? listing.image}
                       />
                     )}
@@ -3995,7 +6931,7 @@ function ListingDetailPage({
                     </div>
                   </div>
 
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
                     {mediaItems.map((item, index) => {
                       const isActive = index === activeMediaIndex;
 
@@ -4031,42 +6967,51 @@ function ListingDetailPage({
                 </section>
 
                 <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
-                        {draft.projectName || draft.propertyType}
-                      </p>
-                      <h1 className="mt-3 text-[32px] font-bold tracking-[-0.03em] text-[#1F252D] sm:text-[38px]">
-                        {listing.title}
-                      </h1>
-                      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
-                        <span className="flex items-center gap-2">
-                          <MapPin className="size-4 text-[#35A554]" />
-                          {listing.location}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <CalendarDays className="size-4 text-[#35A554]" />
-                          Đăng ngày {detail.publishedAt}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <ShieldCheck className="size-4 text-[#35A554]" />
-                          Hết hạn {detail.expiresAt}
-                        </span>
-                      </div>
+                  <div className="max-w-[880px]">
+                    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
+                      {draft.projectName || draft.propertyType}
+                    </p>
+                    <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
+                      {listing.title}
+                    </h1>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
+                      <span className="flex items-center gap-2">
+                        <MapPin className="size-4 text-[#35A554]" />
+                        {listing.location}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <CalendarDays className="size-4 text-[#35A554]" />
+                        Đăng ngày {detail.publishedAt}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className="size-4 text-[#35A554]" />
+                        Hết hạn {detail.expiresAt}
+                      </span>
                     </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[360px]">
-                      <div className="rounded-[22px] border border-[#E6ECE8] bg-[#FCFDFC] px-5 py-4">
+                    <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-stretch">
+                      <div className="shrink-0 rounded-[18px] border border-[#E6ECE8] bg-[#FCFDFC] px-4 py-3 xl:min-w-[180px]">
                         <p className="text-sm text-[#7E8792]">Khoảng giá</p>
-                        <p className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                          {listing.price}
+                        <p className="mt-1 text-xl font-bold text-[#1F252D]">
+                          {compactRentPrice}
                         </p>
                       </div>
-                      <div className="rounded-[22px] border border-[#E6ECE8] bg-[#FCFDFC] px-5 py-4">
-                        <p className="text-sm text-[#7E8792]">Diện tích</p>
-                        <p className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                          {draft.area} m²
-                        </p>
+                      <div className="flex flex-col gap-3 rounded-[16px] border border-[#27B36A] bg-[#F7FFFA] px-4 py-3 sm:flex-row sm:items-center sm:justify-between xl:flex-1">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#DDFBE9] px-3 py-1.5 text-sm font-bold text-[#0B9E59]">
+                            <ArrowUp className="size-4" />
+                            16,7%
+                          </span>
+                          <p className="min-w-0 text-sm font-medium leading-6 text-[#3E464E]">
+                            Giá tại dự án này đã tăng trong vòng 1 năm qua
+                          </p>
+                        </div>
+                        <button
+                          className="inline-flex shrink-0 items-center gap-1.5 self-start text-sm font-bold text-[#007F76] transition hover:text-[#006A62] sm:self-center"
+                          type="button"
+                        >
+                          Xem lịch sử giá
+                          <ChevronRight className="size-4" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -4153,29 +7098,7 @@ function ListingDetailPage({
                     <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
                     <span>{fullAddress}</span>
                   </p>
-                  <div className="mt-5 rounded-[24px] border border-[#E6ECE8] bg-[radial-gradient(circle_at_top,#F7FBF8_0%,#EEF5EF_55%,#E8F1EA_100%)] p-5">
-                    <div className="flex min-h-[220px] items-end rounded-[20px] border border-dashed border-[#C8D8CC] bg-white/45 p-4">
-                      <div className="rounded-[18px] bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-                        <p className="text-sm font-semibold text-[#27313A]">
-                          Bản đồ demo cho giai đoạn đầu
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-[#75808C]">
-                          Tọa độ hardcode: {detail.coordinates?.lat},{" "}
-                          {detail.coordinates?.lng}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    {(detail.nearbyPlaces ?? []).map((place) => (
-                      <div
-                        key={place}
-                        className="rounded-[20px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-4 text-sm font-medium text-[#4B5661]"
-                      >
-                        {place}
-                      </div>
-                    ))}
-                  </div>
+                  <ListingDetailMap location={detailMapLocation} />
                 </section>
               </div>
 
@@ -4306,44 +7229,303 @@ function ListingDetailPage({
             </div>
           </section>
         </main>
+
+        {showFooter ? <AppFooter /> : null}
       </div>
     </div>
   );
 }
 
 function MyListingsPage({
+  accessToken,
   onEditListing,
+  onListingVisibilityChange,
   onLogout,
   onNavigate,
   onViewListing,
   user,
 }) {
   const [activeStatusTab, setActiveStatusTab] = useState("all");
-  const listingCounts = ownerListingRecords.reduce(
-    (result, listing) => ({
-      ...result,
-      [listing.status]: (result[listing.status] ?? 0) + 1,
-    }),
-    {
-      all: ownerListingRecords.length,
-      active: 0,
-      pending: 0,
-      draft: 0,
-      hidden: 0,
-      rejected: 0,
-    },
+  const [currentListingPage, setCurrentListingPage] = useState(1);
+  const [listingPageSize, setListingPageSize] = useState(5);
+  const [ownerListings, setOwnerListings] = useState([]);
+  const [listingCounts, setListingCounts] = useState({
+    active: 0,
+    all: 0,
+    draft: 0,
+    hidden: 0,
+    pending: 0,
+    rejected: 0,
+  });
+  const [listingPagination, setListingPagination] = useState({
+    limit: 5,
+    page: 1,
+    total: 0,
+    totalPages: 1,
+  });
+  const [isLoadingListings, setIsLoadingListings] = useState(false);
+  const [listingError, setListingError] = useState("");
+  const [listingRefreshKey, setListingRefreshKey] = useState(0);
+  const [listingToDelete, setListingToDelete] = useState(null);
+  const [isDeletingListing, setIsDeletingListing] = useState(false);
+  const [deleteListingError, setDeleteListingError] = useState("");
+  const [visibilityUpdatingListingId, setVisibilityUpdatingListingId] =
+    useState("");
+  const [visibilityListingError, setVisibilityListingError] = useState("");
+  const statusQuery = activeStatusTab === "all" ? "" : activeStatusTab;
+  const totalListingPages = listingPagination.totalPages || 1;
+  const visiblePageNumbers = Array.from(
+    { length: totalListingPages },
+    (_, index) => index + 1,
+  ).filter(
+    (page) =>
+      totalListingPages <= 5 ||
+      page === 1 ||
+      page === totalListingPages ||
+      Math.abs(page - currentListingPage) <= 1,
   );
-  const filteredListings =
-    activeStatusTab === "all"
-      ? ownerListingRecords
-      : ownerListingRecords.filter(
-          (listing) => listing.status === activeStatusTab,
+  const firstListingIndex = listingPagination.total
+    ? (listingPagination.page - 1) * listingPagination.limit + 1
+    : 0;
+  const lastListingIndex = listingPagination.total
+    ? Math.min(
+        listingPagination.page * listingPagination.limit,
+        listingPagination.total,
+      )
+    : 0;
+
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingListings(true);
+        setListingError("");
+
+        return listMyProperties(accessToken, {
+          limit: listingPageSize,
+          page: currentListingPage,
+          status: statusQuery,
+        });
+      })
+      .then((response) => {
+        if (!isActive || !response) {
+          return;
+        }
+
+        const pagination = response.data?.pagination ?? {
+          limit: listingPageSize,
+          page: currentListingPage,
+          total: 0,
+          totalPages: 1,
+        };
+
+        setOwnerListings(
+          (response.data?.items ?? []).map(mapApiPropertyToListingRecord),
         );
+        setListingCounts((current) => ({
+          ...current,
+          ...(response.data?.statusCounts ?? {}),
+        }));
+        setListingPagination(pagination);
+
+        if (currentListingPage > pagination.totalPages) {
+          setCurrentListingPage(pagination.totalPages || 1);
+        }
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setListingError(
+          error.message ||
+            "Chưa thể tải danh sách tin đăng của bạn. Vui lòng thử lại.",
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingListings(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    accessToken,
+    currentListingPage,
+    listingPageSize,
+    listingRefreshKey,
+    statusQuery,
+  ]);
+
+  function handleStatusTabChange(status) {
+    setActiveStatusTab(status);
+    setCurrentListingPage(1);
+    setVisibilityListingError("");
+  }
+
+  function handlePageSizeChange(event) {
+    setListingPageSize(Number(event.target.value));
+    setCurrentListingPage(1);
+  }
+
+  function goToListingPage(page) {
+    setCurrentListingPage(Math.min(Math.max(1, page), totalListingPages));
+  }
+
+  function refreshListings() {
+    setListingRefreshKey((current) => current + 1);
+  }
+
+  function updateListingVisibilityLocally(updatedProperty, previousStatus) {
+    const updatedListing = mapApiPropertyToListingRecord(updatedProperty);
+    const shouldKeepListingInCurrentTab =
+      activeStatusTab === "all" || activeStatusTab === updatedListing.status;
+    const shouldUpdatePaginationTotal =
+      activeStatusTab === previousStatus && previousStatus !== "all";
+
+    setOwnerListings((current) => {
+      const existingIndex = current.findIndex(
+        (listing) => listing.id === updatedListing.id,
+      );
+
+      if (existingIndex < 0) {
+        return current;
+      }
+
+      if (!shouldKeepListingInCurrentTab) {
+        return current.filter((listing) => listing.id !== updatedListing.id);
+      }
+
+      return current.map((listing) =>
+        listing.id === updatedListing.id ? updatedListing : listing,
+      );
+    });
+    setListingCounts((current) => ({
+      ...current,
+      active: Math.max(
+        0,
+        (current.active ?? 0) +
+          (updatedListing.status === "active" ? 1 : 0) -
+          (previousStatus === "active" ? 1 : 0),
+      ),
+      hidden: Math.max(
+        0,
+        (current.hidden ?? 0) +
+          (updatedListing.status === "hidden" ? 1 : 0) -
+          (previousStatus === "hidden" ? 1 : 0),
+      ),
+    }));
+
+    if (shouldUpdatePaginationTotal) {
+      setListingPagination((current) => {
+        const nextTotal = Math.max(0, current.total - 1);
+
+        return {
+          ...current,
+          total: nextTotal,
+          totalPages: Math.max(1, Math.ceil(nextTotal / current.limit)),
+        };
+      });
+    }
+  }
+
+  async function handleToggleListingVisibility(listing) {
+    const nextStatus =
+      listing.status === "active"
+        ? "hidden"
+        : listing.status === "hidden"
+          ? "active"
+          : "";
+
+    if (!nextStatus || visibilityUpdatingListingId) {
+      return;
+    }
+
+    setVisibilityUpdatingListingId(listing.id);
+    setVisibilityListingError("");
+
+    try {
+      const response = await updatePropertyListingStatus(
+        accessToken,
+        listing.id,
+        nextStatus,
+      );
+      const updatedProperty = response.data?.property;
+
+      if (updatedProperty) {
+        updateListingVisibilityLocally(updatedProperty, listing.status);
+        onListingVisibilityChange?.(updatedProperty);
+      }
+    } catch (error) {
+      setVisibilityListingError(
+        error.message ||
+          (nextStatus === "hidden"
+            ? "Không thể ẩn tin đăng lúc này. Vui lòng thử lại."
+            : "Không thể hiện lại tin đăng lúc này. Vui lòng thử lại."),
+      );
+    } finally {
+      setVisibilityUpdatingListingId("");
+    }
+  }
+
+  function openDeleteListingModal(listing) {
+    setListingToDelete(listing);
+    setDeleteListingError("");
+  }
+
+  function closeDeleteListingModal() {
+    if (isDeletingListing) {
+      return;
+    }
+
+    setListingToDelete(null);
+    setDeleteListingError("");
+  }
+
+  async function confirmDeleteListing() {
+    if (!listingToDelete) {
+      return;
+    }
+
+    setIsDeletingListing(true);
+    setDeleteListingError("");
+
+    try {
+      await deletePropertyListing(accessToken, listingToDelete.id);
+
+      const nextTotal = Math.max(0, listingPagination.total - 1);
+      const nextTotalPages = Math.max(
+        1,
+        Math.ceil(nextTotal / listingPagination.limit),
+      );
+
+      setListingToDelete(null);
+
+      if (currentListingPage > nextTotalPages) {
+        setCurrentListingPage(nextTotalPages);
+      } else {
+        refreshListings();
+      }
+    } catch (error) {
+      setDeleteListingError(
+        error.message || "Không thể xóa tin đăng. Vui lòng thử lại.",
+      );
+    } finally {
+      setIsDeletingListing(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="postListing"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
@@ -4353,7 +7535,7 @@ function MyListingsPage({
           onUserClick={() => onNavigate("profile")}
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="myListings"
             onLogout={onLogout}
@@ -4363,16 +7545,8 @@ function MyListingsPage({
           <div className="min-w-0 space-y-5">
             <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <button
-                    className="flex items-center gap-2 text-sm font-semibold text-[#27313A] transition hover:text-[#2E9C4D]"
-                    type="button"
-                    onClick={() => onNavigate("home")}
-                  >
-                    <ArrowRight className="size-4 rotate-180" />
-                    Quay lại
-                  </button>
-                  <h1 className="mt-5 text-[34px] font-bold tracking-[-0.03em] text-[#1F252D]">
+                <div className="min-w-0">
+                  <h1 className="text-[34px] font-bold tracking-[-0.03em] text-[#1F252D]">
                     Tin đăng của tôi
                   </h1>
                   <p className="mt-2 max-w-[760px] text-sm text-[#69717B] sm:text-base">
@@ -4381,14 +7555,24 @@ function MyListingsPage({
                   </p>
                 </div>
 
-                <button
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349]"
-                  type="button"
-                  onClick={() => onNavigate("postListing")}
-                >
-                  <FileText className="size-4" />
-                  Đăng tin mới
-                </button>
+                <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                  <Button
+                    className="h-12"
+                    variant="outline"
+                    onClick={() => onNavigate("home")}
+                  >
+                    <ArrowRight className="size-4 rotate-180" />
+                    Quay lại
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="primary"
+                    onClick={() => onNavigate("postListing")}
+                  >
+                    <FileText className="size-4" />
+                    Đăng tin mới
+                  </Button>
+                </div>
               </div>
             </section>
 
@@ -4409,6 +7593,34 @@ function MyListingsPage({
                 </ListingHint>
               </div>
 
+              <div className="mt-6 flex flex-col gap-3 rounded-[20px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[#68717C]">
+                  Hiển thị{" "}
+                  <span className="font-semibold text-[#27313A]">
+                    {firstListingIndex}-{lastListingIndex}
+                  </span>{" "}
+                  trong tổng số{" "}
+                  <span className="font-semibold text-[#27313A]">
+                    {listingPagination.total}
+                  </span>{" "}
+                  tin đăng
+                </p>
+                <label className="flex items-center gap-2 text-sm font-semibold text-[#48515B]">
+                  <span>Số tin mỗi trang</span>
+                  <div className="relative">
+                    <select
+                      className="h-10 appearance-none rounded-xl border border-[#DCE7DF] bg-white px-3 pr-9 text-sm text-[#27313A] outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                      value={listingPageSize}
+                      onChange={handlePageSizeChange}
+                    >
+                      <option value={5}>5 tin</option>
+                      <option value={10}>10 tin</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
+                  </div>
+                </label>
+              </div>
+
               <div className="mt-6 flex flex-wrap gap-3">
                 {listingStatusTabs.map((tab) => {
                   const isActive = activeStatusTab === tab.key;
@@ -4422,7 +7634,7 @@ function MyListingsPage({
                           : "border-[#E2E7E3] bg-white text-[#63707D] hover:border-[#CFE0D2] hover:text-[#2F9C50]"
                       }`}
                       type="button"
-                      onClick={() => setActiveStatusTab(tab.key)}
+                      onClick={() => handleStatusTabChange(tab.key)}
                     >
                       <span>{tab.label}</span>
                       <span
@@ -4440,93 +7652,158 @@ function MyListingsPage({
               </div>
 
               <div className="mt-6 space-y-4">
-                {filteredListings.length ? (
-                  filteredListings.map((listing) => (
-                    <article
-                      key={listing.id}
-                      className="grid gap-4 rounded-[22px] border border-[#E8ECE7] bg-[#FCFDFC] p-4 shadow-[0_8px_24px_rgba(46,72,54,0.04)] md:grid-cols-[220px_minmax(0,1fr)]"
-                    >
+                {isLoadingListings ? (
+                  <div className="rounded-[22px] border border-[#DDEBFF] bg-[#F5F9FF] px-6 py-8 text-center text-sm text-[#305EAF]">
+                    Đang tải danh sách tin đăng của bạn...
+                  </div>
+                ) : null}
+
+                {listingError ? (
+                  <div className="rounded-[22px] border border-[#F3D1D1] bg-[#FFF6F6] px-5 py-5 text-sm text-[#B73A3A]">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <span>{listingError}</span>
                       <button
-                        className="overflow-hidden rounded-[18px] text-left"
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-[#EAB8B8] px-4 font-semibold transition hover:bg-white"
                         type="button"
-                        onClick={() => onViewListing(listing)}
+                        onClick={refreshListings}
                       >
-                        <img
-                          alt={listing.title}
-                          className="h-full min-h-[180px] w-full rounded-[18px] object-cover transition duration-200 hover:scale-[1.02]"
-                          src={listing.image}
-                        />
+                        Tải lại
                       </button>
+                    </div>
+                  </div>
+                ) : null}
 
-                      <div className="min-w-0">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${getListingStatusClassName(listing.status)}`}
-                              >
-                                {listing.statusLabel}
-                              </span>
-                              <span className="rounded-full bg-[#EDF2EF] px-3 py-1 text-xs font-medium text-[#5C6672]">
-                                {listing.packageLabel}
-                              </span>
-                            </div>
-                            <button
-                              className="mt-3 text-left text-xl font-bold text-[#1F252D] transition hover:text-[#2E9C4D]"
-                              type="button"
-                              onClick={() => onViewListing(listing)}
-                            >
-                              {listing.title}
-                            </button>
-                            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#69717B]">
-                              <span className="flex items-center gap-1.5">
-                                <MapPin className="size-4 text-[#35A554]" />
-                                {listing.location}
-                              </span>
-                              <span className="flex items-center gap-1.5">
-                                <CircleDollarSign className="size-4 text-[#35A554]" />
-                                {listing.price}
-                              </span>
-                              <span className="flex items-center gap-1.5">
-                                <CalendarDays className="size-4 text-[#35A554]" />
-                                Cập nhật: {listing.updatedAt}
-                              </span>
-                            </div>
-                          </div>
+                {visibilityListingError ? (
+                  <div className="rounded-[18px] border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm font-medium text-[#B73A3A]">
+                    {visibilityListingError}
+                  </div>
+                ) : null}
 
-                          <button
-                            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#BFE0C6] px-4 text-sm font-semibold text-[#2F9C50] transition hover:bg-[#F4FBF5]"
-                            type="button"
-                            onClick={() => onEditListing(listing)}
-                          >
-                            <FileText className="size-4" />
-                            Chỉnh sửa tin
-                          </button>
-                        </div>
+                {!isLoadingListings && !listingError && ownerListings.length
+                  ? ownerListings.map((listing) => (
+                      <article
+                        key={listing.id}
+                        className="grid gap-3 rounded-[20px] border border-[#E8ECE7] bg-[#FCFDFC] p-3 shadow-[0_8px_20px_rgba(46,72,54,0.035)] md:grid-cols-[180px_minmax(0,1fr)]"
+                      >
+                        <button
+                          className="overflow-hidden rounded-2xl text-left"
+                          type="button"
+                          onClick={() => onViewListing(listing)}
+                        >
+                          <img
+                            alt={listing.title}
+                            className="h-[145px] w-full rounded-2xl object-cover transition duration-200 hover:scale-[1.02] md:h-full md:min-h-[145px]"
+                            src={listing.image}
+                          />
+                        </button>
 
-                        {listing.status === "rejected" ? (
-                          <div className="mt-5 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-4 py-3 text-sm leading-6 text-[#8F3A3A]">
-                            <p className="font-semibold text-[#B63A3A]">
-                              Lý do bị từ chối
-                            </p>
-                            <p className="mt-1">{listing.rejectionReason}</p>
-                          </div>
-                        ) : (
-                          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                            {listing.metrics.map((metric) => (
-                              <div
-                                key={metric}
-                                className="rounded-2xl border border-[#E7ECE8] bg-white px-4 py-3 text-sm font-medium text-[#48515B]"
-                              >
-                                {metric}
+                        <div className="min-w-0">
+                          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getListingStatusClassName(listing.status)}`}
+                                >
+                                  {listing.statusLabel}
+                                </span>
+                                <span className="rounded-full bg-[#EDF2EF] px-2.5 py-0.5 text-xs font-medium text-[#5C6672]">
+                                  {listing.packageLabel}
+                                </span>
                               </div>
-                            ))}
+                              <button
+                                className="mt-2 line-clamp-2 text-left text-lg font-bold leading-6 text-[#1F252D] transition hover:text-[#2E9C4D]"
+                                type="button"
+                                onClick={() => onViewListing(listing)}
+                              >
+                                {listing.title}
+                              </button>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-[#69717B]">
+                                <span className="flex items-center gap-1.5">
+                                  <MapPin className="size-3.5 text-[#35A554]" />
+                                  {listing.location}
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                  <CircleDollarSign className="size-3.5 text-[#35A554]" />
+                                  {listing.price}
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                  <CalendarDays className="size-3.5 text-[#35A554]" />
+                                  Cập nhật: {listing.updatedAt}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex shrink-0 flex-wrap items-center gap-1 lg:justify-end">
+                              <Button
+                                className="h-9 gap-1 whitespace-nowrap border-[#F1CACA] px-2.5 text-xs text-[#B83B3B] hover:bg-[#FFF6F6]"
+                                variant="outline"
+                                onClick={() => openDeleteListingModal(listing)}
+                              >
+                                <Trash2 className="size-3.5 shrink-0 self-center" />
+                                <span className="leading-none">Xóa</span>
+                              </Button>
+                              {["active", "hidden"].includes(listing.status) ? (
+                                <Button
+                                  className="h-9 gap-1 whitespace-nowrap border-[#D8DEE2] px-2.5 text-xs text-[#66707A] hover:bg-[#F5F7F8]"
+                                  disabled={
+                                    visibilityUpdatingListingId === listing.id
+                                  }
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleToggleListingVisibility(listing)
+                                  }
+                                >
+                                  {visibilityUpdatingListingId ===
+                                  listing.id ? (
+                                    <LoaderCircle className="size-3.5 shrink-0 self-center animate-spin" />
+                                  ) : listing.status === "active" ? (
+                                    <EyeOff className="size-3.5 shrink-0 self-center text-[#6D7580]" />
+                                  ) : (
+                                    <Eye className="size-3.5 shrink-0 self-center text-[#6D7580]" />
+                                  )}
+                                  <span className="leading-none">
+                                    {listing.status === "active" ? "Ẩn" : "Hiện"}
+                                  </span>
+                                </Button>
+                              ) : null}
+                              <Button
+                                className="h-9 gap-1 whitespace-nowrap border-[#BFE0C6] px-2.5 text-xs text-[#2F9C50] hover:bg-[#F4FBF5]"
+                                variant="outline"
+                                onClick={() => onEditListing(listing)}
+                              >
+                                <FileText className="size-3.5 shrink-0 self-center" />
+                                <span className="leading-none">Sửa</span>
+                              </Button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </article>
-                  ))
-                ) : (
+
+                          {listing.status === "rejected" ? (
+                            <div className="mt-3 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-3 py-2 text-xs leading-5 text-[#8F3A3A]">
+                              <p className="font-semibold text-[#B63A3A]">
+                                Lý do bị từ chối
+                              </p>
+                              <p className="mt-1">{listing.rejectionReason}</p>
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                              {listing.metrics.map((metric) => (
+                                <div
+                                  key={metric}
+                                  className="rounded-xl border border-[#E7ECE8] bg-white px-3 py-2 text-xs font-medium text-[#48515B]"
+                                >
+                                  {metric}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    ))
+                  : null}
+
+                {!isLoadingListings &&
+                !listingError &&
+                !ownerListings.length ? (
                   <div className="rounded-[22px] border border-dashed border-[#D9E2DC] bg-[#FBFCFB] px-6 py-12 text-center">
                     <p className="text-lg font-semibold text-[#29313B]">
                       Chưa có tin ở trạng thái này
@@ -4536,11 +7813,84 @@ function MyListingsPage({
                       sách đăng của bạn.
                     </p>
                   </div>
-                )}
+                ) : null}
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 border-t border-[#EDF1ED] pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[#68717C]">
+                  Trang {listingPagination.page}/{totalListingPages}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
+                      listingPagination.page > 1
+                        ? "border-[#D8E5DA] text-[#355C41] hover:bg-[#F6FAF7]"
+                        : "cursor-not-allowed border-[#E6EBE7] bg-[#F7F8F8] text-[#A6AFB7]"
+                    }`}
+                    disabled={listingPagination.page <= 1}
+                    type="button"
+                    onClick={() => goToListingPage(listingPagination.page - 1)}
+                  >
+                    <ArrowRight className="size-4 rotate-180" />
+                    Trước
+                  </button>
+
+                  {visiblePageNumbers.map((page, index) => {
+                    const previousPage = visiblePageNumbers[index - 1];
+                    const shouldShowGap =
+                      previousPage && page - previousPage > 1;
+                    const isActivePage = page === listingPagination.page;
+
+                    return (
+                      <div key={page} className="flex items-center gap-2">
+                        {shouldShowGap ? (
+                          <span className="px-1 text-sm font-semibold text-[#8A949F]">
+                            ...
+                          </span>
+                        ) : null}
+                        <button
+                          className={`flex size-10 items-center justify-center rounded-xl border text-sm font-semibold transition ${
+                            isActivePage
+                              ? "border-[#88CF97] bg-[#EDF8EF] text-[#2F9C50]"
+                              : "border-[#E2E7E3] bg-white text-[#63707D] hover:border-[#CFE0D2] hover:text-[#2F9C50]"
+                          }`}
+                          type="button"
+                          onClick={() => goToListingPage(page)}
+                        >
+                          {page}
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
+                      listingPagination.page < totalListingPages
+                        ? "border-[#D8E5DA] text-[#355C41] hover:bg-[#F6FAF7]"
+                        : "cursor-not-allowed border-[#E6EBE7] bg-[#F7F8F8] text-[#A6AFB7]"
+                    }`}
+                    disabled={listingPagination.page >= totalListingPages}
+                    type="button"
+                    onClick={() => goToListingPage(listingPagination.page + 1)}
+                  >
+                    Sau
+                    <ArrowRight className="size-4" />
+                  </button>
+                </div>
               </div>
             </section>
           </div>
         </main>
+
+        {listingToDelete ? (
+          <DeleteListingConfirmModal
+            error={deleteListingError}
+            isDeleting={isDeletingListing}
+            listing={listingToDelete}
+            onClose={closeDeleteListingModal}
+            onConfirm={confirmDeleteListing}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -4692,8 +8042,8 @@ function ProfilePage({
         />
       ) : null}
 
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={user}
           navItems={authenticatedHeaderNavItems}
@@ -4703,7 +8053,7 @@ function ProfilePage({
           onUserClick={() => onNavigate("profile")}
         />
 
-        <main className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
           <AccountSidebar
             activeKey="profile"
             onLogout={onLogout}
@@ -5010,10 +8360,34 @@ function HomePage() {
     getStoredAccessToken() ? undefined : null,
   );
   const [authNotice, setAuthNotice] = useState(null);
-  const [currentView, setCurrentView] = useState("home");
+  const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
   const [listingDetailBackView, setListingDetailBackView] = useState("home");
+  const [propertyKeyword, setPropertyKeyword] = useState("");
+  const [appliedPropertyKeyword, setAppliedPropertyKeyword] = useState("");
+  const [apiListings, setApiListings] = useState([]);
+  const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
+  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
+  const [propertyListError, setPropertyListError] = useState("");
+  const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
+
+  useEffect(() => {
+    function handleRouteChange() {
+      const nextView = getViewFromRoutePath(window.location.pathname);
+
+      setCurrentView(nextView);
+      setEditingListing(null);
+      setSelectedListingDetail(null);
+      setListingDetailBackView("home");
+    }
+
+    window.addEventListener("popstate", handleRouteChange);
+
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!authModal) {
@@ -5111,9 +8485,84 @@ function HomePage() {
     };
   }, [accessToken, currentUser]);
 
+  useEffect(() => {
+    const routeProtectedViews = ["postListing", "myListings"];
+
+    if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      setAuthNotice({
+        type: "error",
+        message: "Vui lòng đăng nhập để sử dụng tính năng này.",
+      });
+      setAuthModal("login");
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingProperties(true);
+        setPropertyListError("");
+
+        return listProperties({
+          keyword: appliedPropertyKeyword,
+          limit: 12,
+        });
+      })
+      .then((response) => {
+        if (!isActive || !response) {
+          return;
+        }
+
+        const items = response.data?.items ?? [];
+        setApiListings(items.map(mapApiPropertyToListingRecord));
+        setHasFetchedProperties(true);
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setPropertyListError(
+          error.message ||
+            "Chưa thể tải danh sách tin đăng. Tạm thời hiển thị dữ liệu mẫu.",
+        );
+        setHasFetchedProperties(false);
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingProperties(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [appliedPropertyKeyword, propertyRefreshKey]);
+
   function handleLogout() {
     setAccessToken("");
     setCurrentUser(null);
+    updateFrontendRoute("home");
     setCurrentView("home");
     setEditingListing(null);
     setSelectedListingDetail(null);
@@ -5126,6 +8575,7 @@ function HomePage() {
 
   function navigateTo(view) {
     if (view === "home") {
+      updateFrontendRoute("home");
       setEditingListing(null);
       setSelectedListingDetail(null);
       setListingDetailBackView("home");
@@ -5142,6 +8592,8 @@ function HomePage() {
 
     if (protectedViews.includes(view)) {
       if (!currentUser) {
+        updateFrontendRoute(view);
+        setCurrentView(view);
         setAuthNotice({
           type: "error",
           message: "Vui lòng đăng nhập để sử dụng tính năng này.",
@@ -5162,6 +8614,7 @@ function HomePage() {
         setEditingListing(null);
       }
 
+      updateFrontendRoute(view);
       setCurrentView(view);
       return;
     }
@@ -5196,6 +8649,7 @@ function HomePage() {
     }
 
     setEditingListing(listing);
+    updateFrontendRoute("postListing");
     setCurrentView("postListing");
   }
 
@@ -5205,7 +8659,81 @@ function HomePage() {
     setCurrentView("listingDetail");
   }
 
+  function handleApplyPropertySearch() {
+    setAppliedPropertyKeyword(propertyKeyword.trim());
+  }
+
+  function handleListingCreated(property, options = {}) {
+    const isUpdate = options.mode === "update";
+    const isDraft = options.mode === "draft";
+    const savedListing = mapApiPropertyToListingRecord(property);
+
+    setApiListings((current) =>
+      savedListing.status === "active"
+        ? [
+            savedListing,
+            ...current.filter((listing) => listing.id !== savedListing.id),
+          ]
+        : current.filter((listing) => listing.id !== savedListing.id),
+    );
+    setHasFetchedProperties(true);
+    setPropertyKeyword("");
+    setAppliedPropertyKeyword("");
+    setPropertyRefreshKey((current) => current + 1);
+    setEditingListing(null);
+    setSelectedListingDetail(null);
+    setListingDetailBackView("home");
+    updateFrontendRoute(isUpdate || isDraft ? "myListings" : "home", {
+      replace: true,
+    });
+    setCurrentView(isUpdate || isDraft ? "myListings" : "home");
+    setAuthNotice({
+      type: "success",
+      message: isDraft
+        ? "Lưu nháp tin đăng thành công. Bạn có thể tiếp tục chỉnh sửa trong Tin đăng của tôi."
+        : isUpdate
+          ? "Cập nhật tin thành công. Danh sách tin đăng của bạn đã được làm mới."
+        : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
+    });
+  }
+
+  function handleListingVisibilityChange(property) {
+    const updatedListing = mapApiPropertyToListingRecord(property);
+    const keyword = appliedPropertyKeyword.trim().toLowerCase();
+    const matchesCurrentKeyword =
+      !keyword ||
+      [
+        updatedListing.title,
+        updatedListing.location,
+        updatedListing.detail?.formattedAddress,
+        updatedListing.draft?.projectName,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword));
+
+    setApiListings((current) => {
+      const remainingListings = current.filter(
+        (listing) => listing.id !== updatedListing.id,
+      );
+
+      if (updatedListing.status === "active" && matchesCurrentKeyword) {
+        return [updatedListing, ...remainingListings];
+      }
+
+      return remainingListings;
+    });
+    setHasFetchedProperties(true);
+    setPropertyRefreshKey((current) => current + 1);
+  }
+
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
+  const shouldUseApiListings = hasFetchedProperties && !propertyListError;
+  const visibleFeaturedListings = shouldUseApiListings
+    ? apiListings.slice(0, 4)
+    : featuredListings;
+  const visibleLatestListings = shouldUseApiListings
+    ? apiListings
+    : latestListings;
 
   if (currentView === "profile" && currentUser) {
     return (
@@ -5222,7 +8750,9 @@ function HomePage() {
   if (currentView === "postListing" && currentUser) {
     return (
       <PostListingPage
+        accessToken={accessToken}
         editingListing={editingListing}
+        onListingCreated={handleListingCreated}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         user={currentUser}
@@ -5239,6 +8769,7 @@ function HomePage() {
         listing={selectedListingDetail}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        showFooter={listingDetailBackView === "home"}
       />
     );
   }
@@ -5246,7 +8777,9 @@ function HomePage() {
   if (currentView === "myListings" && currentUser) {
     return (
       <MyListingsPage
+        accessToken={accessToken}
         onEditListing={openListingEditor}
+        onListingVisibilityChange={handleListingVisibilityChange}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
@@ -5280,8 +8813,8 @@ function HomePage() {
         />
       ) : null}
 
-      <div className="mx-auto max-w-[1360px] px-4 py-4 sm:px-6 lg:px-8">
-        <SharedHeader
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
           activeNav="home"
           currentUser={currentUser}
           navItems={
@@ -5297,14 +8830,14 @@ function HomePage() {
         />
 
         {isCheckingSession ? (
-          <div className="mt-4 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
+          <div className="mt-3 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
             Đang kiểm tra phiên đăng nhập của bạn...
           </div>
         ) : null}
 
         {authNotice ? (
           <div
-            className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
+            className={`mt-3 rounded-2xl px-4 py-3 text-sm ${
               authNotice.type === "error"
                 ? "border border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
                 : "border border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
@@ -5314,8 +8847,8 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-6">
-          <div className="relative lg:h-[390px] overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_18px_50px_rgba(61,91,71,0.08)]">
+        <section className="mt-4">
+          <div className="relative overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[390px]">
             <div className="h-full grid items-stretch lg:grid-cols-[1.9fr_1fr]">
               <div className="px-5 pb-24 pr-0 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pr-0 lg:pb-30 overflow-visible">
                 <h1 className="whitespace-nowrap max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
@@ -5344,6 +8877,13 @@ function HomePage() {
                     className="h-12 w-full rounded-2xl border border-[#E8EAED] bg-[#FFFFFF] pl-11 pr-4 text-sm text-[#38404A] outline-none transition placeholder:text-[#A0A5AF] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
                     placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
                     type="text"
+                    value={propertyKeyword}
+                    onChange={(event) => setPropertyKeyword(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        handleApplyPropertySearch();
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -5355,6 +8895,7 @@ function HomePage() {
                 <button
                   className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white shadow-[0_16px_28px_rgba(53,165,84,0.25)] transition hover:bg-[#2F954B]"
                   type="button"
+                  onClick={handleApplyPropertySearch}
                 >
                   <Search className="size-4" />
                   Tìm kiếm
@@ -5384,6 +8925,18 @@ function HomePage() {
           })}
         </section>
 
+        {isLoadingProperties ? (
+          <div className="mt-5 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
+            Đang tải danh sách tin đăng...
+          </div>
+        ) : null}
+
+        {propertyListError ? (
+          <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            {propertyListError}
+          </div>
+        ) : null}
+
         <section className="mt-8">
           <SectionHeading title="Danh mục nổi bật" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
@@ -5394,35 +8947,49 @@ function HomePage() {
         </section>
 
         <section className="mt-10">
-          <SectionHeading title="Tin nổi bật" />
-          <div className="grid gap-5 xl:grid-cols-3">
-            {featuredListings.map((listing) => (
-              <PropertyCard
-                key={listing.id}
-                listing={listing}
-                onViewListing={() => openListingDetail(listing)}
-              />
-            ))}
-          </div>
-          <div className="mt-5 flex items-center justify-center gap-2">
-            <span className="size-2 rounded-full bg-[#39AA57]" />
-            <span className="size-2 rounded-full bg-[#D5D9DE]" />
-            <span className="size-2 rounded-full bg-[#D5D9DE]" />
-            <span className="size-2 rounded-full bg-[#D5D9DE]" />
-          </div>
+          <SectionHeading title="Bất động sản nổi bật" />
+          {visibleFeaturedListings.length > 0 ? (
+            <>
+              <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                {visibleFeaturedListings.map((listing) => (
+                  <PropertyCard
+                    key={listing.id}
+                    listing={listing}
+                    onViewListing={() => openListingDetail(listing)}
+                  />
+                ))}
+              </div>
+              <div className="mt-5 flex items-center justify-center gap-2">
+                <span className="size-2 rounded-full bg-[#39AA57]" />
+                <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                <span className="size-2 rounded-full bg-[#D5D9DE]" />
+              </div>
+            </>
+          ) : (
+            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+            </div>
+          )}
         </section>
 
         <section className="mt-10">
           <SectionHeading title="Tin mới nhất" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {latestListings.map((listing) => (
-              <MiniPropertyCard
-                key={listing.id}
-                listing={listing}
-                onViewListing={() => openListingDetail(listing)}
-              />
-            ))}
-          </div>
+          {visibleLatestListings.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {visibleLatestListings.map((listing) => (
+                <MiniPropertyCard
+                  key={listing.id}
+                  listing={listing}
+                  onViewListing={() => openListingDetail(listing)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+            </div>
+          )}
         </section>
 
         <section className="mt-10 rounded-[22px] border border-[#E5F0E7] bg-[linear-gradient(90deg,#EAF8EC_0%,#F8FCF8_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(62,102,74,0.06)] sm:px-7">
@@ -5451,75 +9018,7 @@ function HomePage() {
           </div>
         </section>
 
-        <footer className="mt-8 rounded-[24px] bg-white px-5 py-8 shadow-[0_10px_28px_rgba(50,72,59,0.06)] sm:px-7">
-          <div className="grid gap-8 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.05fr]">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-2xl bg-[#E6F5E9] text-[#38A756]">
-                  <Home className="size-5" />
-                </span>
-                <div>
-                  <p className="text-[22px] font-bold leading-none text-[#33A452]">
-                    WeRent
-                  </p>
-                  <p className="mt-1 text-[11px] text-[#89909B]">
-                    Nền tảng nhà ở dành cho bạn
-                  </p>
-                </div>
-              </div>
-              <p className="mt-4 max-w-[260px] text-sm leading-6 text-[#636A75]">
-                Nền tảng kết nối người thuê và chủ nhà nhanh chóng, an toàn và
-                tiện lợi.
-              </p>
-              <div className="mt-4 flex items-center gap-3 text-[#2D323A]">
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[11px] font-semibold uppercase">
-                  Fb
-                </span>
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[10px] font-semibold uppercase">
-                  Ig
-                </span>
-                <span className="flex size-9 items-center justify-center rounded-full border border-[#E8ECEE] text-[10px] font-semibold uppercase">
-                  Yt
-                </span>
-              </div>
-            </div>
-
-            {footerColumns.map((column) => (
-              <div key={column.title}>
-                <h3 className="text-sm font-bold text-[#262B34]">
-                  {column.title}
-                </h3>
-                <ul className="mt-4 space-y-3 text-sm text-[#66707A]">
-                  {column.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-
-            <div>
-              <h3 className="text-sm font-bold text-[#262B34]">Liên hệ</h3>
-              <ul className="mt-4 space-y-3 text-sm text-[#66707A]">
-                <li className="flex items-start gap-2.5">
-                  <Phone className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>1900 1234</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Mail className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>support@werent.vn</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <MapPin className="mt-0.5 size-4 text-[#35A554]" />
-                  <span>123 Nguyễn Văn Linh, Quận 7, TP. Hồ Chí Minh</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-8 border-t border-[#F0F2F4] pt-5 text-center text-sm text-[#858B96]">
-            © 2025 WeRent. All rights reserved.
-          </div>
-        </footer>
+        <AppFooter />
       </div>
     </div>
   );

@@ -32,7 +32,7 @@ const DEFAULT_USER_MENU_ITEMS = [
   { key: "support", label: "Trung tâm trợ giúp", icon: HelpCircle },
 ];
 
-function SharedHeader({
+function AppHeader({
   activeNav,
   currentUser,
   navItems = [],
@@ -131,7 +131,7 @@ function SharedHeader({
               WeRent
             </span>
             <span className="mt-1 block text-[11px] text-[#89909B]">
-              Thuê nhà dễ dàng hơn mỗi ngày
+              Khai Thông Chốn Ở An Yên
             </span>
           </span>
         </button>
@@ -306,4 +306,4 @@ function SharedHeader({
   );
 }
 
-export default SharedHeader;
+export default AppHeader;

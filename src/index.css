@@ -16,6 +16,10 @@ body {
   box-sizing: border-box;
 }
 
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 .leaflet-container {
   font-family: "Inter", "Geist Variable", sans-serif;
 }
