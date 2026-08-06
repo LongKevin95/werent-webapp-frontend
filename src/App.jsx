@@ -105,6 +105,7 @@ const MAP_RECENT_PLACES_STORAGE_KEY = "werent.recentMapPlaces";
 const MAP_RECENT_PLACES_LIMIT = 5;
 const MAP_GEOLOCATION_TIMEOUT_MS = 10000;
 const MAP_API_BASE_URL = getApiBaseUrl();
+const LISTING_MAP_MAX_ZOOM = 21;
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
   html: '<span class="werent-map-marker"></span>',
@@ -4053,12 +4054,14 @@ function ListingDetailMap({ location }) {
       <div className="relative overflow-hidden rounded-[24px] border border-[#DDE8DF] bg-[#EEF3F1] shadow-[0_10px_26px_rgba(46,72,54,0.06)]">
         <MapContainer
           center={[location.lat, location.lng]}
-          className="relative z-0 h-[320px] w-full"
+          className="relative z-0 h-[360px] w-full"
+          maxZoom={LISTING_MAP_MAX_ZOOM}
           scrollWheelZoom={false}
           zoom={16}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            maxZoom={LISTING_MAP_MAX_ZOOM}
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapPositionSync location={location} />
@@ -4606,11 +4609,13 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
           <MapContainer
             center={[location.lat, location.lng]}
             className="h-[420px] w-full"
+            maxZoom={LISTING_MAP_MAX_ZOOM}
             scrollWheelZoom
             zoom={15}
           >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              maxZoom={LISTING_MAP_MAX_ZOOM}
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <MapPositionSync location={location} />
@@ -5759,6 +5764,7 @@ function CancelPostListingModal({ onClose, onConfirm }) {
     <Modal
       headerVariant="brand"
       size="sm"
+      overlayClassName="!z-[2000]"
       title="Thoát trang đăng tin"
       footer={
         <>
@@ -7762,7 +7768,9 @@ function MyListingsPage({
                                     <Eye className="size-3.5 shrink-0 self-center text-[#6D7580]" />
                                   )}
                                   <span className="leading-none">
-                                    {listing.status === "active" ? "Ẩn" : "Hiện"}
+                                    {listing.status === "active"
+                                      ? "Ẩn"
+                                      : "Hiện"}
                                   </span>
                                 </Button>
                               ) : null}
@@ -8693,7 +8701,7 @@ function HomePage() {
         ? "Lưu nháp tin đăng thành công. Bạn có thể tiếp tục chỉnh sửa trong Tin đăng của tôi."
         : isUpdate
           ? "Cập nhật tin thành công. Danh sách tin đăng của bạn đã được làm mới."
-        : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
+          : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
     });
   }
 

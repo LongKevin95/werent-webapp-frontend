@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import Button from "./Button";
@@ -15,6 +15,9 @@ const modalHeaderVariantClassNames = {
     "border-[#35A554] bg-[linear-gradient(90deg,#35A554_0%,#43B863_55%,#5BC879_100%)] text-white",
   default: "border-[#E8ECE7] bg-white text-[#1F252D]",
 };
+
+let modalOpenCount = 0;
+let previousBodyOverflow = "";
 
 function Modal({
   ariaLabelledBy,
@@ -40,6 +43,27 @@ function Modal({
 }) {
   const generatedTitleId = useId();
   const titleId = ariaLabelledBy ?? (title ? generatedTitleId : undefined);
+
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") {
+      return undefined;
+    }
+
+    if (modalOpenCount === 0) {
+      previousBodyOverflow = document.body.style.overflow;
+    }
+
+    modalOpenCount += 1;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      modalOpenCount = Math.max(modalOpenCount - 1, 0);
+
+      if (modalOpenCount === 0) {
+        document.body.style.overflow = previousBodyOverflow;
+      }
+    };
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;
