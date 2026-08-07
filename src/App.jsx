@@ -7792,7 +7792,8 @@ function MyListingsPage({
                           </div>
 
                           {["hidden", "rejected"].includes(listing.status) &&
-                          (listing.moderationReason || listing.rejectionReason) ? (
+                          (listing.moderationReason ||
+                            listing.rejectionReason) ? (
                             <div className="mt-3 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-3 py-2 text-xs leading-5 text-[#8F3A3A]">
                               <p className="font-semibold text-[#B63A3A]">
                                 {listing.status === "hidden"
