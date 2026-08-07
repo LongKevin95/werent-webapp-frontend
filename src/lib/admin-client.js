@@ -79,3 +79,34 @@ export function deleteAdminUser(token, userId) {
     method: "DELETE",
   });
 }
+
+export function getAdminProperties(token, query = {}, options = {}) {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+
+  const suffix = searchParams.size ? `?${searchParams.toString()}` : "";
+  return adminRequest(`/api/admin/properties${suffix}`, token, options).then(
+    (response) => ({
+      ...response,
+      data: {
+        ...response.data,
+        items: (response.data?.items ?? []).map((property) => ({
+          ...property,
+          id: property.id ?? property._id,
+        })),
+      },
+    }),
+  );
+}
+
+export function reviewAdminProperty(token, propertyId, payload) {
+  return adminRequest(`/api/admin/properties/${propertyId}/review`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}

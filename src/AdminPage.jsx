@@ -1,33 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   Bell,
   Building2,
   CalendarDays,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   CreditCard,
   Download,
   FileWarning,
+  Headphones,
   Home,
   LayoutDashboard,
   LoaderCircle,
   LockKeyhole,
   LogOut,
   Mail,
-  MapPin,
+  Menu,
   Pencil,
   Plus,
   Search,
   Settings,
   ShieldCheck,
-  Star,
-  Tags,
   Trash2,
   UserRoundCheck,
   Users,
   X,
 } from "lucide-react";
+import AdminPropertiesPage from "./AdminPropertiesPage";
 import bannerImg from "./assets/banner-img.png";
 import {
   createAdminUser,
@@ -36,44 +38,6 @@ import {
   getAdminUsers,
   updateAdminUser,
 } from "./lib/admin-client";
-
-const sidebarGroups = [
-  {
-    label: "",
-    items: [{ icon: LayoutDashboard, key: "overview", label: "Tổng quan" }],
-  },
-  {
-    label: "Quản lý người dùng",
-    items: [
-      { icon: Users, key: "users", label: "Quản lý người dùng" },
-      { icon: UserRoundCheck, label: "Quản lý chủ nhà" },
-      { icon: ShieldCheck, label: "Xác minh KYC" },
-    ],
-  },
-  {
-    label: "Quản lý bất động sản",
-    items: [
-      { icon: Building2, label: "Tin đăng" },
-      { icon: Tags, label: "Danh mục & Loại BĐS" },
-      { icon: MapPin, label: "Khu vực & Vị trí" },
-    ],
-  },
-  {
-    label: "Quản lý giao dịch",
-    items: [
-      { icon: CalendarDays, label: "Yêu cầu xem phòng" },
-      { icon: CreditCard, label: "Giao dịch & Thanh toán" },
-    ],
-  },
-  {
-    label: "Quản lý nội dung",
-    items: [
-      { icon: FileWarning, label: "Báo cáo & Khiếu nại" },
-      { icon: Star, label: "Đánh giá" },
-      { icon: Bell, label: "Thông báo" },
-    ],
-  },
-];
 
 const emptyForm = {
   fullName: "",
@@ -102,111 +66,71 @@ function getInitials(name = "") {
 function AdminSidebar({
   activeSection,
   currentUser,
+  isSidebarOpen,
   onBack,
   onLogout,
+  onPropertyStatusChange,
   onSectionChange,
+  propertyCounts,
+  propertyStatus,
 }) {
+  const propertyItems = [
+    { key: "", label: "Tất cả tin đăng", count: propertyCounts.all, tone: "gray" },
+    { key: "pending", label: "Chờ phê duyệt", count: propertyCounts.pending, tone: "amber" },
+    { key: "active", label: "Đã đăng", count: propertyCounts.active, tone: "green" },
+    { key: "rejected", label: "Bị từ chối", count: propertyCounts.rejected, tone: "red" },
+    { key: "hidden", label: "Đã ẩn", count: propertyCounts.hidden, tone: "gray" },
+  ];
+  const menuItems = [
+    { icon: ShieldCheck, label: "Quản lý xác thực (KYC)" },
+    { icon: FileWarning, label: "Quản lý báo cáo" },
+    { icon: CreditCard, label: "Gói dịch vụ & Thanh toán" },
+    { icon: BarChart3, label: "Thống kê & Báo cáo" },
+    { icon: Settings, label: "Cài đặt hệ thống" },
+    { icon: Bell, label: "Nhật ký hoạt động" },
+  ];
+
+  function selectPropertyStatus(nextStatus) {
+    onSectionChange("properties");
+    onPropertyStatusChange(nextStatus);
+  }
+
   return (
-    <aside className="border-b border-[#E9EDE9] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[250px] lg:border-b-0 lg:border-r">
+    <aside className={`border-b border-[#E5EAE6] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[242px] lg:border-b-0 lg:border-r ${isSidebarOpen ? "lg:block" : "lg:hidden"}`}>
       <div className="flex h-full flex-col">
         <button
           className="flex items-center gap-3 px-5 py-5 text-left"
           type="button"
           onClick={onBack}
         >
-          <span className="flex size-10 items-center justify-center rounded-xl bg-[#E6F5E9] text-[#31A451]">
-            <Home className="size-6" />
+          <span className="flex size-10 items-center justify-center text-[#159848]">
+            <Home className="size-9 fill-[#159848] stroke-white" />
           </span>
           <span>
-            <span className="block text-[22px] font-bold leading-none text-[#2F9D4C]">
+            <span className="block text-[21px] font-bold leading-none text-[#129747]">
               WeRent
             </span>
-            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#EAF6EC] px-2 py-1 text-[10px] font-semibold text-[#278E45]">
-              <ShieldCheck className="size-3" /> Admin Panel
-            </span>
+            <span className="mt-1 block text-[11px] text-[#64707B]">Admin</span>
           </span>
         </button>
 
         <nav className="flex gap-2 overflow-x-auto px-3 pb-4 lg:block lg:flex-1 lg:overflow-y-auto lg:pb-5">
-          {sidebarGroups.map((group) => (
-            <div key={group.label || "overview"} className="shrink-0 lg:mt-2">
-              {group.label ? (
-                <p className="hidden px-3 pb-2 pt-3 text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9199] lg:block">
-                  {group.label}
-                </p>
-              ) : null}
-              <div className="flex gap-1 lg:block lg:space-y-1">
-                {group.items.map(({ icon: Icon, key, label }) => {
-                  const isAvailable = Boolean(key);
-                  const isActive = key === activeSection;
+          <button className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "overview" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("overview")}><LayoutDashboard className="size-4" />Tổng quan</button>
+          <button className={`mt-1 flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "users" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("users")}><Users className="size-4" /><span className="flex-1">Quản lý người dùng</span><ChevronDown className="size-3.5" /></button>
 
-                  return (
-                  <button
-                    key={label}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${
-                      isActive
-                        ? "bg-[#EAF5EC] font-semibold text-[#2D9A4B] shadow-[inset_3px_0_0_#31A451]"
-                        : isAvailable
-                          ? "text-[#5F6872] hover:bg-[#F5F8F5] hover:text-[#2D9149]"
-                          : "cursor-not-allowed text-[#5F6872] opacity-75"
-                    }`}
-                    disabled={!isAvailable}
-                    type="button"
-                    title={!isAvailable ? "Tính năng sẽ được phát triển sau" : undefined}
-                    onClick={() => isAvailable && onSectionChange(key)}
-                  >
-                    <Icon className="size-4" />
-                    {label}
-                  </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+          <div className="mt-1 min-w-max lg:min-w-0">
+            <button className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "properties" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => selectPropertyStatus(propertyStatus)}><Building2 className="size-4" /><span className="flex-1">Quản lý tin đăng</span><ChevronDown className={`size-3.5 transition ${activeSection === "properties" ? "rotate-180" : ""}`} /></button>
+            {activeSection === "properties" ? <div className="ml-1 mt-1 border-l border-[#DDE8DF] pl-3">{propertyItems.map((item) => <button key={item.label} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] ${propertyStatus === item.key ? "bg-[#F0F8F2] font-semibold text-[#168B40]" : "text-[#53606D] hover:bg-[#F7F9F7]"}`} type="button" onClick={() => selectPropertyStatus(item.key)}><span className="flex-1">{item.label}</span>{Number.isFinite(item.count) ? <span className={`min-w-7 rounded-full border px-1.5 py-0.5 text-center text-[10px] font-semibold ${item.tone === "amber" ? "border-[#FFD08B] bg-[#FFF7E8] text-[#C46F00]" : item.tone === "green" ? "border-[#BCE4C6] bg-[#ECF8EF] text-[#16883B]" : item.tone === "red" ? "border-[#FFC2C8] bg-[#FFF0F1] text-[#DB3342]" : "border-[#D8DEE5] bg-[#F2F4F6] text-[#596674]"}`}>{item.count}</span> : null}</button>)}</div> : null}
+          </div>
 
-          <div className="hidden lg:block">
-            <p className="px-3 pb-2 pt-5 text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9199]">
-              Hệ thống
-            </p>
-            <button
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-[#5F6872] opacity-75"
-              disabled
-              type="button"
-            >
-              <Settings className="size-4" /> Cài đặt hệ thống
-            </button>
+          <div className="mt-2 space-y-1">
+            {menuItems.map(({ icon: Icon, label }) => <button key={label} className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-[#3E4B59] opacity-80" disabled type="button" title="Tính năng sẽ được phát triển sau"><Icon className="size-4" />{label}</button>)}
           </div>
         </nav>
 
-        <div className="hidden border-t border-[#E9EDE9] p-3 lg:block">
-          <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-            {currentUser.avatarUrl ? (
-              <img
-                alt={`Ảnh đại diện của ${currentUser.fullName}`}
-                className="size-10 rounded-full object-cover"
-                src={currentUser.avatarUrl}
-              />
-            ) : (
-              <span className="flex size-10 items-center justify-center rounded-full bg-[#E3F3E6] text-sm font-bold text-[#2E984A]">
-                {getInitials(currentUser.fullName)}
-              </span>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-[#2D333B]">
-                {currentUser.fullName}
-              </p>
-              <p className="mt-0.5 text-[11px] text-[#2E9A4B]">Super Admin</p>
-            </div>
-            <button
-              aria-label="Đăng xuất"
-              className="flex size-8 items-center justify-center rounded-lg text-[#78818B] hover:bg-[#F2F5F2]"
-              type="button"
-              onClick={onLogout}
-            >
-              <LogOut className="size-4" />
-            </button>
-          </div>
+        <div className="hidden p-4 lg:block">
+          <button className="flex w-full items-center gap-3 rounded-xl border border-[#DDE4DE] p-3 text-left hover:bg-[#F8FAF8]" type="button"><span className="flex size-9 items-center justify-center rounded-full bg-[#EEF3F8] text-[#53657A]"><Headphones className="size-4" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-[#34404C]">Trung tâm hỗ trợ</span><span className="mt-1 block text-[10px] text-[#7A858F]">Hỗ trợ giải đáp thắc mắc</span></span><ChevronRight className="size-4 text-[#607087]" /></button>
+          <button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs text-[#7A858F] hover:bg-[#F5F7F5]" type="button" onClick={onLogout}><LogOut className="size-3.5" />Đăng xuất {currentUser.fullName}</button>
         </div>
       </div>
     </aside>
@@ -751,6 +675,9 @@ function DeleteConfirmModal({ user, onClose, onConfirm }) {
 
 export default function AdminPage({ accessToken, currentUser, onBack, onLogout }) {
   const [activeSection, setActiveSection] = useState("overview");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [propertyStatus, setPropertyStatus] = useState("");
+  const [propertyCounts, setPropertyCounts] = useState({});
   const [users, setUsers] = useState([]);
   const [summary, setSummary] = useState({});
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
@@ -856,9 +783,13 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       <AdminSidebar
         activeSection={activeSection}
         currentUser={currentUser}
+        isSidebarOpen={isSidebarOpen}
         onBack={onBack}
         onLogout={onLogout}
+        onPropertyStatusChange={setPropertyStatus}
         onSectionChange={setActiveSection}
+        propertyCounts={propertyCounts}
+        propertyStatus={propertyStatus}
       />
 
       {showForm ? (
@@ -879,18 +810,27 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
         />
       ) : null}
 
-      <main className="lg:ml-[250px]">
+      <main className={isSidebarOpen ? "lg:ml-[242px]" : ""}>
         <header className="border-b border-[#E9EDE9] bg-white px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-[1500px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+            <div className="flex items-start gap-4">
+              <button aria-label={isSidebarOpen ? "Thu gọn menu" : "Mở menu"} className="mt-0.5 hidden size-9 items-center justify-center rounded-lg text-[#435572] hover:bg-[#F3F6F4] lg:flex" type="button" onClick={() => setIsSidebarOpen((value) => !value)}><Menu className="size-5" /></button>
+              <div>
               <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">
-                {activeSection === "overview" ? "Tổng quan" : "Quản lý người dùng"}
+                {activeSection === "overview"
+                  ? "Tổng quan"
+                  : activeSection === "users"
+                    ? "Quản lý người dùng"
+                    : "Quản lý tin đăng"}
               </h1>
               <p className="mt-1 text-sm text-[#747D87]">
                 {activeSection === "overview"
                   ? "Theo dõi hoạt động và hiệu suất của hệ thống."
-                  : "Quản lý tài khoản và quyền truy cập trên hệ thống."}
+                  : activeSection === "users"
+                    ? "Quản lý tài khoản và quyền truy cập trên hệ thống."
+                    : "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."}
               </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -910,7 +850,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                     <Download className="size-4" /> Xuất báo cáo
                   </button>
                 </>
-              ) : (
+              ) : activeSection === "users" ? (
                 <button
                   className="flex h-11 items-center gap-2 rounded-xl bg-[#31A451] px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(49,164,81,0.2)]"
                   type="button"
@@ -921,7 +861,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                 >
                   <Plus className="size-4" /> Thêm người dùng
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         </header>
@@ -929,6 +869,13 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
         <div className="mx-auto max-w-[1500px] space-y-5 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
           {activeSection === "overview" ? (
             <DashboardOverview summary={summary} />
+          ) : activeSection === "properties" ? (
+            <AdminPropertiesPage
+              accessToken={accessToken}
+              status={propertyStatus}
+              onCountsChange={setPropertyCounts}
+              onStatusChange={setPropertyStatus}
+            />
           ) : (
             <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

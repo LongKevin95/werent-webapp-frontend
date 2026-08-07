@@ -2919,6 +2919,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     price,
     publishedAtRaw,
     createdAtRaw: property.createdAt ?? null,
+    moderationReason: property.moderationReason ?? "",
     rejectionReason: property.rejectionReason ?? "",
     specs: [bathroomSpec, furnishing],
     status: property.status ?? "active",
@@ -6516,8 +6517,8 @@ function PostListingPage({
       setSubmitNotice({
         type: "success",
         message: isEditingListing
-          ? "Cập nhật tin thành công."
-          : "Đăng tin thành công. Tin đã hiển thị công khai để bạn kiểm tra.",
+          ? "Cập nhật tin thành công. Tin đã được gửi lại để chờ kiểm duyệt."
+          : "Đăng tin thành công. Tin đang chờ quản trị viên kiểm duyệt.",
       });
 
       if (savedProperty) {
@@ -6786,6 +6787,7 @@ function ListingDetailPage({
     draft:
       "Tin này hiện là bản nháp. Bạn có thể dùng trang này để xem trước trải nghiệm của khách thuê.",
     hidden:
+      listing.moderationReason ||
       "Tin này đang tạm ẩn. Khi bật lại hiển thị, giao diện khách thuê sẽ giống như bên dưới.",
     rejected:
       listing.rejectionReason ||
@@ -7748,7 +7750,11 @@ function MyListingsPage({
                                 <Trash2 className="size-3.5 shrink-0 self-center" />
                                 <span className="leading-none">Xóa</span>
                               </Button>
-                              {["active", "hidden"].includes(listing.status) ? (
+                              {["active", "hidden"].includes(listing.status) &&
+                              !(
+                                listing.status === "hidden" &&
+                                listing.moderationReason
+                              ) ? (
                                 <Button
                                   className="h-9 gap-1 whitespace-nowrap border-[#D8DEE2] px-2.5 text-xs text-[#66707A] hover:bg-[#F5F7F8]"
                                   disabled={
@@ -7785,12 +7791,18 @@ function MyListingsPage({
                             </div>
                           </div>
 
-                          {listing.status === "rejected" ? (
+                          {["hidden", "rejected"].includes(listing.status) &&
+                          (listing.moderationReason || listing.rejectionReason) ? (
                             <div className="mt-3 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-3 py-2 text-xs leading-5 text-[#8F3A3A]">
                               <p className="font-semibold text-[#B63A3A]">
-                                Lý do bị từ chối
+                                {listing.status === "hidden"
+                                  ? "Lý do bị ẩn"
+                                  : "Lý do bị từ chối"}
                               </p>
-                              <p className="mt-1">{listing.rejectionReason}</p>
+                              <p className="mt-1">
+                                {listing.moderationReason ||
+                                  listing.rejectionReason}
+                              </p>
                             </div>
                           ) : (
                             <div className="mt-3 grid gap-2 sm:grid-cols-3">
