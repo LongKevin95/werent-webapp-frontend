@@ -106,6 +106,23 @@ const MAP_RECENT_PLACES_LIMIT = 5;
 const MAP_GEOLOCATION_TIMEOUT_MS = 10000;
 const MAP_API_BASE_URL = getApiBaseUrl();
 const LISTING_MAP_MAX_ZOOM = 19;
+
+function resolveBackendMediaUrl(url) {
+  if (!url) {
+    return "";
+  }
+
+  if (/^(?:https?:|blob:|data:)/i.test(url)) {
+    return url;
+  }
+
+  if (url.startsWith("/api/uploads/") && MAP_API_BASE_URL) {
+    return `${MAP_API_BASE_URL}${url}`;
+  }
+
+  return url;
+}
+
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
   html: '<span class="werent-map-marker"></span>',
@@ -2828,11 +2845,11 @@ function mapApiPropertyToListingRecord(property, index = 0) {
   const propertyImages = (property.images ?? [])
     .map((image) => ({
       publicId: image?.publicId ?? null,
-      url: image?.url ?? "",
+      url: resolveBackendMediaUrl(image?.url ?? ""),
     }))
     .filter((image) => image.url);
   const imageUrls = (property.images ?? [])
-    .map((image) => image?.url)
+    .map((image) => resolveBackendMediaUrl(image?.url))
     .filter(Boolean);
   const primaryImage =
     imageUrls[0] ??
