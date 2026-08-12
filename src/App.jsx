@@ -12,6 +12,15 @@ import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
 import AppFooter from "./components/layout/AppFooter";
 import AppHeader from "./components/layout/AppHeader";
+import {
+  PropertySearchHeaderBar,
+  PropertySearchResultsPage,
+} from "./components/search/PropertySearchExperience";
+import {
+  defaultPropertySearchState,
+  filterListingsBySearchState,
+  normalizePropertySearchState,
+} from "./components/search/propertySearchUtils";
 import Button from "./components/ui/Button";
 import Modal from "./components/ui/Modal";
 import {
@@ -40,12 +49,12 @@ import {
   Bath,
   BedDouble,
   Building2,
+  CarFront,
   CalendarDays,
   Camera,
-  CarFront,
+  CircleDollarSign,
   ChevronDown,
   ChevronRight,
-  CircleDollarSign,
   Clock3,
   FileText,
   Heart,
@@ -89,6 +98,7 @@ const FRONTEND_ROUTES = Object.freeze({
   home: "/",
   myListings: "/my-listings",
   postListing: "/post-listing",
+  search: "/search",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
   Object.fromEntries(
@@ -226,34 +236,20 @@ function createPlaceholderImage(title, primary, secondary) {
 }
 
 const guestHeaderNavItems = [
-  { key: "home", label: "Trang chủ" },
-  { key: "postListing", label: "Tin đăng" },
+  { key: "postListing", label: "Đăng tin" },
   { key: "support", label: "Hỗ trợ", disabled: true },
   { key: "about", label: "Về chúng tôi", disabled: true },
 ];
 
 const authenticatedHeaderNavItems = [
-  { key: "home", label: "Trang chủ" },
-  { key: "postListing", label: "Tin đăng" },
-  { key: "favorites", label: "Yêu thích", disabled: true },
-  { key: "messages", label: "Tin nhắn", disabled: true },
-];
-
-const searchFilters = [
-  ["Không giá", "Dưới 3 triệu", "3 - 5 triệu", "5 - 10 triệu"],
-  ["Thành phố", "Hồ Chí Minh", "Hà Nội", "Đà Nẵng"],
-  ["Quận / Huyện", "Quận 7", "Thủ Đức", "Bình Thạnh"],
-  ["Diện tích", "Dưới 20m²", "20m² - 35m²", "Trên 35m²"],
-];
-
-const quickFilters = [
-  { icon: CircleDollarSign, label: "Dưới 3 triệu" },
-  { icon: CircleDollarSign, label: "3 - 5 triệu" },
-  { icon: CircleDollarSign, label: "5 - 10 triệu" },
-  { icon: Wind, label: "Có máy lạnh" },
-  { icon: CarFront, label: "Có bãi xe" },
-  { icon: Sofa, label: "Nội thất" },
-  { icon: PawPrint, label: "Thú cưng" },
+  { key: "postListing", label: "Đăng tin", actionGroup: true },
+  {
+    key: "favorites",
+    label: "Yêu thích",
+    ariaLabel: "Yêu thích",
+    icon: Heart,
+    iconOnly: true,
+  },
 ];
 
 const categories = [
@@ -756,19 +752,6 @@ function SectionHeading({ title }) {
       <button className="text-sm font-medium text-[#34A853]" type="button">
         Xem tất cả
       </button>
-    </div>
-  );
-}
-
-function FilterSelect({ options }) {
-  return (
-    <div className="relative min-w-0 flex-1">
-      <select className="h-11 w-full appearance-none rounded-xl border border-[#E7E8EB] bg-white px-4 pr-10 text-sm text-[#343A45] outline-none transition focus:border-[#34A853] focus:ring-2 focus:ring-[#34A853]/15">
-        {options.map((option) => (
-          <option key={option}>{option}</option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
     </div>
   );
 }
@@ -5901,10 +5884,16 @@ function PostListingViewportNotice({ notice, onClose }) {
     return null;
   }
 
+  const isSuccess = notice.type === "success";
+
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
       <div
-        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border border-[#F0CACA] bg-[#FFF7F7] px-5 py-3 text-sm font-semibold text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)] transition duration-300 ease-out ${
+        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border px-5 py-3 text-sm font-semibold shadow-[0_18px_45px_rgba(40,120,70,0.14)] transition duration-300 ease-out ${
+          isSuccess
+            ? "border-[#CBE7D0] bg-[#F3FBF5] text-[#217A3B]"
+            : "border-[#F0CACA] bg-[#FFF7F7] text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)]"
+        } ${
           isVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
         }`}
       >
@@ -5918,9 +5907,12 @@ function PostListingViewportNotice({ notice, onClose }) {
 function PostListingPage({
   accessToken,
   editingListing,
+  headerSearchContent,
   onListingCreated,
+  onHeaderSearchSubmit,
   onLogout,
   onNavigate,
+  renderHeaderSearchContent,
   user,
 }) {
   const draftValues = editingListing?.draft ?? defaultListingDraft;
@@ -6333,6 +6325,11 @@ function PostListingPage({
       return;
     }
 
+    if (action?.type === "search") {
+      onHeaderSearchSubmit?.(action.searchState);
+      return;
+    }
+
     onNavigate(action?.view ?? backTarget);
   }
 
@@ -6667,6 +6664,16 @@ function PostListingPage({
           onUserClick={() =>
             requestExitAction({ type: "navigate", view: "profile" })
           }
+          searchContent={
+            renderHeaderSearchContent?.({
+              keyPrefix: "post-listing-header",
+              onSubmit: (nextSearchState) =>
+                requestExitAction({
+                  type: "search",
+                  searchState: nextSearchState,
+                }),
+            }) ?? headerSearchContent
+          }
         />
 
         <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -6771,6 +6778,7 @@ function ListingDetailHeroImage({ alt, src }) {
 function ListingDetailPage({
   backView,
   currentUser,
+  headerSearchContent,
   listing,
   onLogout,
   onNavigate,
@@ -6872,7 +6880,7 @@ function ListingDetailPage({
           onNavigate={onNavigate}
           onSignup={currentUser ? undefined : () => onNavigate("home")}
           onUserClick={currentUser ? () => onNavigate("profile") : undefined}
-          searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 space-y-5">
@@ -7263,6 +7271,7 @@ function ListingDetailPage({
 
 function MyListingsPage({
   accessToken,
+  headerSearchContent,
   onEditListing,
   onListingVisibilityChange,
   onLogout,
@@ -7558,6 +7567,7 @@ function MyListingsPage({
           onLogout={onLogout}
           onNavigate={onNavigate}
           onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -7936,6 +7946,7 @@ function MyListingsPage({
 
 function ProfilePage({
   accessToken,
+  headerSearchContent,
   onLogout,
   onNavigate,
   onUserChange,
@@ -8089,6 +8100,7 @@ function ProfilePage({
           onLogout={onLogout}
           onNavigate={onNavigate}
           onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -8398,17 +8410,24 @@ function HomePage() {
     getStoredAccessToken() ? undefined : null,
   );
   const [authNotice, setAuthNotice] = useState(null);
+  const [viewportNotice, setViewportNotice] = useState(null);
   const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
   const [listingDetailBackView, setListingDetailBackView] = useState("home");
-  const [propertyKeyword, setPropertyKeyword] = useState("");
-  const [appliedPropertyKeyword, setAppliedPropertyKeyword] = useState("");
+  const [propertySearchDraft, setPropertySearchDraft] = useState(
+    defaultPropertySearchState,
+  );
+  const [appliedPropertySearch, setAppliedPropertySearch] = useState(
+    defaultPropertySearchState,
+  );
   const [apiListings, setApiListings] = useState([]);
   const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [propertyListError, setPropertyListError] = useState("");
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
+  const [searchAdministrativeDivisions, setSearchAdministrativeDivisions] =
+    useState(() => readCachedAdministrativeDivisions());
 
   useEffect(() => {
     function handleRouteChange() {
@@ -8448,6 +8467,35 @@ function HomePage() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [authModal]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    listAdministrativeDivisions()
+      .then((response) => {
+        if (!isActive) {
+          return;
+        }
+
+        const provinces = Array.isArray(response.data?.provinces)
+          ? response.data.provinces
+          : [];
+
+        if (provinces.length) {
+          setSearchAdministrativeDivisions(provinces);
+          writeCachedAdministrativeDivisions(provinces);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setSearchAdministrativeDivisions(readCachedAdministrativeDivisions());
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -8562,8 +8610,7 @@ function HomePage() {
         setPropertyListError("");
 
         return listProperties({
-          keyword: appliedPropertyKeyword,
-          limit: 12,
+          limit: 50,
         });
       })
       .then((response) => {
@@ -8595,7 +8642,7 @@ function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [appliedPropertyKeyword, propertyRefreshKey]);
+  }, [propertyRefreshKey]);
 
   function handleLogout() {
     setAccessToken("");
@@ -8618,6 +8665,15 @@ function HomePage() {
       setSelectedListingDetail(null);
       setListingDetailBackView("home");
       setCurrentView("home");
+      return;
+    }
+
+    if (view === "search") {
+      updateFrontendRoute("search");
+      setEditingListing(null);
+      setSelectedListingDetail(null);
+      setListingDetailBackView("home");
+      setCurrentView("search");
       return;
     }
 
@@ -8669,7 +8725,7 @@ function HomePage() {
     ];
 
     if (comingSoonViews.includes(view)) {
-      setAuthNotice({
+      setViewportNotice({
         type: "success",
         message: "Tính năng này đang được phát triển.",
       });
@@ -8697,8 +8753,17 @@ function HomePage() {
     setCurrentView("listingDetail");
   }
 
-  function handleApplyPropertySearch() {
-    setAppliedPropertyKeyword(propertyKeyword.trim());
+  function handlePropertySearchDraftChange(nextSearchState) {
+    setPropertySearchDraft(normalizePropertySearchState(nextSearchState));
+  }
+
+  function handleApplyPropertySearch(nextSearchState = propertySearchDraft) {
+    const normalizedSearchState = normalizePropertySearchState(nextSearchState);
+
+    setPropertySearchDraft(normalizedSearchState);
+    setAppliedPropertySearch(normalizedSearchState);
+    updateFrontendRoute("search");
+    setCurrentView("search");
   }
 
   function handleListingCreated(property, options = {}) {
@@ -8715,8 +8780,8 @@ function HomePage() {
         : current.filter((listing) => listing.id !== savedListing.id),
     );
     setHasFetchedProperties(true);
-    setPropertyKeyword("");
-    setAppliedPropertyKeyword("");
+    setPropertySearchDraft(defaultPropertySearchState);
+    setAppliedPropertySearch(defaultPropertySearchState);
     setPropertyRefreshKey((current) => current + 1);
     setEditingListing(null);
     setSelectedListingDetail(null);
@@ -8737,7 +8802,7 @@ function HomePage() {
 
   function handleListingVisibilityChange(property) {
     const updatedListing = mapApiPropertyToListingRecord(property);
-    const keyword = appliedPropertyKeyword.trim().toLowerCase();
+    const keyword = appliedPropertySearch.keyword.trim().toLowerCase();
     const matchesCurrentKeyword =
       !keyword ||
       [
@@ -8766,6 +8831,69 @@ function HomePage() {
 
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
   const shouldUseApiListings = hasFetchedProperties && !propertyListError;
+  const propertySearchListings = useMemo(() => {
+    const baseListings = shouldUseApiListings
+      ? apiListings
+      : [...featuredListings, ...latestListings];
+    const seenListingIds = new Set();
+
+    return baseListings.reduce((results, listing, index) => {
+      const normalizedListing = {
+        ...listing,
+        draft: listing.draft ?? {},
+        detail: listing.detail ?? {},
+        id:
+          listing.id ||
+          `listing-search-${index}-${listing.title || "untitled"}-${listing.location || "unknown"}`,
+      };
+
+      if (seenListingIds.has(normalizedListing.id)) {
+        return results;
+      }
+
+      seenListingIds.add(normalizedListing.id);
+      results.push(normalizedListing);
+      return results;
+    }, []);
+  }, [apiListings, shouldUseApiListings]);
+  const filteredSearchListings = useMemo(
+    () =>
+      filterListingsBySearchState(
+        propertySearchListings,
+        appliedPropertySearch,
+      ),
+    [appliedPropertySearch, propertySearchListings],
+  );
+  function renderBasicHeaderSearchContent(options = {}) {
+    const keyPrefix = options.keyPrefix ?? "header";
+    const handleSubmit =
+      options.onSubmit ??
+      ((nextSearchState) =>
+        handleApplyPropertySearch(nextSearchState ?? propertySearchDraft));
+
+    return (
+      <PropertySearchHeaderBar
+        key={`${keyPrefix}-${propertySearchDraft.keyword}`}
+        administrativeDivisions={searchAdministrativeDivisions}
+        searchState={propertySearchDraft}
+        variant="basic"
+        onSearchStateChange={handlePropertySearchDraftChange}
+        onSubmit={handleSubmit}
+      />
+    );
+  }
+  const basicHeaderSearchContent = renderBasicHeaderSearchContent();
+  const bannerSearchContent = (
+    <PropertySearchHeaderBar
+      key={`banner-${propertySearchDraft.keyword}`}
+      administrativeDivisions={searchAdministrativeDivisions}
+      searchState={propertySearchDraft}
+      onSearchStateChange={handlePropertySearchDraftChange}
+      onSubmit={(nextSearchState) =>
+        handleApplyPropertySearch(nextSearchState ?? propertySearchDraft)
+      }
+    />
+  );
   const visibleFeaturedListings = shouldUseApiListings
     ? apiListings.slice(0, 4)
     : featuredListings;
@@ -8777,6 +8905,7 @@ function HomePage() {
     return (
       <ProfilePage
         accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onUserChange={setCurrentUser}
@@ -8790,9 +8919,12 @@ function HomePage() {
       <PostListingPage
         accessToken={accessToken}
         editingListing={editingListing}
+        headerSearchContent={basicHeaderSearchContent}
+        onHeaderSearchSubmit={handleApplyPropertySearch}
         onListingCreated={handleListingCreated}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        renderHeaderSearchContent={renderBasicHeaderSearchContent}
         user={currentUser}
       />
     );
@@ -8804,6 +8936,7 @@ function HomePage() {
         key={selectedListingDetail.id}
         backView={listingDetailBackView}
         currentUser={currentUser ?? null}
+        headerSearchContent={basicHeaderSearchContent}
         listing={selectedListingDetail}
         onLogout={handleLogout}
         onNavigate={navigateTo}
@@ -8816,6 +8949,7 @@ function HomePage() {
     return (
       <MyListingsPage
         accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
         onEditListing={openListingEditor}
         onListingVisibilityChange={handleListingVisibilityChange}
         onLogout={handleLogout}
@@ -8851,6 +8985,11 @@ function HomePage() {
         />
       ) : null}
 
+      <PostListingViewportNotice
+        notice={viewportNotice}
+        onClose={() => setViewportNotice(null)}
+      />
+
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
           activeNav="home"
@@ -8864,7 +9003,7 @@ function HomePage() {
           onNavigate={navigateTo}
           onSignup={() => setAuthModal("signup")}
           onUserClick={() => navigateTo("profile")}
-          searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
+          searchContent={basicHeaderSearchContent}
         />
 
         {isCheckingSession ? (
@@ -8885,84 +9024,6 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-4">
-          <div className="relative overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[390px]">
-            <div className="h-full grid items-stretch lg:grid-cols-[1.9fr_1fr]">
-              <div className="px-5 pb-24 pr-0 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pr-0 lg:pb-30 overflow-visible">
-                <h1 className="whitespace-nowrap max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
-                  Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>
-                  <br />
-                  với bạn
-                </h1>
-                <p className="mt-4 max-w-[520px] text-base text-[#565E69] sm:text-[18px]">
-                  Hơn 20.000 bất động sản đang chờ bạn khám phá.
-                </p>
-              </div>
-
-              <div className="relative h-full min-h-[220px] lg:min-h-[330px]">
-                <img
-                  alt="Banner WeRent"
-                  className="absolute h-full scale-122 object-contain object-center lg:object-right top-[-10px] right-8"
-                  src={bannerImg}
-                />
-              </div>
-            </div>
-            <div className="absolute bottom-7 w-[70%] z-10 -mt-14 px-1 sm:px-6">
-              <div className="relative rounded-[24px] border border-[#EFF1F4] bg-white p-4 shadow-[0_24px_54px_rgba(64,83,72,0.12)] sm:p-4">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#A0A5AF]" />
-                  <input
-                    className="h-12 w-full rounded-2xl border border-[#E8EAED] bg-[#FFFFFF] pl-11 pr-4 text-sm text-[#38404A] outline-none transition placeholder:text-[#A0A5AF] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                    placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
-                    type="text"
-                    value={propertyKeyword}
-                    onChange={(event) => setPropertyKeyword(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        handleApplyPropertySearch();
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-[repeat(4,minmax(0,1fr))_190px]">
-                {searchFilters.map((options) => (
-                  <FilterSelect key={options[0]} options={options} />
-                ))}
-                <button
-                  className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white shadow-[0_16px_28px_rgba(53,165,84,0.25)] transition hover:bg-[#2F954B]"
-                  type="button"
-                  onClick={handleApplyPropertySearch}
-                >
-                  <Search className="size-4" />
-                  Tìm kiếm
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 flex flex-wrap items-center gap-3">
-          {quickFilters.map((filter, index) => {
-            const Icon = filter.icon;
-
-            return (
-              <button
-                key={filter.label}
-                className="flex items-center gap-2 rounded-xl border border-[#E8ECE8] bg-white px-4 py-2.5 text-sm font-medium text-[#49505B] shadow-[0_8px_20px_rgba(56,77,62,0.05)] transition hover:border-[#D4EEDB] hover:text-[#35A554]"
-                type="button"
-              >
-                <Icon className="size-4 text-[#35A554]" />
-                <span>{filter.label}</span>
-                {index === quickFilters.length - 1 ? (
-                  <ChevronRight className="size-4 text-[#7D838F]" />
-                ) : null}
-              </button>
-            );
-          })}
-        </section>
-
         {isLoadingProperties ? (
           <div className="mt-5 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
             Đang tải danh sách tin đăng...
@@ -8975,88 +9036,138 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-8">
-          <SectionHeading title="Danh mục nổi bật" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            {categories.map((category) => (
-              <CategoryCard key={category.title} {...category} />
-            ))}
-          </div>
-        </section>
+        {currentView === "search" ? (
+          <>
+            <PropertySearchResultsPage
+              administrativeDivisions={searchAdministrativeDivisions}
+              appliedSearchState={appliedPropertySearch}
+              listings={filteredSearchListings}
+              onApplyFilters={handleApplyPropertySearch}
+              onClearFilters={() =>
+                handleApplyPropertySearch(defaultPropertySearchState)
+              }
+              onSearchStateChange={handlePropertySearchDraftChange}
+              onViewListing={(listing) => openListingDetail(listing, "search")}
+              searchState={propertySearchDraft}
+            />
 
-        <section className="mt-10">
-          <SectionHeading title="Bất động sản nổi bật" />
-          {visibleFeaturedListings.length > 0 ? (
-            <>
-              <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-                {visibleFeaturedListings.map((listing) => (
-                  <PropertyCard
-                    key={listing.id}
-                    listing={listing}
-                    onViewListing={() => openListingDetail(listing)}
-                  />
+            <AppFooter />
+          </>
+        ) : (
+          <>
+            <section className="mt-4">
+              <div className="relative rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[335px]">
+                <div className="h-full grid items-stretch lg:grid-cols-[1.7fr_1.3fr]">
+                  <div className="overflow-visible px-5 pb-14 pr-0 pt-8 sm:px-8 sm:pt-8 lg:px-10 lg:pb-16 lg:pr-0">
+                    <h1 className="max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-normal text-[#252A31] sm:text-[52px] lg:whitespace-nowrap">
+                      Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>
+                      {" "}với bạn
+                    </h1>
+                    <p className="mt-4 max-w-[520px] text-base text-[#565E69] sm:text-[18px]">
+                      Hơn 20.000 bất động sản đang chờ bạn khám phá.
+                    </p>
+                    <div className="relative z-20 mt-5 w-full max-w-[980px] lg:absolute lg:left-10 lg:top-[155px] lg:mt-0 lg:w-[70%] lg:max-w-none">
+                      {bannerSearchContent}
+                    </div>
+                  </div>
+
+                  <div className="relative h-full min-h-[220px] rounded-b-[34px] lg:min-h-[330px] lg:rounded-b-none lg:rounded-r-[34px]">
+                    <div className="pointer-events-none absolute inset-y-0 right-0 z-0 h-full w-[165%] overflow-hidden rounded-b-[34px] lg:rounded-b-none lg:rounded-r-[34px]">
+                      <img
+                        alt="Banner WeRent"
+                        className="h-full w-full max-w-none origin-right -translate-y-1 scale-[1.22] object-contain object-center lg:object-right"
+                        src={bannerImg}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-8">
+              <SectionHeading title="Danh mục nổi bật" />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                {categories.map((category) => (
+                  <CategoryCard key={category.title} {...category} />
                 ))}
               </div>
-              <div className="mt-5 flex items-center justify-center gap-2">
-                <span className="size-2 rounded-full bg-[#39AA57]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
+            </section>
+
+            <section className="mt-10">
+              <SectionHeading title="Bất động sản nổi bật" />
+              {visibleFeaturedListings.length > 0 ? (
+                <>
+                  <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                    {visibleFeaturedListings.map((listing) => (
+                      <PropertyCard
+                        key={listing.id}
+                        listing={listing}
+                        onViewListing={() => openListingDetail(listing)}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-5 flex items-center justify-center gap-2">
+                    <span className="size-2 rounded-full bg-[#39AA57]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+                  Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+                </div>
+              )}
+            </section>
+
+            <section className="mt-10">
+              <SectionHeading title="Tin mới nhất" />
+              {visibleLatestListings.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {visibleLatestListings.map((listing) => (
+                    <MiniPropertyCard
+                      key={listing.id}
+                      listing={listing}
+                      onViewListing={() => openListingDetail(listing)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+                  Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+                </div>
+              )}
+            </section>
+
+            <section className="mt-10 rounded-[22px] border border-[#E5F0E7] bg-[linear-gradient(90deg,#EAF8EC_0%,#F8FCF8_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(62,102,74,0.06)] sm:px-7">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="flex size-16 items-center justify-center rounded-[20px] bg-white/75 text-[#35A554] shadow-inner">
+                    <Warehouse className="size-8" />
+                  </span>
+                  <div>
+                    <h3 className="text-[30px] font-bold leading-none text-[#21262F]">
+                      Bạn có bất động sản cho thuê?
+                    </h3>
+                    <p className="mt-2 text-sm text-[#5B626D]">
+                      Đăng tin ngay để tiếp cận hàng nghìn người thuê tiềm năng
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(53,165,84,0.22)]"
+                  type="button"
+                  onClick={() => navigateTo("postListing")}
+                >
+                  <ArrowRight className="size-4" />
+                  Đăng tin ngay
+                </button>
               </div>
-            </>
-          ) : (
-            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
-              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
-            </div>
-          )}
-        </section>
+            </section>
 
-        <section className="mt-10">
-          <SectionHeading title="Tin mới nhất" />
-          {visibleLatestListings.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {visibleLatestListings.map((listing) => (
-                <MiniPropertyCard
-                  key={listing.id}
-                  listing={listing}
-                  onViewListing={() => openListingDetail(listing)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
-              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
-            </div>
-          )}
-        </section>
-
-        <section className="mt-10 rounded-[22px] border border-[#E5F0E7] bg-[linear-gradient(90deg,#EAF8EC_0%,#F8FCF8_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(62,102,74,0.06)] sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <span className="flex size-16 items-center justify-center rounded-[20px] bg-white/75 text-[#35A554] shadow-inner">
-                <Warehouse className="size-8" />
-              </span>
-              <div>
-                <h3 className="text-[30px] font-bold leading-none text-[#21262F]">
-                  Bạn có bất động sản cho thuê?
-                </h3>
-                <p className="mt-2 text-sm text-[#5B626D]">
-                  Đăng tin ngay để tiếp cận hàng nghìn người thuê tiềm năng
-                </p>
-              </div>
-            </div>
-            <button
-              className="flex items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(53,165,84,0.22)]"
-              type="button"
-              onClick={() => navigateTo("postListing")}
-            >
-              <ArrowRight className="size-4" />
-              Đăng tin ngay
-            </button>
-          </div>
-        </section>
-
-        <AppFooter />
+            <AppFooter />
+          </>
+        )}
       </div>
     </div>
   );
