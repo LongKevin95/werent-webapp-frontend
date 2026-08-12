@@ -33,6 +33,7 @@ import {
   uploadAvatar as uploadAvatarRequest,
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
+import { createTopUpCheckout, getWalletOverview } from "./lib/payment-client";
 import {
   createPropertyListing,
   deletePropertyListing,
@@ -52,12 +53,17 @@ import {
   CarFront,
   CalendarDays,
   Camera,
+  Check,
   CircleDollarSign,
   ChevronDown,
   ChevronRight,
   Clock3,
+  CreditCard,
+  Download,
   FileText,
+  Gift,
   Heart,
+  Headphones,
   Home,
   House,
   ImagePlus,
@@ -74,6 +80,7 @@ import {
   PawPrint,
   Phone,
   Plus,
+  QrCode,
   Ruler,
   Save,
   Search,
@@ -89,6 +96,7 @@ import {
   Eye,
   EyeOff,
   Warehouse,
+  Wallet,
   Wind,
   X,
 } from "lucide-react";
@@ -96,9 +104,12 @@ import {
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
 const FRONTEND_ROUTES = Object.freeze({
   home: "/",
+  profile: "/profile",
   myListings: "/my-listings",
   postListing: "/post-listing",
   search: "/search",
+  wallet: "/wallet",
+  walletTopUp: "/wallet/top-up",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
   Object.fromEntries(
@@ -1380,7 +1391,6 @@ const dashboardSidebarSections = [
         key: "wallet",
         icon: CircleDollarSign,
         label: "Ví tiền",
-        disabled: true,
       },
     ],
   },
@@ -1418,6 +1428,70 @@ const ALLOWED_PROPERTY_IMAGE_TYPES = new Set([
 const PROPERTY_IMAGE_ACCEPT = Array.from(ALLOWED_PROPERTY_IMAGE_TYPES).join(
   ",",
 );
+
+const walletSummaryCards = [
+  {
+    key: "available",
+    icon: Wallet,
+    label: "Số dư khả dụng",
+    value: 1100000,
+    tone: "green",
+  },
+  {
+    key: "promotion",
+    icon: Gift,
+    label: "Số dư khuyến mãi",
+    value: 150000,
+    tone: "mint",
+  },
+  {
+    key: "deposited",
+    icon: Download,
+    label: "Tổng đã nạp",
+    value: 3250000,
+    tone: "blue",
+  },
+  {
+    key: "spent",
+    icon: ArrowUp,
+    label: "Tổng đã chi",
+    value: 2150000,
+    tone: "amber",
+  },
+];
+
+const topUpQuickAmounts = [
+  { amount: 500000, bonus: 50000 },
+  { amount: 1000000, bonus: 100000 },
+  { amount: 2000000, bonus: 200000 },
+  { amount: 3000000, bonus: 300000 },
+  { amount: 5000000, bonus: 500000 },
+  { amount: 10000000, bonus: 1000000 },
+];
+
+const topUpPaymentMethods = [
+  {
+    key: "qr",
+    label: "Mã QR",
+    description: "Quét mã QR để thanh toán",
+    icon: QrCode,
+    enabled: true,
+  },
+  {
+    key: "bank",
+    label: "Chuyển khoản ngân hàng",
+    description: "Chuyển khoản trực tiếp từ tài khoản ngân hàng",
+    icon: Landmark,
+    enabled: false,
+  },
+  {
+    key: "momo",
+    label: "MoMo",
+    description: "Thanh toán nhanh chóng qua ví MoMo",
+    icon: CreditCard,
+    enabled: false,
+  },
+];
 
 let listingImageIdSequence = 0;
 const listingTierOptions = [
@@ -3312,6 +3386,793 @@ function AccountSidebar({ activeKey, onLogout, onNavigate }) {
         Đăng xuất
       </button>
     </aside>
+  );
+}
+
+function formatWalletCurrency(value) {
+  return `${new Intl.NumberFormat("vi-VN").format(value)} đ`;
+}
+
+function getTopUpBonus(amount) {
+  return Math.floor(Number(amount || 0) * 0.1);
+}
+
+function AccountPageShell({
+  activeKey,
+  children,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  return (
+    <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
+          activeNav="home"
+          currentUser={user}
+          navItems={authenticatedHeaderNavItems}
+          onLogoClick={() => onNavigate("home")}
+          onLogout={onLogout}
+          onNavigate={onNavigate}
+          onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
+        />
+
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+          <AccountSidebar
+            activeKey={activeKey}
+            onLogout={onLogout}
+            onNavigate={onNavigate}
+          />
+
+          <div className="min-w-0">{children}</div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function WalletSummaryCard({ card }) {
+  const toneClasses = {
+    amber: "bg-[#FFF4DF] text-[#F0A025]",
+    blue: "bg-[#EAF4FF] text-[#1682E6]",
+    green: "bg-[#E6F5E9] text-[#159447]",
+    mint: "bg-[#EAF8EC] text-[#239A4B]",
+  };
+  const Icon = card.icon;
+
+  return (
+    <article className="rounded-[18px] border border-[#E4EAE5] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+      <div className="flex items-start gap-4">
+        <span
+          className={`flex size-14 shrink-0 items-center justify-center rounded-full ${toneClasses[card.tone]}`}
+        >
+          <Icon className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-[#526071]">{card.label}</p>
+          <p className="mt-3 text-[24px] font-bold leading-tight text-[#11182A]">
+            {formatWalletCurrency(card.value)}
+          </p>
+        </div>
+      </div>
+
+      <button
+        className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+        type="button"
+      >
+        Xem chi tiết
+        <ArrowRight className="size-4" />
+      </button>
+    </article>
+  );
+}
+
+function WalletTransactionIcon({ type }) {
+  const toneClasses =
+    type === "spend"
+      ? "bg-[#FFF4DF] text-[#F0A025]"
+      : type === "promotion_credit"
+        ? "bg-[#EAF8EC] text-[#239A4B]"
+        : "bg-[#E6F5E9] text-[#159447]";
+  const Icon =
+    type === "spend" ? ArrowUp : type === "promotion_credit" ? Gift : Download;
+
+  return (
+    <span
+      className={`flex size-10 items-center justify-center rounded-full ${toneClasses}`}
+    >
+      <Icon className="size-5" />
+    </span>
+  );
+}
+
+function getWalletTransactionMethod(transaction) {
+  if (transaction.type === "top_up") {
+    return "Mã QR";
+  }
+
+  if (transaction.type === "promotion_credit") {
+    return "Ưu đãi WeRent";
+  }
+
+  if (transaction.type === "spend") {
+    return "Ví WeRent";
+  }
+
+  return "Ví WeRent";
+}
+
+function getWalletTransactionAmount(transaction) {
+  if (transaction.type === "spend") {
+    return -Number(transaction.amount || 0);
+  }
+
+  return Number(transaction.amount || 0);
+}
+
+function formatWalletTransactionDate(value) {
+  if (!value) {
+    return { date: "--", time: "--" };
+  }
+
+  const date = new Date(value);
+
+  return {
+    date: new Intl.DateTimeFormat("vi-VN").format(date),
+    time: new Intl.DateTimeFormat("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date),
+  };
+}
+
+function WalletPage({
+  accessToken,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  const [walletData, setWalletData] = useState(null);
+  const [isLoadingWallet, setIsLoadingWallet] = useState(true);
+  const [walletError, setWalletError] = useState("");
+  const walletSummary = walletData?.summary ?? {
+    availableBalance: 0,
+    promotionBalance: 0,
+    totalDeposited: 0,
+    totalSpent: 0,
+  };
+  const walletTransactions = walletData?.transactions ?? [];
+  const walletSummaryCardsWithValues = [
+    {
+      ...walletSummaryCards[0],
+      value: walletSummary.availableBalance,
+    },
+    {
+      ...walletSummaryCards[1],
+      value: walletSummary.promotionBalance,
+    },
+    {
+      ...walletSummaryCards[2],
+      value: walletSummary.totalDeposited,
+    },
+    {
+      ...walletSummaryCards[3],
+      value: walletSummary.totalSpent,
+    },
+  ];
+
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingWallet(true);
+        setWalletError("");
+
+        return getWalletOverview(accessToken);
+      })
+      .then((response) => {
+        if (isActive && response) {
+          setWalletData(response.data);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setWalletError(
+            error.message || "Không thể tải dữ liệu ví. Vui lòng thử lại.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingWallet(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken]);
+
+  return (
+    <AccountPageShell
+      activeKey="wallet"
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
+      <div className="space-y-6">
+        <section className="flex flex-col gap-4 rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
+              Ví tiền
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#536179]">
+              Quản lý số dư, theo dõi giao dịch và nạp tiền để sử dụng các dịch
+              vụ trên WeRent.
+            </p>
+          </div>
+          <button
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[#078C3F] px-5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(7,140,63,0.22)] transition hover:bg-[#077C38]"
+            type="button"
+            onClick={() => onNavigate("walletTopUp")}
+          >
+            <Wallet className="size-5" />
+            Nạp tiền
+          </button>
+        </section>
+
+        {walletError ? (
+          <div className="rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            {walletError}
+          </div>
+        ) : null}
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {walletSummaryCardsWithValues.map((card) => (
+            <WalletSummaryCard key={card.key} card={card} />
+          ))}
+        </section>
+
+        <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+          <div className="flex flex-col gap-3 border-b border-[#E7ECE8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-bold text-[#172033]">
+              Lịch sử giao dịch gần đây
+            </h2>
+            <button
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+              type="button"
+            >
+              Xem tất cả giao dịch
+              <ArrowRight className="size-4" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[860px] w-full text-left text-sm">
+              <thead className="bg-[#FBFCFB] text-[#56627A]">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">Thời gian</th>
+                  <th className="px-5 py-4 font-semibold">Nội dung</th>
+                  <th className="px-5 py-4 font-semibold">Phương thức</th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Số tiền
+                  </th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Số dư sau giao dịch
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EEF1EE]">
+                {isLoadingWallet ? (
+                  <tr>
+                    <td
+                      className="px-5 py-8 text-center text-sm text-[#63708A]"
+                      colSpan={5}
+                    >
+                      Đang tải dữ liệu ví...
+                    </td>
+                  </tr>
+                ) : walletTransactions.length ? (
+                  walletTransactions.map((transaction) => {
+                    const transactionTime = formatWalletTransactionDate(
+                      transaction.createdAt,
+                    );
+                    const signedAmount = getWalletTransactionAmount(transaction);
+                    const balanceAfter =
+                      Number(transaction.balanceAfter ?? 0) +
+                      Number(transaction.promotionBalanceAfter ?? 0);
+                    const detailParts = [
+                      transaction.metadata?.orderCode
+                        ? `Mã GD: ${transaction.metadata.orderCode}`
+                        : "",
+                      transaction.expiresAt
+                        ? `HSD: ${formatWalletTransactionDate(transaction.expiresAt).date}`
+                        : "",
+                    ].filter(Boolean);
+
+                    return (
+                      <tr key={transaction.id} className="align-middle">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <WalletTransactionIcon type={transaction.type} />
+                            <div>
+                              <p className="font-semibold text-[#263149]">
+                                {transactionTime.date}
+                              </p>
+                              <p className="mt-1 text-xs text-[#66718A]">
+                                {transactionTime.time}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <p className="font-semibold text-[#263149]">
+                            {transaction.description}
+                          </p>
+                          <p className="mt-1 text-xs text-[#66718A]">
+                            {detailParts.join(" · ") || "Giao dịch ví WeRent"}
+                          </p>
+                        </td>
+                        <td className="px-5 py-4 font-medium text-[#263149]">
+                          {getWalletTransactionMethod(transaction)}
+                        </td>
+                        <td
+                          className={`px-5 py-4 text-right font-bold ${
+                            signedAmount < 0
+                              ? "text-[#EF2417]"
+                              : "text-[#07943F]"
+                          }`}
+                        >
+                          {signedAmount > 0 ? "+" : ""}
+                          {formatWalletCurrency(signedAmount)}
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-[#263149]">
+                          {balanceAfter
+                            ? formatWalletCurrency(balanceAfter)
+                            : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td
+                      className="px-5 py-8 text-center text-sm text-[#63708A]"
+                      colSpan={5}
+                    >
+                      Chưa có giao dịch ví.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col gap-4 border-t border-[#EEF1EE] px-5 py-4 text-sm text-[#63708A] sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Hiển thị {walletTransactions.length} giao dịch gần nhất
+            </p>
+            <div className="flex items-center gap-2">
+              {[1, 2, 3].map((page) => (
+                <button
+                  key={page}
+                  className={`flex size-10 items-center justify-center rounded-xl border text-sm font-semibold ${
+                    page === 1
+                      ? "border-[#078C3F] bg-[#078C3F] text-white"
+                      : "border-[#E1E7E2] bg-white text-[#1E2940]"
+                  }`}
+                  type="button"
+                >
+                  {page}
+                </button>
+              ))}
+              <span className="px-2">...</span>
+              <button
+                className="flex size-10 items-center justify-center rounded-xl border border-[#E1E7E2] bg-white text-sm font-semibold text-[#1E2940]"
+                type="button"
+              >
+                5
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </AccountPageShell>
+  );
+}
+
+function TopUpPaymentPage({
+  accessToken,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  const [selectedMethod, setSelectedMethod] = useState("qr");
+  const [amountValue, setAmountValue] = useState("");
+  const [note, setNote] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(true);
+  const [notice, setNotice] = useState(null);
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+
+  const amount = Number(amountValue || 0);
+  const bonus = getTopUpBonus(amount);
+  const total = amount + bonus;
+  const selectedMethodDetail = topUpPaymentMethods.find(
+    (method) => method.key === selectedMethod,
+  );
+  const canContinue =
+    Boolean(selectedMethodDetail?.enabled) && amount >= 10000 && acceptedTerms;
+
+  function handleAmountChange(event) {
+    setAmountValue(event.target.value.replace(/\D/g, ""));
+    setNotice(null);
+  }
+
+  async function handleContinue() {
+    if (!canContinue) {
+      return;
+    }
+
+    setIsCreatingCheckout(true);
+    setNotice(null);
+
+    try {
+      const response = await createTopUpCheckout(accessToken, {
+        amount,
+        note,
+        paymentMethod: selectedMethod,
+      });
+      const checkout = response.data?.checkout;
+
+      if (!checkout?.actionUrl || !checkout.fields) {
+        throw new Error("Không nhận được thông tin thanh toán từ máy chủ.");
+      }
+
+      const form = document.createElement("form");
+      form.method = checkout.method ?? "POST";
+      form.action = checkout.actionUrl;
+      form.style.display = "none";
+
+      Object.entries(checkout.fields).forEach(([name, value]) => {
+        if (value === undefined || value === null) {
+          return;
+        }
+
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = String(value);
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message:
+          error.message ||
+          "Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.",
+      });
+      setIsCreatingCheckout(false);
+    }
+  }
+
+  return (
+    <AccountPageShell
+      activeKey="wallet"
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
+      <div className="space-y-5">
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-2 text-sm font-medium text-[#5D6880]"
+        >
+          <button
+            className="transition hover:text-[#078C3F]"
+            type="button"
+            onClick={() => onNavigate("wallet")}
+          >
+            Ví tiền
+          </button>
+          <ChevronRight className="size-4 text-[#91A0B4]" />
+          <span className="font-semibold text-[#078C3F]">
+            Thanh toán nạp tiền
+          </span>
+        </nav>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-6">
+            <section>
+              <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
+                Thanh toán nạp tiền
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-[#536179]">
+                Chọn phương thức nạp tiền phù hợp với bạn và nhập số tiền muốn
+                nạp.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-bold text-[#172033]">
+                Chọn phương thức thanh toán
+              </h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                {topUpPaymentMethods.map((method) => {
+                  const Icon = method.icon;
+                  const isSelected = selectedMethod === method.key;
+
+                  return (
+                    <button
+                      key={method.key}
+                      className={`relative min-h-[170px] rounded-[18px] border bg-white p-5 text-center shadow-[0_10px_28px_rgba(45,69,54,0.045)] transition ${
+                        isSelected
+                          ? "border-[#10964A] ring-2 ring-[#10964A]/10"
+                          : "border-[#E1E7E3] hover:border-[#BFDCC7]"
+                      } ${method.enabled ? "" : "opacity-70"}`}
+                      type="button"
+                        onClick={() => {
+                          setSelectedMethod(method.key);
+                        setNotice(null);
+                      }}
+                    >
+                      {isSelected ? (
+                        <span className="absolute right-4 top-4 flex size-6 items-center justify-center rounded-full bg-[#10964A] text-white">
+                          <Check className="size-4" />
+                        </span>
+                      ) : null}
+                      {!method.enabled ? (
+                        <span className="absolute left-4 top-4 rounded-full bg-[#F1F4F2] px-2.5 py-1 text-[11px] font-bold text-[#68717C]">
+                          Sắp có
+                        </span>
+                      ) : null}
+                      <span
+                        className={`mx-auto flex size-14 items-center justify-center rounded-full ${
+                          method.key === "momo"
+                            ? "bg-[#FCE7F3] text-[#C20D78]"
+                            : method.key === "bank"
+                              ? "bg-[#EAF4FF] text-[#1477C9]"
+                              : "bg-[#E6F5E9] text-[#10964A]"
+                        }`}
+                      >
+                        <Icon className="size-7" />
+                      </span>
+                      <span className="mt-4 block font-bold text-[#182238]">
+                        {method.label}
+                      </span>
+                      <span className="mt-2 block text-sm leading-6 text-[#64708A]">
+                        {method.description}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-[#172033]">
+                  Nhập số tiền muốn nạp (đ){" "}
+                  <span className="text-[#EF2417]">*</span>
+                </span>
+                <input
+                  className="h-12 w-full rounded-xl border border-[#DDE4DF] bg-white px-4 text-sm outline-none transition placeholder:text-[#A6AFBA] focus:border-[#10964A] focus:ring-2 focus:ring-[#10964A]/15"
+                  inputMode="numeric"
+                  placeholder="Nhập từ 2.000.000 đ để được nhận khuyến mãi"
+                  value={
+                    amountValue
+                      ? new Intl.NumberFormat("vi-VN").format(amount)
+                      : ""
+                  }
+                  onChange={handleAmountChange}
+                />
+              </label>
+
+              <div>
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-sm font-semibold text-[#273149]">
+                    Hoặc chọn nhanh
+                  </p>
+                  <button
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#EF2417]"
+                    type="button"
+                  >
+                    Xem tất cả ưu đãi
+                    <ChevronRight className="size-4" />
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {topUpQuickAmounts.map((option) => {
+                    const isSelected = amount === option.amount;
+
+                    return (
+                      <button
+                        key={option.amount}
+                        className={`rounded-[14px] border bg-white px-5 py-4 text-left transition ${
+                          isSelected
+                            ? "border-[#10964A] ring-2 ring-[#10964A]/10"
+                            : "border-[#DDE4DF] hover:border-[#BFDCC7]"
+                        }`}
+                        type="button"
+                        onClick={() => {
+                          setAmountValue(String(option.amount));
+                          setNotice(null);
+                        }}
+                      >
+                        <span className="block text-lg font-bold text-[#11182A]">
+                          {formatWalletCurrency(option.amount)}
+                        </span>
+                        {option.bonus ? (
+                          <span className="mt-2 block text-sm text-[#273149]">
+                            Tặng:{" "}
+                            <span className="font-bold text-[#07943F]">
+                              {formatWalletCurrency(option.bonus)}
+                            </span>
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h2 className="text-base font-bold text-[#172033]">
+                  Thông tin bổ sung
+                </h2>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-[#273149]">
+                    Ghi chú (tùy chọn)
+                  </span>
+                  <input
+                    className="h-12 w-full rounded-xl border border-[#DDE4DF] bg-white px-4 text-sm outline-none transition placeholder:text-[#A6AFBA] focus:border-[#10964A] focus:ring-2 focus:ring-[#10964A]/15"
+                    placeholder="Nhập ghi chú nếu có"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="flex items-center gap-3 text-sm font-medium text-[#3D4658]">
+                <input
+                  checked={acceptedTerms}
+                  className="size-4 accent-[#10964A]"
+                  type="checkbox"
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                />
+                <span>
+                  Tôi đã đọc và đồng ý với{" "}
+                  <span className="font-semibold text-[#078C3F]">
+                    điều khoản thanh toán
+                  </span>{" "}
+                  của WeRent
+                </span>
+              </label>
+
+              {notice ? (
+                <div
+                  className={`rounded-2xl border px-4 py-3 text-sm ${
+                    notice.type === "error"
+                      ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
+                      : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
+                  }`}
+                >
+                  {notice.message}
+                </div>
+              ) : null}
+            </section>
+          </div>
+
+          <aside className="space-y-5">
+            <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+              <h2 className="text-lg font-bold text-[#172033]">
+                Thông tin thanh toán
+              </h2>
+              <dl className="mt-5 space-y-4 text-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Phương thức thanh toán</dt>
+                  <dd className="font-bold text-[#172033]">
+                    {selectedMethodDetail?.label ?? "-"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Số tiền nạp</dt>
+                  <dd className="font-bold text-[#172033]">
+                    {amount ? formatWalletCurrency(amount) : "-"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Khuyến mãi dự kiến</dt>
+                  <dd className="font-bold text-[#07943F]">
+                    {bonus ? formatWalletCurrency(bonus) : "-"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-5 rounded-xl bg-[#EEF7EF] p-4">
+                <p className="text-sm font-semibold text-[#172033]">
+                  Tổng nhận vào ví
+                </p>
+                <p className="mt-2 text-2xl font-bold text-[#0A873E]">
+                  {total ? formatWalletCurrency(total) : "-"}
+                </p>
+              </div>
+
+              <button
+                className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0A873E] text-sm font-bold text-white shadow-[0_12px_24px_rgba(10,135,62,0.22)] transition hover:bg-[#077C38] disabled:cursor-not-allowed disabled:bg-[#D7DCE4] disabled:text-[#97A1B2] disabled:shadow-none"
+                disabled={!canContinue || isCreatingCheckout}
+                type="button"
+                onClick={handleContinue}
+              >
+                {isCreatingCheckout ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="size-4" />
+                )}
+                {isCreatingCheckout ? "Đang chuyển..." : "Tiếp tục"}
+              </button>
+
+              <p className="mt-4 flex items-center gap-2 text-xs font-medium text-[#63708A]">
+                <Lock className="size-4" />
+                Yêu cầu thanh toán sẽ hết hạn sau{" "}
+                <span className="font-bold text-[#EF2417]">15 phút</span>
+              </p>
+            </section>
+
+            <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+              <h2 className="text-lg font-bold text-[#172033]">
+                Thông tin cần biết
+              </h2>
+              <div className="mt-5 space-y-5">
+                {[
+                  {
+                    icon: Clock3,
+                    title: "Thời gian xử lý",
+                    text: "Tiền sẽ được nạp vào ví ngay sau khi thanh toán thành công.",
+                  },
+                  {
+                    icon: ShieldCheck,
+                    title: "Bảo mật tuyệt đối",
+                    text: "Mọi giao dịch đều được mã hóa và bảo mật theo tiêu chuẩn quốc tế.",
+                  },
+                  {
+                    icon: Headphones,
+                    title: "Hỗ trợ 24/7",
+                    text: "Liên hệ với chúng tôi nếu bạn cần hỗ trợ trong quá trình thanh toán.",
+                  },
+                ].map(({ icon: Icon, text, title }) => (
+                  <div key={title} className="flex gap-4">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[#E1E7E3] text-[#172033]">
+                      <Icon className="size-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-[#172033]">
+                        {title}
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-[#63708A]">
+                        {text}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </AccountPageShell>
   );
 }
 
@@ -8572,7 +9433,13 @@ function HomePage() {
   }, [accessToken, currentUser]);
 
   useEffect(() => {
-    const routeProtectedViews = ["postListing", "myListings"];
+    const routeProtectedViews = [
+      "profile",
+      "postListing",
+      "myListings",
+      "wallet",
+      "walletTopUp",
+    ];
 
     if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
       return undefined;
@@ -8681,6 +9548,8 @@ function HomePage() {
       "profile",
       "postListing",
       "myListings",
+      "wallet",
+      "walletTopUp",
       "adminDashboard",
     ];
 
@@ -8720,7 +9589,6 @@ function HomePage() {
       "about",
       "accountSettings",
       "rentalAppointments",
-      "wallet",
       "notifications",
     ];
 
@@ -8955,6 +9823,30 @@ function HomePage() {
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
+        user={currentUser}
+      />
+    );
+  }
+
+  if (currentView === "wallet" && currentUser) {
+    return (
+      <WalletPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        user={currentUser}
+      />
+    );
+  }
+
+  if (currentView === "walletTopUp" && currentUser) {
+    return (
+      <TopUpPaymentPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
         user={currentUser}
       />
     );
