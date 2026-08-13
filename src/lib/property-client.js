@@ -94,3 +94,11 @@ export function deletePropertyListing(token, propertyId) {
     token,
   });
 }
+
+export function submitListingVerification(token, propertyId, documentType, files, note = "") {
+  const body = new FormData();
+  body.append("documentType", documentType);
+  if (note) body.append("note", note);
+  Array.from(files ?? []).forEach((file) => body.append("documents", file));
+  return request(`/api/kyc/listings/${propertyId}`, { method: "POST", token, body });
+}

@@ -23,6 +23,8 @@ import {
 } from "./components/search/propertySearchUtils";
 import Button from "./components/ui/Button";
 import Modal from "./components/ui/Modal";
+import KycAccountModal from "./components/KycAccountModal";
+import ListingVerificationModal from "./components/ListingVerificationModal";
 import {
   changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
@@ -103,6 +105,7 @@ import {
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
 const FRONTEND_ROUTES = Object.freeze({
+  adminDashboard: "/admin",
   home: "/",
   profile: "/profile",
   myListings: "/my-listings",
@@ -817,6 +820,11 @@ function PropertyCard({ listing, onViewListing }) {
         <span className="absolute left-3 top-3 rounded-lg bg-[#49B96E] px-2 py-1 text-[10px] font-bold text-white">
           VIP
         </span>
+        {listing.isVerified ? (
+          <span className="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#159848] shadow">
+            <ShieldCheck className="size-3" /> Xác thực
+          </span>
+        ) : null}
       </div>
       <div className="space-y-2.5 p-3.5">
         <div>
@@ -891,6 +899,7 @@ function MiniPropertyCard({ listing, onViewListing }) {
         src={listing.image}
       />
       <div className="space-y-3 p-[18px]">
+        {listing.isVerified ? <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700"><ShieldCheck className="size-3"/>Xác thực</span> : null}
         <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
           {listing.title}
         </h3>
@@ -2998,6 +3007,8 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     specs: [bathroomSpec, furnishing],
     status: property.status ?? "active",
     statusLabel: getPropertyStatusLabel(property.status),
+    verificationStatus: property.verificationStatus ?? "unverified",
+    isVerified: ["verified_owner", "verified_authorized"].includes(property.verificationStatus),
     title: property.title || "Tin đăng WeRent",
     area,
     updatedAt: formatApiDateForListing(property.updatedAt, "Hôm nay"),
@@ -6836,6 +6847,8 @@ function PostListingPage({
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [submitNotice, setSubmitNotice] = useState(null);
+  const [showListingVerificationModal, setShowListingVerificationModal] = useState(false);
+  const [listingVerificationNotice, setListingVerificationNotice] = useState("");
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
@@ -7512,6 +7525,17 @@ function PostListingPage({
         notice={viewportNotice}
         onClose={() => setViewportNotice(null)}
       />
+      {showListingVerificationModal && editingListing ? (
+        <ListingVerificationModal
+          accessToken={accessToken}
+          listing={editingListing}
+          onClose={() => setShowListingVerificationModal(false)}
+          onSuccess={(message) => {
+            setShowListingVerificationModal(false);
+            setListingVerificationNotice(message);
+          }}
+        />
+      ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
           activeNav="postListing"
@@ -7571,6 +7595,21 @@ function PostListingPage({
 
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
                   <Button
+                    disabled={!isEditingListing || editingListing?.isVerified}
+                    title={
+                      !isEditingListing
+                        ? "Hãy lưu tin trước, sau đó mở chỉnh sửa để tải giấy tờ xác thực."
+                        : editingListing?.isVerified
+                          ? "Bất động sản đã được xác thực."
+                          : "Tải giấy tờ chứng minh quyền sở hữu hoặc quyền cho thuê."
+                    }
+                    variant="outline"
+                    onClick={() => setShowListingVerificationModal(true)}
+                  >
+                    <ShieldCheck className="size-4" />
+                    {editingListing?.isVerified ? "Đã xác thực BĐS" : "Xác thực BĐS"}
+                  </Button>
+                  <Button
                     variant="outline"
                     onClick={() =>
                       requestExitAction({ type: "navigate", view: backTarget })
@@ -7581,6 +7620,11 @@ function PostListingPage({
                   </Button>
                 </div>
               </div>
+              {listingVerificationNotice ? (
+                <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {listingVerificationNotice}
+                </div>
+              ) : null}
               <div className="mt-7">
                 <ListingProgress activeStep={currentPostListingStep} />
               </div>
@@ -7637,6 +7681,7 @@ function ListingDetailHeroImage({ alt, src }) {
 }
 
 function ListingDetailPage({
+  accessToken,
   backView,
   currentUser,
   headerSearchContent,
@@ -7654,6 +7699,8 @@ function ListingDetailPage({
     : guestHeaderNavItems;
   const mediaItems = buildListingMediaItems(listing, detail, draft);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationNotice, setVerificationNotice] = useState("");
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
   const fullAddress =
     draft.formattedAddress ||
@@ -7730,6 +7777,17 @@ function ListingDetailPage({
 
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      {showVerificationModal ? (
+        <ListingVerificationModal
+          accessToken={accessToken}
+          listing={listing}
+          onClose={() => setShowVerificationModal(false)}
+          onSuccess={(message) => {
+            setShowVerificationModal(false);
+            setVerificationNotice(message);
+          }}
+        />
+      ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
           activeNav="home"
@@ -7865,6 +7923,7 @@ function ListingDetailPage({
                     <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
                       {draft.projectName || draft.propertyType}
                     </p>
+                    {listing.isVerified ? <span className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700"><ShieldCheck className="size-4"/>Bất động sản đã xác thực</span> : null}
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
@@ -8068,6 +8127,12 @@ function ListingDetailPage({
                         </p>
                       </div>
                     </div>
+                    {verificationNotice ? <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">{verificationNotice}</p> : null}
+                    {!listing.isVerified ? (
+                      <button className="mt-4 w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50" type="button" onClick={() => setShowVerificationModal(true)}>
+                        Xác thực BĐS
+                      </button>
+                    ) : null}
                   </section>
                 ) : null}
 
@@ -8818,6 +8883,7 @@ function ProfilePage({
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showKycModal, setShowKycModal] = useState(false);
   const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
@@ -8870,6 +8936,20 @@ function ProfilePage({
         type: "error",
         message: "Hồ sơ phải có ít nhất một email hoặc số điện thoại.",
       });
+      return;
+    }
+
+    const changesVerifiedIdentity =
+      user.kycStatus === "verified" &&
+      (formValues.fullName.trim() !== user.fullName ||
+        email !== (user.email ?? "") ||
+        phone !== (user.phone ?? ""));
+    if (
+      changesVerifiedIdentity &&
+      !window.confirm(
+        "Thay đổi họ tên, email hoặc số điện thoại sẽ đưa tài khoản về trạng thái chưa xác thực và tạm khóa quyền đăng tin. Bạn vẫn muốn tiếp tục?",
+      )
+    ) {
       return;
     }
 
@@ -8949,6 +9029,18 @@ function ProfilePage({
               message: message || "Đổi mật khẩu thành công.",
             })
           }
+        />
+      ) : null}
+      {showKycModal ? (
+        <KycAccountModal
+          accessToken={accessToken}
+          user={user}
+          onClose={() => setShowKycModal(false)}
+          onSuccess={(message) => {
+            setShowKycModal(false);
+            onUserChange({ ...user, kycStatus: "pending", canPostListing: false });
+            setNotice({ type: "success", message });
+          }}
         />
       ) : null}
 
@@ -9242,18 +9334,37 @@ function ProfilePage({
                     Xác thực tài khoản
                   </h2>
                   <div className="mt-4 flex gap-3">
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#FFF5DF] text-[#B67817]">
+                    <span className={`flex size-11 shrink-0 items-center justify-center rounded-full ${user.kycStatus === "verified" ? "bg-green-50 text-green-600" : "bg-[#FFF5DF] text-[#B67817]"}`}>
                       <ShieldCheck className="size-5" />
                     </span>
                     <div>
                       <p className="text-sm font-semibold text-[#414A53]">
-                        Chưa triển khai OTP/email
+                        {user.kycStatus === "verified"
+                          ? "Đã xác thực"
+                          : user.kycStatus === "pending"
+                            ? "Hồ sơ đang chờ duyệt"
+                            : user.kycStatus === "need_more_info"
+                              ? "Cần bổ sung thông tin"
+                              : user.kycStatus === "rejected"
+                                ? "Hồ sơ bị từ chối"
+                                : "Chưa xác thực"}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-[#7D858F]">
-                        Tính năng xác thực sẽ được bổ sung ở giai đoạn sau.
+                        {user.kycStatus === "verified"
+                          ? "Bạn đã có quyền đăng tin trên WeRent."
+                          : "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin."}
                       </p>
                     </div>
                   </div>
+                  {user.kycStatus !== "verified" && user.kycStatus !== "pending" ? (
+                    <button
+                      className="mt-4 w-full rounded-xl bg-[#32A452] py-2.5 text-sm font-semibold text-white"
+                      type="button"
+                      onClick={() => setShowKycModal(true)}
+                    >
+                      {user.kycStatus === "rejected" || user.kycStatus === "need_more_info" ? "Nộp lại hồ sơ" : "Xác thực tài khoản"}
+                    </button>
+                  ) : null}
                 </section>
               </div>
             </div>
@@ -9573,6 +9684,20 @@ function HomePage() {
         return;
       }
 
+      if (
+        view === "postListing" &&
+        !currentUser.roles?.includes("admin") &&
+        (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
+      ) {
+        setAuthNotice({
+          type: "error",
+          message: "Bạn cần xác thực tài khoản trước khi đăng tin.",
+        });
+        updateFrontendRoute("profile");
+        setCurrentView("profile");
+        return;
+      }
+
       if (view === "postListing") {
         setEditingListing(null);
       }
@@ -9607,6 +9732,16 @@ function HomePage() {
         message: "Vui lòng đăng nhập để sử dụng tính năng này.",
       });
       setAuthModal("login");
+      return;
+    }
+
+    if (
+      !currentUser.roles?.includes("admin") &&
+      (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
+    ) {
+      setAuthNotice({ type: "error", message: "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin." });
+      updateFrontendRoute("profile");
+      setCurrentView("profile");
       return;
     }
 
@@ -9801,6 +9936,7 @@ function HomePage() {
   if (currentView === "listingDetail" && selectedListingDetail) {
     return (
       <ListingDetailPage
+        accessToken={accessToken}
         key={selectedListingDetail.id}
         backView={listingDetailBackView}
         currentUser={currentUser ?? null}

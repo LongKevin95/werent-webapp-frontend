@@ -30,6 +30,8 @@ import {
   X,
 } from "lucide-react";
 import AdminPropertiesPage from "./AdminPropertiesPage";
+import AdminKycPage from "./AdminKycPage";
+import AdminPaymentsPage from "./AdminPaymentsPage";
 import bannerImg from "./assets/banner-img.png";
 import {
   createAdminUser,
@@ -82,9 +84,9 @@ function AdminSidebar({
     { key: "hidden", label: "Đã ẩn", count: propertyCounts.hidden, tone: "gray" },
   ];
   const menuItems = [
-    { icon: ShieldCheck, label: "Quản lý xác thực (KYC)" },
+    { key: "kyc", icon: ShieldCheck, label: "Quản lý xác thực (KYC)" },
     { icon: FileWarning, label: "Quản lý báo cáo" },
-    { icon: CreditCard, label: "Gói dịch vụ & Thanh toán" },
+    { key: "payments", icon: CreditCard, label: "Gói dịch vụ & Thanh toán" },
     { icon: BarChart3, label: "Thống kê & Báo cáo" },
     { icon: Settings, label: "Cài đặt hệ thống" },
     { icon: Bell, label: "Nhật ký hoạt động" },
@@ -124,7 +126,7 @@ function AdminSidebar({
           </div>
 
           <div className="mt-2 space-y-1">
-            {menuItems.map(({ icon: Icon, label }) => <button key={label} className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-[#3E4B59] opacity-80" disabled type="button" title="Tính năng sẽ được phát triển sau"><Icon className="size-4" />{label}</button>)}
+            {menuItems.map(({ key, icon: Icon, label }) => <button key={label} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] ${key && activeSection === key ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : key ? "text-[#3E4B59] hover:bg-[#F5F8F5]" : "cursor-not-allowed text-[#3E4B59] opacity-55"}`} disabled={!key} type="button" onClick={() => key && onSectionChange(key)}><Icon className="size-4" />{label}</button>)}
           </div>
         </nav>
 
@@ -821,14 +823,22 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                   ? "Tổng quan"
                   : activeSection === "users"
                     ? "Quản lý người dùng"
-                    : "Quản lý tin đăng"}
+                    : activeSection === "properties"
+                      ? "Quản lý tin đăng"
+                      : activeSection === "kyc"
+                        ? "Quản lý xác thực (KYC)"
+                        : "Quản lý nạp tiền"}
               </h1>
               <p className="mt-1 text-sm text-[#747D87]">
                 {activeSection === "overview"
                   ? "Theo dõi hoạt động và hiệu suất của hệ thống."
                   : activeSection === "users"
                     ? "Quản lý tài khoản và quyền truy cập trên hệ thống."
-                    : "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."}
+                    : activeSection === "properties"
+                      ? "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."
+                      : activeSection === "kyc"
+                        ? "Đối chiếu và duyệt hồ sơ tài khoản, hồ sơ bất động sản."
+                        : "Theo dõi giao dịch nạp tiền, khuyến mãi và điều chỉnh số dư."}
               </p>
               </div>
             </div>
@@ -876,6 +886,10 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
               onCountsChange={setPropertyCounts}
               onStatusChange={setPropertyStatus}
             />
+          ) : activeSection === "kyc" ? (
+            <AdminKycPage accessToken={accessToken} />
+          ) : activeSection === "payments" ? (
+            <AdminPaymentsPage accessToken={accessToken} />
           ) : (
             <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

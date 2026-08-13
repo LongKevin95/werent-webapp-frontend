@@ -110,3 +110,40 @@ export function reviewAdminProperty(token, propertyId, payload) {
     body: payload,
   });
 }
+
+export function getAdminKycRequests(token, kind, query = {}, options = {}) {
+  const suffix = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== "" && value != null),
+  ).toString();
+  return adminRequest(`/api/admin/kyc/${kind}${suffix ? `?${suffix}` : ""}`, token, options);
+}
+
+export function getAdminKycRequest(token, kind, requestId) {
+  return adminRequest(`/api/admin/kyc/${kind}/${requestId}`, token);
+}
+
+export function reviewAdminKycRequest(token, kind, requestId, payload) {
+  return adminRequest(`/api/admin/kyc/${kind}/${requestId}/review`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function getAdminTransactions(token, query = {}, options = {}) {
+  const suffix = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== "" && value != null),
+  ).toString();
+  return adminRequest(`/api/admin/payments/transactions${suffix ? `?${suffix}` : ""}`, token, options);
+}
+
+export function createAdminBalanceAdjustment(token, payload) {
+  return adminRequest("/api/admin/payments/adjustments", token, { method: "POST", body: payload });
+}
+
+export function getAdminPromotions(token) {
+  return adminRequest("/api/admin/payments/promotions", token);
+}
+
+export function createAdminPromotion(token, payload) {
+  return adminRequest("/api/admin/payments/promotions", token, { method: "POST", body: payload });
+}

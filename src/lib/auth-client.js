@@ -113,6 +113,19 @@ export function changePassword(token, payload) {
   });
 }
 
+export function submitAccountKyc(token, values, files) {
+  const body = new FormData();
+  Object.entries(values).forEach(([key, value]) => body.append(key, value));
+  body.append("identityFront", files.identityFront);
+  body.append("identityBack", files.identityBack);
+  body.append("selfie", files.selfie);
+  return request("/api/kyc/account", { method: "POST", token, body });
+}
+
+export function getAccountKyc(token) {
+  return request("/api/kyc/account", { token });
+}
+
 export function getApiBaseUrl() {
   return API_BASE_URL;
 }
