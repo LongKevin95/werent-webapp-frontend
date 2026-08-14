@@ -454,7 +454,12 @@ function UserFormModal({ user, onClose, onSubmit }) {
       return;
     }
 
-    if (!form.email.trim() && !form.phone.trim()) {
+    if (!isEditing && (!form.email.trim() || !form.phone.trim())) {
+      setError("Vui lòng nhập đầy đủ email và số điện thoại.");
+      return;
+    }
+
+    if (isEditing && !form.email.trim() && !form.phone.trim()) {
       setError("Cần có ít nhất một email hoặc số điện thoại.");
       return;
     }
@@ -539,7 +544,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Email</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Email {!isEditing ? "*" : ""}
+            </span>
             <input
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               name="email"
@@ -549,7 +556,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Số điện thoại</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Số điện thoại {!isEditing ? "*" : ""}
+            </span>
             <input
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               inputMode="tel"

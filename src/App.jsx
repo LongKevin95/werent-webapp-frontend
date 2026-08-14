@@ -1,5 +1,5 @@
 import L from "leaflet";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
@@ -80,6 +80,7 @@ import {
   MessageSquare,
   Lock,
   PawPrint,
+  Pencil,
   Phone,
   Plus,
   QrCode,
@@ -205,19 +206,11 @@ function updateFrontendRoute(view, options = {}) {
   window.history[historyMethod]({ view }, "", nextPath);
 }
 
-function buildRegisterContactPayload(value) {
-  const normalizedValue = value.trim();
-
-  if (!normalizedValue) {
-    return null;
-  }
-
-  if (normalizedValue.includes("@")) {
-    return { email: normalizedValue };
-  }
-
-  const normalizedPhone = normalizeVietnamPhone(normalizedValue);
-  return normalizedPhone ? { phone: normalizedPhone } : null;
+function canUserPostListing(user) {
+  return Boolean(
+    user?.roles?.includes("admin") ||
+    (user?.canPostListing && user?.kycStatus === "verified"),
+  );
 }
 
 function createPlaceholderImage(title, primary, secondary) {
@@ -899,7 +892,12 @@ function MiniPropertyCard({ listing, onViewListing }) {
         src={listing.image}
       />
       <div className="space-y-3 p-[18px]">
-        {listing.isVerified ? <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700"><ShieldCheck className="size-3"/>Xác thực</span> : null}
+        {listing.isVerified ? (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700">
+            <ShieldCheck className="size-3" />
+            Xác thực
+          </span>
+        ) : null}
         <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
           {listing.title}
         </h3>
@@ -918,6 +916,8 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
   const [formValues, setFormValues] = useState({
     fullName: "",
     contact: "",
+    email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
     acceptTerms: false,
@@ -925,6 +925,12 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isLogin = mode === "login";
+  const fieldHeightClassName = "h-12";
+  const labelMarginClassName = "mb-2";
+  const iconLeftClassName = "left-4";
+  const inputPaddingClassName = "pl-11";
+  const inputClassName = `${fieldHeightClassName} w-full rounded-xl border border-[#E7E9EE] bg-white ${inputPaddingClassName} pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15`;
+  const passwordInputClassName = `${fieldHeightClassName} w-full rounded-xl border border-[#E7E9EE] bg-white ${inputPaddingClassName} pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15`;
 
   const featureItems = isLogin
     ? [
@@ -953,7 +959,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
     event.preventDefault();
     setSubmitError("");
 
-    if (!formValues.contact.trim()) {
+    if (isLogin && !formValues.contact.trim()) {
       setSubmitError("Vui lòng nhập email hoặc số điện thoại.");
       return;
     }
@@ -969,6 +975,23 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         return;
       }
 
+      if (!formValues.email.trim()) {
+        setSubmitError("Vui lòng nhập email.");
+        return;
+      }
+
+      if (!formValues.phone.trim()) {
+        setSubmitError("Vui lòng nhập số điện thoại.");
+        return;
+      }
+
+      const normalizedPhone = normalizeVietnamPhone(formValues.phone);
+
+      if (!normalizedPhone) {
+        setSubmitError(INVALID_PHONE_MESSAGE);
+        return;
+      }
+
       if (formValues.password.length < 8) {
         setSubmitError("Mật khẩu phải có ít nhất 8 ký tự.");
         return;
@@ -977,15 +1000,6 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
       if (formValues.password !== formValues.confirmPassword) {
         setSubmitError("Mật khẩu xác nhận không khớp.");
         return;
-      }
-
-      if (!formValues.contact.trim().includes("@")) {
-        const normalizedPhone = normalizeVietnamPhone(formValues.contact);
-
-        if (!normalizedPhone) {
-          setSubmitError(INVALID_PHONE_MESSAGE);
-          return;
-        }
       }
 
       if (!formValues.acceptTerms) {
@@ -1015,16 +1029,12 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         return;
       }
 
-      const contactPayload = buildRegisterContactPayload(formValues.contact);
-
-      if (!contactPayload) {
-        setSubmitError(INVALID_PHONE_MESSAGE);
-        return;
-      }
+      const normalizedPhone = normalizeVietnamPhone(formValues.phone);
 
       const response = await registerRequest({
         fullName: formValues.fullName.trim(),
-        ...contactPayload,
+        email: formValues.email.trim(),
+        phone: normalizedPhone,
         password: formValues.password,
       });
 
@@ -1122,12 +1132,18 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
         </div>
 
-        <div className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10">
+        <div
+          className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 [scrollbar-width:none] sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10 [&::-webkit-scrollbar]:hidden"
+        >
           <div className="mb-6 pr-12">
-            <h2 className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]">
+            <h2
+              className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]"
+            >
               {isLogin ? "Đăng nhập" : "Đăng ký tài khoản"}
             </h2>
-            <p className="mt-2 text-sm text-[#6C7380] sm:text-[15px]">
+            <p
+              className="mt-2 text-sm text-[#6C7380] sm:text-[15px]"
+            >
               {isLogin
                 ? "Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục."
                 : "Tạo tài khoản để trải nghiệm đầy đủ tính năng."}
@@ -1135,7 +1151,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
 
           {submitError ? (
-            <div className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            <div
+              className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]"
+            >
               {submitError}
             </div>
           ) : null}
@@ -1143,15 +1161,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           <form className="space-y-4" onSubmit={handleSubmit}>
             {!isLogin ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
+                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
                   Họ và tên
                 </span>
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
                     <Home className="size-4" />
                   </span>
                   <input
-                    className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                    className={inputClassName}
                     name="fullName"
                     placeholder="Nhập họ và tên"
                     type="text"
@@ -1162,80 +1180,81 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
               </label>
             ) : null}
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
-                {isLogin ? "Email hoặc số điện thoại" : "Số điện thoại / Email"}
-              </span>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
-                  <Mail className="size-4" />
-                </span>
-                <input
-                  className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  name="contact"
-                  placeholder={
-                    isLogin
-                      ? "Nhập email hoặc số điện thoại"
-                      : "Nhập số điện thoại hoặc email"
-                  }
-                  type="text"
-                  value={formValues.contact}
-                  onChange={handleFieldChange}
-                />
-              </div>
-            </label>
-
-            <label className="block">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#2A3140]">
-                <span>Mật khẩu</span>
-                {!isLogin ? (
-                  <span className="text-xs font-normal text-[#8C93A1]">
-                    *Tối thiểu 8 ký tự
-                  </span>
-                ) : null}
-              </div>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
-                  <Lock className="size-4" />
-                </span>
-                <input
-                  className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  name="password"
-                  placeholder={isLogin ? "Nhập mật khẩu" : "Tạo mật khẩu"}
-                  type={showPassword ? "text" : "password"}
-                  value={formValues.password}
-                  onChange={handleFieldChange}
-                />
-                <button
-                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
-                </button>
-              </div>
-            </label>
-
-            {!isLogin ? (
+            {isLogin ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
-                  Xác nhận mật khẩu
+                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                  Email hoặc số điện thoại
                 </span>
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <Mail className="size-4" />
+                  </span>
+                  <input
+                    className={inputClassName}
+                    name="contact"
+                    placeholder="Nhập email hoặc số điện thoại"
+                    type="text"
+                    value={formValues.contact}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+              </label>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Email
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Mail className="size-4" />
+                    </span>
+                    <input
+                      className={inputClassName}
+                      name="email"
+                      placeholder="Nhập email"
+                      type="email"
+                      value={formValues.email}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Số điện thoại
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Phone className="size-4" />
+                    </span>
+                    <input
+                      className={inputClassName}
+                      name="phone"
+                      placeholder="Nhập số điện thoại"
+                      type="tel"
+                      value={formValues.phone}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {isLogin ? (
+              <label className="block">
+                <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                  <span>Mật khẩu</span>
+                </div>
+                <div className="relative">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
                     <Lock className="size-4" />
                   </span>
                   <input
-                    className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                    name="confirmPassword"
-                    placeholder="Nhập lại mật khẩu"
+                    className={passwordInputClassName}
+                    name="password"
+                    placeholder="Nhập mật khẩu"
                     type={showPassword ? "text" : "password"}
-                    value={formValues.confirmPassword}
+                    value={formValues.password}
                     onChange={handleFieldChange}
                   />
                   <button
@@ -1252,7 +1271,73 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                   </button>
                 </div>
               </label>
-            ) : null}
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                    <span>Mật khẩu</span>
+                    <span className="text-xs font-normal text-[#8C93A1]">
+                      *Tối thiểu 8 ký tự
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Lock className="size-4" />
+                    </span>
+                    <input
+                      className={passwordInputClassName}
+                      name="password"
+                      placeholder="Tạo mật khẩu"
+                      type={showPassword ? "text" : "password"}
+                      value={formValues.password}
+                      onChange={handleFieldChange}
+                    />
+                    <button
+                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Xác nhận mật khẩu
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Lock className="size-4" />
+                    </span>
+                    <input
+                      className={passwordInputClassName}
+                      name="confirmPassword"
+                      placeholder="Nhập lại mật khẩu"
+                      type={showPassword ? "text" : "password"}
+                      value={formValues.confirmPassword}
+                      onChange={handleFieldChange}
+                    />
+                    <button
+                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+              </div>
+            )}
 
             {isLogin ? (
               <div className="flex items-center justify-end">
@@ -1286,7 +1371,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
             )}
 
             <button
-              className="flex h-12 w-full items-center justify-center rounded-xl bg-[linear-gradient(90deg,#0E6B33_0%,#12833D_100%)] text-sm font-semibold text-white shadow-[0_16px_30px_rgba(16,121,54,0.22)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center rounded-xl bg-[linear-gradient(90deg,#0E6B33_0%,#12833D_100%)] text-sm font-semibold text-white shadow-[0_16px_30px_rgba(16,121,54,0.22)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70`}
               disabled={isSubmitting}
               type="submit"
             >
@@ -1312,7 +1397,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
               type="button"
             >
               <span className="flex size-5 items-center justify-center rounded-full bg-white text-[18px] font-bold text-[#4285F4]">
@@ -1321,7 +1406,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
               {isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
             </button>
             <button
-              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
               type="button"
             >
               <span className="flex size-5 items-center justify-center rounded-full bg-[#1877F2] text-[18px] font-bold text-white">
@@ -3008,7 +3093,9 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     status: property.status ?? "active",
     statusLabel: getPropertyStatusLabel(property.status),
     verificationStatus: property.verificationStatus ?? "unverified",
-    isVerified: ["verified_owner", "verified_authorized"].includes(property.verificationStatus),
+    isVerified: ["verified_owner", "verified_authorized"].includes(
+      property.verificationStatus,
+    ),
     title: property.title || "Tin đăng WeRent",
     area,
     updatedAt: formatApiDateForListing(property.updatedAt, "Hôm nay"),
@@ -3105,7 +3192,7 @@ function PasswordField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-[#29313B]">
+      <span className="mb-1.5 block text-sm font-semibold text-[#29313B]">
         {label}
       </span>
       <div className="relative">
@@ -3114,7 +3201,7 @@ function PasswordField({
           autoComplete={
             name === "currentPassword" ? "current-password" : "new-password"
           }
-          className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className="h-11 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
           name={name}
           placeholder={placeholder}
           type={visible ? "text" : "password"}
@@ -3217,136 +3304,140 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
       <div
         aria-labelledby="change-password-title"
         aria-modal="true"
-        className="relative max-h-[calc(100dvh-32px)] w-full max-w-[560px] overflow-y-auto rounded-[28px] bg-white p-6 shadow-[0_30px_90px_rgba(10,24,15,0.28)] sm:p-9"
+        className="max-h-[calc(100dvh-32px)] w-full max-w-[560px] overflow-hidden rounded-[18px] bg-white px-3 py-2 shadow-[0_30px_90px_rgba(10,24,15,0.28)]"
         role="dialog"
       >
-        <button
-          aria-label="Đóng popup đổi mật khẩu"
-          className="absolute right-5 top-5 flex size-10 items-center justify-center rounded-full text-[#68717D] transition hover:bg-[#F1F5F1] hover:text-[#242A32]"
-          disabled={isSubmitting}
-          type="button"
-          onClick={onClose}
-        >
-          <X className="size-5" />
-        </button>
-
-        <div className="text-center">
-          <h2
-            className="pr-8 text-[28px] font-bold tracking-[-0.03em] text-[#20262E]"
-            id="change-password-title"
+        <div className="relative max-h-[calc(100dvh-40px)] overflow-y-auto rounded-[14px] px-4 py-4 sm:px-6 sm:py-5">
+          <button
+            aria-label="Đóng popup đổi mật khẩu"
+            className="absolute right-4 top-4 flex size-10 items-center justify-center rounded-full text-[#68717D] transition hover:bg-[#F1F5F1] hover:text-[#242A32]"
+            disabled={isSubmitting}
+            type="button"
+            onClick={onClose}
           >
-            Đổi mật khẩu
-          </h2>
-          <span className="mx-auto mt-5 flex size-16 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
-            <KeyRound className="size-7" />
-          </span>
-          <p className="mx-auto mt-4 max-w-[360px] text-sm leading-6 text-[#68717C]">
-            Tạo mật khẩu mới đủ mạnh để bảo vệ tài khoản của bạn.
-          </p>
-        </div>
+            <X className="size-5" />
+          </button>
 
-        {errorMessage ? (
-          <div className="mt-5 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B33A3A]">
-            {errorMessage}
-          </div>
-        ) : null}
-
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <PasswordField
-            label="Mật khẩu hiện tại"
-            name="currentPassword"
-            placeholder="Nhập mật khẩu hiện tại"
-            value={values.currentPassword}
-            visible={Boolean(visibleFields.currentPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("currentPassword")}
-          />
-          <PasswordField
-            label="Mật khẩu mới"
-            name="newPassword"
-            placeholder="Nhập mật khẩu mới"
-            value={values.newPassword}
-            visible={Boolean(visibleFields.newPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("newPassword")}
-          />
-
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
-              <span
-                className={
-                  strength.score >= 3
-                    ? "font-semibold text-[#2F9C50]"
-                    : "text-[#C35C4D]"
-                }
-              >
-                {strength.label}
+          <div className="text-center">
+            <h2
+              className="pr-8 text-[28px] font-bold tracking-[-0.03em] text-[#20262E]"
+              id="change-password-title"
+            >
+              Đổi mật khẩu
+            </h2>
+            <div className="mx-auto mt-3 flex max-w-[390px] items-center justify-center gap-3 text-left">
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+                <KeyRound className="size-5" />
               </span>
+              <p className="text-sm leading-5 text-[#68717C] sm:whitespace-nowrap">
+                Tạo mật khẩu mới đủ mạnh để bảo vệ tài khoản của bạn.
+              </p>
             </div>
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {[0, 1, 2, 3].map((index) => (
+          </div>
+
+          {errorMessage ? (
+            <div className="mt-3 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-2.5 text-sm text-[#B33A3A]">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
+            <PasswordField
+              label="Mật khẩu hiện tại"
+              name="currentPassword"
+              placeholder="Nhập mật khẩu hiện tại"
+              value={values.currentPassword}
+              visible={Boolean(visibleFields.currentPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("currentPassword")}
+            />
+            <PasswordField
+              label="Mật khẩu mới"
+              name="newPassword"
+              placeholder="Nhập mật khẩu mới"
+              value={values.newPassword}
+              visible={Boolean(visibleFields.newPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("newPassword")}
+            />
+
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
                 <span
-                  key={index}
-                  className={`h-1.5 rounded-full ${
-                    index < strength.score ? "bg-[#35A554]" : "bg-[#E6EAE7]"
-                  }`}
-                />
-              ))}
+                  className={
+                    strength.score >= 3
+                      ? "font-semibold text-[#2F9C50]"
+                      : "text-[#C35C4D]"
+                  }
+                >
+                  {strength.label}
+                </span>
+              </div>
+              <div className="mt-1.5 grid grid-cols-4 gap-2">
+                {[0, 1, 2, 3].map((index) => (
+                  <span
+                    key={index}
+                    className={`h-1.5 rounded-full ${
+                      index < strength.score ? "bg-[#35A554]" : "bg-[#E6EAE7]"
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
 
-          <PasswordField
-            label="Xác nhận mật khẩu mới"
-            name="confirmPassword"
-            placeholder="Nhập lại mật khẩu mới"
-            value={values.confirmPassword}
-            visible={Boolean(visibleFields.confirmPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("confirmPassword")}
-          />
+            <PasswordField
+              label="Xác nhận mật khẩu mới"
+              name="confirmPassword"
+              placeholder="Nhập lại mật khẩu mới"
+              value={values.confirmPassword}
+              visible={Boolean(visibleFields.confirmPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("confirmPassword")}
+            />
 
-          <div className="rounded-2xl border border-[#DDEEDD] bg-[#F3FAF4] px-4 py-4 text-sm text-[#52705A]">
-            <p className="font-semibold text-[#2F7F45]">Mật khẩu nên có:</p>
-            <ul className="mt-2 space-y-1.5">
-              <li className={strength.checks[0] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất 8 ký tự
-              </li>
-              <li className={strength.checks[1] ? "text-[#2F9C50]" : ""}>
-                ✓ Chữ hoa và chữ thường
-              </li>
-              <li className={strength.checks[2] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất một chữ số
-              </li>
-              <li className={strength.checks[3] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất một ký tự đặc biệt
-              </li>
-            </ul>
-          </div>
+            <div className="rounded-2xl border border-[#DDEEDD] bg-[#F3FAF4] px-4 py-3 text-sm text-[#52705A]">
+              <p className="font-semibold text-[#2F7F45]">Mật khẩu nên có:</p>
+              <ul className="mt-1.5 space-y-1">
+                <li className={strength.checks[0] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất 8 ký tự
+                </li>
+                <li className={strength.checks[1] ? "text-[#2F9C50]" : ""}>
+                  ✓ Chữ hoa và chữ thường
+                </li>
+                <li className={strength.checks[2] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất một chữ số
+                </li>
+                <li className={strength.checks[3] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất một ký tự đặc biệt
+                </li>
+              </ul>
+            </div>
 
-          <div className="grid gap-3 pt-2 sm:grid-cols-2">
-            <button
-              className="h-12 rounded-xl border border-[#DDE3DE] text-sm font-semibold text-[#4A535D] transition hover:bg-[#F7F9F7]"
-              disabled={isSubmitting}
-              type="button"
-              onClick={onClose}
-            >
-              Hủy
-            </button>
-            <button
-              className="cursor-pointer flex h-12 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
-              disabled={isSubmitting}
-              type="submit"
-            >
-              {isSubmitting ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <KeyRound className="size-4" />
-              )}
-              {isSubmitting ? "Đang cập nhật..." : "Đổi mật khẩu"}
-            </button>
-          </div>
-        </form>
+            <div className="grid gap-3 pt-1 sm:grid-cols-2">
+              <button
+                className="h-11 rounded-xl border border-[#DDE3DE] text-sm font-semibold text-[#4A535D] transition hover:bg-[#F7F9F7]"
+                disabled={isSubmitting}
+                type="button"
+                onClick={onClose}
+              >
+                Hủy
+              </button>
+              <button
+                className="cursor-pointer flex h-11 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
+                disabled={isSubmitting}
+                type="submit"
+              >
+                {isSubmitting ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <KeyRound className="size-4" />
+                )}
+                {isSubmitting ? "Đang cập nhật..." : "Đổi mật khẩu"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -3354,7 +3445,7 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
 
 function AccountSidebar({ activeKey, onLogout, onNavigate }) {
   return (
-    <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)]">
+    <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)] lg:sticky lg:top-4">
       {dashboardSidebarSections.map((section) => (
         <div key={section.title} className="first:mt-0 mt-4">
           <p className="px-3 pb-2 pt-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9097A0]">
@@ -3501,6 +3592,10 @@ function WalletTransactionIcon({ type }) {
 
 function getWalletTransactionMethod(transaction) {
   if (transaction.type === "top_up") {
+    if (transaction.metadata?.provider === "admin_demo") {
+      return "Admin demo";
+    }
+
     return "Mã QR";
   }
 
@@ -3697,7 +3792,8 @@ function WalletPage({
                     const transactionTime = formatWalletTransactionDate(
                       transaction.createdAt,
                     );
-                    const signedAmount = getWalletTransactionAmount(transaction);
+                    const signedAmount =
+                      getWalletTransactionAmount(transaction);
                     const balanceAfter =
                       Number(transaction.balanceAfter ?? 0) +
                       Number(transaction.promotionBalanceAfter ?? 0);
@@ -3769,9 +3865,7 @@ function WalletPage({
           </div>
 
           <div className="flex flex-col gap-4 border-t border-[#EEF1EE] px-5 py-4 text-sm text-[#63708A] sm:flex-row sm:items-center sm:justify-between">
-            <p>
-              Hiển thị {walletTransactions.length} giao dịch gần nhất
-            </p>
+            <p>Hiển thị {walletTransactions.length} giao dịch gần nhất</p>
             <div className="flex items-center gap-2">
               {[1, 2, 3].map((page) => (
                 <button
@@ -3935,8 +4029,8 @@ function TopUpPaymentPage({
                           : "border-[#E1E7E3] hover:border-[#BFDCC7]"
                       } ${method.enabled ? "" : "opacity-70"}`}
                       type="button"
-                        onClick={() => {
-                          setSelectedMethod(method.key);
+                      onClick={() => {
+                        setSelectedMethod(method.key);
                         setNotice(null);
                       }}
                     >
@@ -6776,6 +6870,37 @@ function PostListingViewportNotice({ notice, onClose }) {
   );
 }
 
+function AccountVerificationRequiredModal({ onBack, onVerifyNow }) {
+  return (
+    <Modal
+      footer={
+        <>
+          <Button variant="outline" onClick={onBack}>
+            Quay lại
+          </Button>
+          <Button variant="primary" onClick={onVerifyNow}>
+            <ShieldCheck className="size-4" />
+            Xác thực ngay
+          </Button>
+        </>
+      }
+      footerClassName="pb-5 pt-5"
+      showCloseButton={false}
+      size="sm"
+      title="Xác thực tài khoản"
+      onClose={onBack}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+        <ShieldCheck className="size-7" />
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        <span className="block">Tài khoản bạn chưa được xác thực.</span>
+        <span className="block">Vui lòng xác thực để tiến hành đăng tin.</span>
+      </p>
+    </Modal>
+  );
+}
+
 function PostListingPage({
   accessToken,
   editingListing,
@@ -6847,8 +6972,10 @@ function PostListingPage({
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [submitNotice, setSubmitNotice] = useState(null);
-  const [showListingVerificationModal, setShowListingVerificationModal] = useState(false);
-  const [listingVerificationNotice, setListingVerificationNotice] = useState("");
+  const [showListingVerificationModal, setShowListingVerificationModal] =
+    useState(false);
+  const [listingVerificationNotice, setListingVerificationNotice] =
+    useState("");
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
@@ -7607,7 +7734,9 @@ function PostListingPage({
                     onClick={() => setShowListingVerificationModal(true)}
                   >
                     <ShieldCheck className="size-4" />
-                    {editingListing?.isVerified ? "Đã xác thực BĐS" : "Xác thực BĐS"}
+                    {editingListing?.isVerified
+                      ? "Đã xác thực BĐS"
+                      : "Xác thực BĐS"}
                   </Button>
                   <Button
                     variant="outline"
@@ -7923,7 +8052,12 @@ function ListingDetailPage({
                     <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
                       {draft.projectName || draft.propertyType}
                     </p>
-                    {listing.isVerified ? <span className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700"><ShieldCheck className="size-4"/>Bất động sản đã xác thực</span> : null}
+                    {listing.isVerified ? (
+                      <span className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700">
+                        <ShieldCheck className="size-4" />
+                        Bất động sản đã xác thực
+                      </span>
+                    ) : null}
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
@@ -8127,9 +8261,17 @@ function ListingDetailPage({
                         </p>
                       </div>
                     </div>
-                    {verificationNotice ? <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">{verificationNotice}</p> : null}
+                    {verificationNotice ? (
+                      <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
+                        {verificationNotice}
+                      </p>
+                    ) : null}
                     {!listing.isVerified ? (
-                      <button className="mt-4 w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50" type="button" onClick={() => setShowVerificationModal(true)}>
+                      <button
+                        className="mt-4 w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50"
+                        type="button"
+                        onClick={() => setShowVerificationModal(true)}
+                      >
                         Xác thực BĐS
                       </button>
                     ) : null}
@@ -8879,6 +9021,9 @@ function ProfilePage({
   user,
 }) {
   const avatarInputRef = useRef(null);
+  const personalInfoSectionRef = useRef(null);
+  const formatProfileInputDate = (value) =>
+    value ? new Date(value).toISOString().slice(0, 10) : "";
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -8887,27 +9032,66 @@ function ProfilePage({
   const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
+    dateOfBirth: formatProfileInputDate(user.dateOfBirth),
     email: user.email ?? "",
     phone: user.phone ?? "",
+    address: user.address ?? "",
+    identityNumber: user.identityNumber ?? "",
+    passportNumber: user.passportNumber ?? "",
+    taxCode: user.taxCode ?? "",
   });
 
   const memberSince = user.createdAt
     ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
     : "Chưa có dữ liệu";
-  const roleLabel = user.roles?.includes("admin")
-    ? "Quản trị viên"
-    : "Người dùng";
+  const formatProfileDate = (value) =>
+    value ? new Intl.DateTimeFormat("vi-VN").format(new Date(value)) : "";
+  const profileInfoRows = [
+    ["Họ và tên", user.fullName],
+    ["Ngày sinh", formatProfileDate(user.dateOfBirth)],
+    ["Email", user.email],
+    ["Số điện thoại", user.phone],
+    ["Địa chỉ", user.address],
+    ["Số CCCD", user.identityNumber],
+    ["Số hộ Chiếu", user.passportNumber],
+    ["Mã số thuế", user.taxCode],
+  ];
+  const profileEditFields = [
+    ["fullName", "Họ và tên", "text"],
+    ["dateOfBirth", "Ngày sinh", "date"],
+    ["email", "Email", "email"],
+    ["phone", "Số điện thoại", "tel"],
+    ["address", "Địa chỉ", "text"],
+    ["identityNumber", "Số CCCD", "text"],
+    ["passportNumber", "Số hộ Chiếu", "text"],
+    ["taxCode", "Mã số thuế", "text"],
+  ];
 
   function handleFormChange(event) {
     const { name, value } = event.target;
     setFormValues((current) => ({ ...current, [name]: value }));
   }
 
+  function startProfileEditing() {
+    setIsEditing(true);
+    window.requestAnimationFrame(() => {
+      personalInfoSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
   function cancelEditing() {
     setFormValues({
       fullName: user.fullName ?? "",
+      dateOfBirth: formatProfileInputDate(user.dateOfBirth),
       email: user.email ?? "",
       phone: user.phone ?? "",
+      address: user.address ?? "",
+      identityNumber: user.identityNumber ?? "",
+      passportNumber: user.passportNumber ?? "",
+      taxCode: user.taxCode ?? "",
     });
     setIsEditing(false);
     setNotice(null);
@@ -8922,32 +9106,18 @@ function ProfilePage({
       return;
     }
 
-    const email = formValues.email.trim();
-    const rawPhone = formValues.phone.trim();
-    const phone = rawPhone ? normalizeVietnamPhone(rawPhone) : "";
-
-    if (rawPhone && !phone) {
-      setNotice({ type: "error", message: INVALID_PHONE_MESSAGE });
-      return;
-    }
-
-    if (!email && !phone) {
-      setNotice({
-        type: "error",
-        message: "Hồ sơ phải có ít nhất một email hoặc số điện thoại.",
-      });
-      return;
-    }
-
     const changesVerifiedIdentity =
       user.kycStatus === "verified" &&
       (formValues.fullName.trim() !== user.fullName ||
-        email !== (user.email ?? "") ||
-        phone !== (user.phone ?? ""));
+        formValues.dateOfBirth !== formatProfileInputDate(user.dateOfBirth) ||
+        formValues.address.trim() !== (user.address ?? "") ||
+        formValues.identityNumber.trim() !== (user.identityNumber ?? "") ||
+        formValues.passportNumber.trim() !== (user.passportNumber ?? "") ||
+        formValues.taxCode.trim() !== (user.taxCode ?? ""));
     if (
       changesVerifiedIdentity &&
       !window.confirm(
-        "Thay đổi họ tên, email hoặc số điện thoại sẽ đưa tài khoản về trạng thái chưa xác thực và tạm khóa quyền đăng tin. Bạn vẫn muốn tiếp tục?",
+        "Thay đổi thông tin định danh sẽ đưa tài khoản về trạng thái chưa xác thực và tạm khóa quyền đăng tin. Bạn vẫn muốn tiếp tục?",
       )
     ) {
       return;
@@ -8958,8 +9128,11 @@ function ProfilePage({
     try {
       const payload = {
         fullName: formValues.fullName.trim(),
-        ...(email ? { email } : {}),
-        ...(phone ? { phone } : {}),
+        dateOfBirth: formValues.dateOfBirth || null,
+        address: formValues.address.trim(),
+        identityNumber: formValues.identityNumber.trim(),
+        passportNumber: formValues.passportNumber.trim(),
+        taxCode: formValues.taxCode.trim(),
       };
       const response = await updateProfileRequest(accessToken, payload);
       onUserChange(response.data.user);
@@ -9038,7 +9211,11 @@ function ProfilePage({
           onClose={() => setShowKycModal(false)}
           onSuccess={(message) => {
             setShowKycModal(false);
-            onUserChange({ ...user, kycStatus: "pending", canPostListing: false });
+            onUserChange({
+              ...user,
+              kycStatus: "pending",
+              canPostListing: false,
+            });
             setNotice({ type: "success", message });
           }}
         />
@@ -9064,24 +9241,24 @@ function ProfilePage({
           />
 
           <div className="min-w-0 space-y-5">
-            <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                   <div className="relative mx-auto shrink-0 sm:mx-0">
                     {user.avatarUrl ? (
                       <img
                         alt={`Ảnh đại diện của ${user.fullName}`}
-                        className="size-28 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-32"
+                        className="size-24 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-28"
                         src={user.avatarUrl}
                       />
                     ) : (
-                      <span className="flex size-28 items-center justify-center rounded-full border-4 border-[#F0F6F1] bg-[#E6F4E8] text-[#32A452] sm:size-32">
-                        <UserRound className="size-14" />
+                      <span className="flex size-24 items-center justify-center rounded-full border-4 border-[#F0F6F1] bg-[#E6F4E8] text-[#32A452] sm:size-28">
+                        <UserRound className="size-12" />
                       </span>
                     )}
                     <button
                       aria-label="Đổi ảnh đại diện"
-                      className="absolute bottom-1 right-1 flex size-10 items-center justify-center rounded-full border-4 border-white bg-[#31A451] text-white shadow-lg disabled:opacity-60"
+                      className="absolute bottom-1 right-1 flex size-9 items-center justify-center rounded-full border-4 border-white bg-[#31A451] text-white shadow-lg disabled:opacity-60"
                       disabled={isUploadingAvatar}
                       type="button"
                       onClick={() => avatarInputRef.current?.click()}
@@ -9110,84 +9287,36 @@ function ProfilePage({
                         Chưa xác thực
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#68717B] sm:justify-start">
+                    <div className="mt-0.5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm text-[#68717B] sm:justify-start">
                       {user.phone ? (
                         <span className="flex items-center gap-2">
                           <Phone className="size-4" />
                           {user.phone}
                         </span>
                       ) : null}
-                      {user.email ? (
-                        <span className="flex items-center gap-2">
-                          <Mail className="size-4" />
-                          {user.email}
-                        </span>
-                      ) : null}
                     </div>
-                    <p className="mt-3 text-xs text-[#9198A1]">
+                    <p className="mt-1 text-sm text-[#9198A1]">
                       Thành viên từ {memberSince}
                     </p>
-                    <p className="mt-2 text-xs text-[#758079]">
-                      Ảnh JPG, PNG, WEBP hoặc GIF, tối đa 5 MB.
+                    <p className="mt-1 text-sm text-[#9198A1]">
+                      Cập nhật gần nhất:{" "}
+                      {user.updatedAt
+                        ? new Intl.DateTimeFormat("vi-VN").format(
+                            new Date(user.updatedAt),
+                          )
+                        : "Chưa có dữ liệu"}
                     </p>
                   </div>
                 </div>
 
                 <button
-                  className="rounded-xl border border-[#9DCAAA] px-5 py-2.5 text-sm font-semibold text-[#2E9149] transition hover:bg-[#F0F8F1]"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#9DCAAA] px-4 text-sm font-semibold text-[#2E9149] transition hover:bg-[#F0F8F1]"
                   type="button"
-                  onClick={() => setIsEditing(true)}
+                  onClick={startProfileEditing}
                 >
+                  <Pencil className="size-4" />
                   Chỉnh sửa hồ sơ
                 </button>
-              </div>
-
-              <div className="mt-7 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <ShieldCheck className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">Trạng thái</p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {user.isActive === false ? "Đã khóa" : "Đang hoạt động"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <UserRound className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">Vai trò của bạn</p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {roleLabel}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <CalendarDays className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">
-                        Cập nhật gần nhất
-                      </p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {user.updatedAt
-                          ? new Intl.DateTimeFormat("vi-VN").format(
-                              new Date(user.updatedAt),
-                            )
-                          : "Chưa có dữ liệu"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -9204,18 +9333,22 @@ function ProfilePage({
             ) : null}
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
-              <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6">
+              <section
+                ref={personalInfoSectionRef}
+                className="scroll-mt-5 rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6"
+              >
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-lg font-bold text-[#252C34]">
                     Thông tin cá nhân
                   </h2>
                   {!isEditing ? (
                     <button
-                      className="text-sm font-semibold text-[#2E9B4D]"
+                      aria-label="Chỉnh sửa thông tin cá nhân"
+                      className="flex size-9 items-center justify-center rounded-full text-[#2E9B4D] transition hover:bg-[#ECF8EE] hover:text-[#238C43]"
                       type="button"
-                      onClick={() => setIsEditing(true)}
+                      onClick={startProfileEditing}
                     >
-                      Thay đổi
+                      <Pencil className="size-4" />
                     </button>
                   ) : null}
                 </div>
@@ -9225,45 +9358,47 @@ function ProfilePage({
                     className="mt-5 space-y-4"
                     onSubmit={handleProfileSubmit}
                   >
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Họ và tên
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        name="fullName"
-                        value={formValues.fullName}
-                        onChange={handleFormChange}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Số điện thoại
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        inputMode="tel"
-                        name="phone"
-                        placeholder="Ví dụ: 0900000000"
-                        value={formValues.phone}
-                        onChange={handleFormChange}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Email
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        name="email"
-                        type="email"
-                        value={formValues.email}
-                        onChange={handleFormChange}
-                      />
-                    </label>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {profileEditFields.map(([name, label, type]) => {
+                        const isLockedContactField =
+                          name === "email" || name === "phone";
+
+                        return (
+                          <label
+                            className={
+                              name === "address"
+                                ? "block md:col-span-2"
+                                : "block"
+                            }
+                            key={name}
+                          >
+                            <span className="mb-2 block text-sm font-medium text-[#4B545E]">
+                              {label}
+                            </span>
+                            <input
+                              className={`h-12 w-full rounded-xl border px-4 text-sm outline-none ${
+                                isLockedContactField
+                                  ? "border-[#E4E8E4] bg-[#F7F9F7] text-[#87908A] cursor-not-allowed"
+                                  : "border-[#E1E6E1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                              }`}
+                              disabled={isLockedContactField}
+                              inputMode={name === "phone" ? "tel" : undefined}
+                              name={name}
+                              placeholder={
+                                name === "phone" ? "Ví dụ: 0900000000" : ""
+                              }
+                              required={name === "fullName"}
+                              type={type}
+                              value={formValues[name]}
+                              onChange={handleFormChange}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
                     <p className="text-xs leading-5 text-[#858D96]">
-                      Tài khoản phải giữ lại ít nhất một email hoặc số điện
-                      thoại hợp lệ.
+                      Email và số điện thoại chỉ có thể thay đổi qua admin hoặc
+                      bộ phận chăm sóc khách hàng.
                     </p>
                     <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                       <button
@@ -9290,26 +9425,23 @@ function ProfilePage({
                   </form>
                 ) : (
                   <dl className="mt-4 divide-y divide-[#EEF1EE]">
-                    {[
-                      ["Họ và tên", user.fullName],
-                      ["Số điện thoại", user.phone || "Chưa cập nhật"],
-                      ["Email", user.email || "Chưa cập nhật"],
-                      ["Vai trò", roleLabel],
-                    ].map(([label, value]) => (
+                    {profileInfoRows.map(([label, value]) => (
                       <div
                         key={label}
                         className="grid gap-1 py-4 text-sm sm:grid-cols-[150px_minmax(0,1fr)]"
                       >
                         <dt className="text-[#777F89]">{label}</dt>
-                        <dd className="font-medium text-[#333B44]">{value}</dd>
+                        <dd className="font-medium text-[#333B44]">
+                          {value || ""}
+                        </dd>
                       </div>
                     ))}
                   </dl>
                 )}
               </section>
 
-              <div className="space-y-5">
-                <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 text-center shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+              <div className="flex flex-col gap-5">
+                <section className="order-2 rounded-[22px] border border-[#E8ECE7] bg-white p-5 text-center shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
                   <h2 className="text-left text-lg font-bold text-[#252C34]">
                     Bảo mật tài khoản
                   </h2>
@@ -9329,47 +9461,57 @@ function ProfilePage({
                   </button>
                 </section>
 
-                <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
-                  <h2 className="text-lg font-bold text-[#252C34]">
-                    Xác thực tài khoản
-                  </h2>
-                  <div className="mt-4 flex gap-3">
-                    <span className={`flex size-11 shrink-0 items-center justify-center rounded-full ${user.kycStatus === "verified" ? "bg-green-50 text-green-600" : "bg-[#FFF5DF] text-[#B67817]"}`}>
-                      <ShieldCheck className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-[#414A53]">
-                        {user.kycStatus === "verified"
-                          ? "Đã xác thực"
-                          : user.kycStatus === "pending"
-                            ? "Hồ sơ đang chờ duyệt"
-                            : user.kycStatus === "need_more_info"
-                              ? "Cần bổ sung thông tin"
-                              : user.kycStatus === "rejected"
-                                ? "Hồ sơ bị từ chối"
-                                : "Chưa xác thực"}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-[#7D858F]">
-                        {user.kycStatus === "verified"
-                          ? "Bạn đã có quyền đăng tin trên WeRent."
-                          : "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin."}
-                      </p>
+                {user.kycStatus !== "verified" ? (
+                  <section className="order-1 rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+                    <h2 className="text-lg font-bold text-[#252C34]">
+                      Xác thực tài khoản
+                    </h2>
+                    <div className="mt-4 flex gap-3">
+                      <span
+                        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${user.kycStatus === "verified" ? "bg-green-50 text-green-600" : "bg-[#FFF5DF] text-[#B67817]"}`}
+                      >
+                        <ShieldCheck className="size-5" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-[#414A53]">
+                          {user.kycStatus === "verified"
+                            ? "Đã xác thực"
+                            : user.kycStatus === "pending"
+                              ? "Hồ sơ đang chờ duyệt"
+                              : user.kycStatus === "need_more_info"
+                                ? "Cần bổ sung thông tin"
+                                : user.kycStatus === "rejected"
+                                  ? "Hồ sơ bị từ chối"
+                                  : "Chưa xác thực"}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-[#7D858F]">
+                          {user.kycStatus === "verified"
+                            ? "Bạn đã có quyền đăng tin trên WeRent."
+                            : "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin."}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  {user.kycStatus !== "verified" && user.kycStatus !== "pending" ? (
-                    <button
-                      className="mt-4 w-full rounded-xl bg-[#32A452] py-2.5 text-sm font-semibold text-white"
-                      type="button"
-                      onClick={() => setShowKycModal(true)}
-                    >
-                      {user.kycStatus === "rejected" || user.kycStatus === "need_more_info" ? "Nộp lại hồ sơ" : "Xác thực tài khoản"}
-                    </button>
-                  ) : null}
-                </section>
+                    {user.kycStatus !== "verified" &&
+                    user.kycStatus !== "pending" ? (
+                      <button
+                        className="mt-4 w-full rounded-xl bg-[#32A452] py-2.5 text-sm font-semibold text-white"
+                        type="button"
+                        onClick={() => setShowKycModal(true)}
+                      >
+                        {user.kycStatus === "rejected" ||
+                        user.kycStatus === "need_more_info"
+                          ? "Nộp lại hồ sơ"
+                          : "Xác thực tài khoản"}
+                      </button>
+                    ) : null}
+                  </section>
+                ) : null}
               </div>
             </div>
           </div>
         </main>
+
+        <AppFooter />
       </div>
     </div>
   );
@@ -9383,6 +9525,11 @@ function HomePage() {
   );
   const [authNotice, setAuthNotice] = useState(null);
   const [viewportNotice, setViewportNotice] = useState(null);
+  const [
+    isPostListingVerificationModalOpen,
+    setIsPostListingVerificationModalOpen,
+  ] = useState(false);
+  const [isAccountKycModalOpen, setIsAccountKycModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
@@ -9576,6 +9723,32 @@ function HomePage() {
   }, [currentUser, currentView]);
 
   useEffect(() => {
+    if (
+      currentView !== "postListing" ||
+      !currentUser ||
+      canUserPostListing(currentUser)
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      updateFrontendRoute("home", { replace: true });
+      setCurrentView("home");
+      setIsPostListingVerificationModalOpen(true);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView]);
+
+  useEffect(() => {
     let isActive = true;
 
     Promise.resolve()
@@ -9684,17 +9857,9 @@ function HomePage() {
         return;
       }
 
-      if (
-        view === "postListing" &&
-        !currentUser.roles?.includes("admin") &&
-        (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
-      ) {
-        setAuthNotice({
-          type: "error",
-          message: "Bạn cần xác thực tài khoản trước khi đăng tin.",
-        });
-        updateFrontendRoute("profile");
-        setCurrentView("profile");
+      if (view === "postListing" && !canUserPostListing(currentUser)) {
+        setAuthNotice(null);
+        setIsPostListingVerificationModalOpen(true);
         return;
       }
 
@@ -9739,7 +9904,10 @@ function HomePage() {
       !currentUser.roles?.includes("admin") &&
       (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
     ) {
-      setAuthNotice({ type: "error", message: "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin." });
+      setAuthNotice({
+        type: "error",
+        message: "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin.",
+      });
       updateFrontendRoute("profile");
       setCurrentView("profile");
       return;
@@ -9903,9 +10071,63 @@ function HomePage() {
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
     : latestListings;
+  const closeViewportNotice = useCallback(() => {
+    setViewportNotice(null);
+  }, []);
+
+  function closePostListingVerificationModal() {
+    setIsPostListingVerificationModalOpen(false);
+  }
+
+  function openAccountKycFromPostListingPrompt() {
+    setIsPostListingVerificationModalOpen(false);
+    updateFrontendRoute("profile");
+    setCurrentView("profile");
+    setIsAccountKycModalOpen(true);
+  }
+
+  function handleGlobalAccountKycSuccess(message) {
+    setIsAccountKycModalOpen(false);
+    setCurrentUser((current) =>
+      current
+        ? { ...current, kycStatus: "pending", canPostListing: false }
+        : current,
+    );
+    setViewportNotice({
+      id: Date.now(),
+      type: "success",
+      message,
+    });
+  }
+
+  function renderWithViewportNotice(content) {
+    return (
+      <>
+        <PostListingViewportNotice
+          notice={viewportNotice}
+          onClose={closeViewportNotice}
+        />
+        {isPostListingVerificationModalOpen ? (
+          <AccountVerificationRequiredModal
+            onBack={closePostListingVerificationModal}
+            onVerifyNow={openAccountKycFromPostListingPrompt}
+          />
+        ) : null}
+        {isAccountKycModalOpen && currentUser ? (
+          <KycAccountModal
+            accessToken={accessToken}
+            user={currentUser}
+            onClose={() => setIsAccountKycModalOpen(false)}
+            onSuccess={handleGlobalAccountKycSuccess}
+          />
+        ) : null}
+        {content}
+      </>
+    );
+  }
 
   if (currentView === "profile" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <ProfilePage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
@@ -9913,12 +10135,16 @@ function HomePage() {
         onNavigate={navigateTo}
         onUserChange={setCurrentUser}
         user={currentUser}
-      />
+      />,
     );
   }
 
-  if (currentView === "postListing" && currentUser) {
-    return (
+  if (
+    currentView === "postListing" &&
+    currentUser &&
+    canUserPostListing(currentUser)
+  ) {
+    return renderWithViewportNotice(
       <PostListingPage
         accessToken={accessToken}
         editingListing={editingListing}
@@ -9929,12 +10155,12 @@ function HomePage() {
         onNavigate={navigateTo}
         renderHeaderSearchContent={renderBasicHeaderSearchContent}
         user={currentUser}
-      />
+      />,
     );
   }
 
   if (currentView === "listingDetail" && selectedListingDetail) {
-    return (
+    return renderWithViewportNotice(
       <ListingDetailPage
         accessToken={accessToken}
         key={selectedListingDetail.id}
@@ -9945,12 +10171,12 @@ function HomePage() {
         onLogout={handleLogout}
         onNavigate={navigateTo}
         showFooter={listingDetailBackView === "home"}
-      />
+      />,
     );
   }
 
   if (currentView === "myListings" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <MyListingsPage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
@@ -9960,31 +10186,31 @@ function HomePage() {
         onNavigate={navigateTo}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
         user={currentUser}
-      />
+      />,
     );
   }
 
   if (currentView === "wallet" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <WalletPage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         user={currentUser}
-      />
+      />,
     );
   }
 
   if (currentView === "walletTopUp" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <TopUpPaymentPage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         user={currentUser}
-      />
+      />,
     );
   }
 
@@ -9992,17 +10218,17 @@ function HomePage() {
     currentView === "adminDashboard" &&
     currentUser?.roles?.includes("admin")
   ) {
-    return (
+    return renderWithViewportNotice(
       <AdminPage
         accessToken={accessToken}
         currentUser={currentUser}
         onBack={() => navigateTo("home")}
         onLogout={handleLogout}
-      />
+      />,
     );
   }
 
-  return (
+  return renderWithViewportNotice(
     <div className="min-h-screen bg-[linear-gradient(180deg,#fcfcf8_0%,#f7f9f4_100%)] text-[#20252F]">
       {authModal ? (
         <AuthModal
@@ -10012,11 +10238,6 @@ function HomePage() {
           onSwitchMode={setAuthModal}
         />
       ) : null}
-
-      <PostListingViewportNotice
-        notice={viewportNotice}
-        onClose={() => setViewportNotice(null)}
-      />
 
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
@@ -10088,8 +10309,8 @@ function HomePage() {
                 <div className="h-full grid items-stretch lg:grid-cols-[1.7fr_1.3fr]">
                   <div className="overflow-visible px-5 pb-14 pr-0 pt-8 sm:px-8 sm:pt-8 lg:px-10 lg:pb-16 lg:pr-0">
                     <h1 className="max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-normal text-[#252A31] sm:text-[52px] lg:whitespace-nowrap">
-                      Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>
-                      {" "}với bạn
+                      Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>{" "}
+                      với bạn
                     </h1>
                     <p className="mt-4 max-w-[520px] text-base text-[#565E69] sm:text-[18px]">
                       Hơn 20.000 bất động sản đang chờ bạn khám phá.
@@ -10197,7 +10418,7 @@ function HomePage() {
           </>
         )}
       </div>
-    </div>
+    </div>,
   );
 }
 
