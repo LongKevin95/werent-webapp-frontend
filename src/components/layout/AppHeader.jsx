@@ -42,22 +42,42 @@ function AppHeader({
   onNavigate,
   onSignup,
   onUserClick,
+  searchContent = null,
   searchPlaceholder = DEFAULT_SEARCH_PLACEHOLDER,
+  showSearch = true,
   showNotification = Boolean(currentUser),
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
 
   const isAdmin = currentUser?.roles?.includes("admin");
+  const kycAccountStatusMap = {
+    verified: {
+      badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
+      label: "Đã xác thực",
+    },
+    pending: {
+      badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
+      label: "Hồ sơ đang chờ duyệt",
+    },
+    need_more_info: {
+      badgeClassName: "border-[#CFE0FF] bg-[#F3F7FF] text-[#2457C5]",
+      label: "Cần bổ sung thông tin",
+    },
+    rejected: {
+      badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
+      label: "Hồ sơ bị từ chối",
+    },
+  };
   const accountStatus =
     currentUser?.isActive === false
       ? {
           badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
           label: "Tài khoản tạm khóa",
         }
-      : {
-          badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
-          label: "Tài khoản đang hoạt động",
+      : kycAccountStatusMap[currentUser?.kycStatus] ?? {
+          badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
+          label: "Chưa xác thực",
         };
 
   const userMenuItems = [
@@ -72,6 +92,12 @@ function AppHeader({
       : []),
     ...DEFAULT_USER_MENU_ITEMS,
   ];
+  const primaryNavItems = navItems.filter(
+    (item) => !item.iconOnly && !item.actionGroup,
+  );
+  const actionNavItems = navItems.filter(
+    (item) => item.iconOnly || item.actionGroup,
+  );
 
   useEffect(() => {
     if (!isMenuOpen) {
@@ -115,11 +141,56 @@ function AppHeader({
     onNavigate?.(key);
   }
 
+  function renderActionButton(item) {
+    const Icon = item.icon;
+    const isActive = item.key === activeNav;
+
+    if (!Icon) {
+      return (
+        <button
+          key={item.key}
+          className={`h-10 rounded-xl px-4 text-sm font-semibold transition ${
+            isActive
+              ? "bg-[#35A554] text-white shadow-[0_10px_22px_rgba(53,165,84,0.24)]"
+              : item.disabled
+                ? "cursor-not-allowed border border-[#E7EBE7] text-[#B0B5BC]"
+                : "cursor-pointer bg-[#35A554] text-white shadow-[0_10px_22px_rgba(53,165,84,0.24)] hover:bg-[#2F954B]"
+          }`}
+          disabled={item.disabled}
+          type="button"
+          onClick={() => onNavigate?.(item.key)}
+        >
+          {item.label}
+        </button>
+      );
+    }
+
+    return (
+      <button
+        key={item.key}
+        aria-label={item.ariaLabel || item.label}
+        className={`flex size-10 items-center justify-center rounded-full border transition ${
+          isActive
+            ? "border-[#CDE8D5] bg-[#F1FAF3] text-[#35A554]"
+            : item.disabled
+              ? "cursor-not-allowed border-[#E7EBE7] text-[#B0B5BC]"
+              : "cursor-pointer border-[#E7EBE7] text-[#68717A] hover:border-[#D3E7D7] hover:bg-[#F5FAF6] hover:text-[#35A554]"
+        }`}
+        disabled={item.disabled}
+        title={item.label}
+        type="button"
+        onClick={() => onNavigate?.(item.key)}
+      >
+        <Icon className="size-4" />
+      </button>
+    );
+  }
+
   return (
     <header className="relative z-50 rounded-[22px] border border-[#EEF1EB] bg-white/95 px-4 py-3 shadow-[0_10px_35px_rgba(53,75,61,0.08)] backdrop-blur sm:px-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
         <button
-          className="flex items-center gap-3 text-left"
+          className="shrink-0 flex items-center gap-3 text-left"
           type="button"
           onClick={onLogoClick}
         >
@@ -136,23 +207,31 @@ function AppHeader({
           </span>
         </button>
 
-        <div className="relative ml-auto hidden max-w-[420px] flex-1 md:block">
-          <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#9CA4AD]" />
-          <input
-            className="h-11 w-full rounded-xl bg-[#F5F7F5] pl-11 pr-4 text-sm outline-none"
-            placeholder={searchPlaceholder}
-            type="search"
-          />
-        </div>
+        {showSearch ? (
+          <div className="min-w-0 flex-1 lg:max-w-[620px] xl:max-w-[700px]">
+            {searchContent ? (
+              searchContent
+            ) : (
+              <div className="relative hidden md:block">
+                <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#9CA4AD]" />
+                <input
+                  className="h-11 w-full rounded-xl bg-[#F5F7F5] pl-11 pr-4 text-sm outline-none"
+                  placeholder={searchPlaceholder}
+                  type="search"
+                />
+              </div>
+            )}
+          </div>
+        ) : null}
 
-        <nav className="flex flex-wrap items-center justify-center gap-6 text-sm font-medium text-[#404651]">
-          {navItems.map((item) => {
+        <nav className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[#404651] lg:flex-nowrap lg:justify-start lg:gap-4">
+          {primaryNavItems.map((item) => {
             const isActive = item.key === activeNav;
 
             return (
               <button
                 key={item.key}
-                className={`transition ${
+                className={`whitespace-nowrap transition ${
                   isActive
                     ? "text-[#35A554]"
                     : item.disabled
@@ -170,7 +249,13 @@ function AppHeader({
         </nav>
 
         {currentUser ? (
-          <div className="flex flex-wrap items-center justify-end gap-3 self-end lg:self-auto">
+          <div className="flex flex-wrap items-center justify-end gap-2 self-end lg:ml-auto lg:self-auto">
+            {actionNavItems.length ? (
+              <div className="flex items-center gap-2">
+                {actionNavItems.map(renderActionButton)}
+              </div>
+            ) : null}
+
             {showNotification ? (
               <button
                 aria-label="Thông báo"
@@ -186,7 +271,7 @@ function AppHeader({
               <button
                 aria-expanded={isMenuOpen}
                 aria-haspopup="menu"
-                className="flex items-center gap-3 rounded-2xl border border-[#E7EAE7] bg-[#F9FCF9] px-3 py-2 text-right transition hover:border-[#CFE8D4] hover:bg-[#F1F9F2]"
+                className="flex items-center gap-2 rounded-2xl border border-[#E7EAE7] bg-[#F9FCF9] px-3 py-2 text-right transition hover:border-[#CFE8D4] hover:bg-[#F1F9F2]"
                 title="Mở menu người dùng"
                 type="button"
                 onClick={() => setIsMenuOpen((current) => !current)}
@@ -203,7 +288,7 @@ function AppHeader({
                   </span>
                 )}
                 <span className="max-w-[140px] text-left">
-                  <span className="block truncate text-sm font-semibold text-[#23313F]">
+                  <span className="block text-sm font-semibold text-[#23313F]">
                     {currentUser.fullName}
                   </span>
                 </span>
@@ -284,7 +369,7 @@ function AppHeader({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3 self-end lg:self-auto">
+          <div className="flex items-center gap-3 self-end lg:ml-auto lg:self-auto">
             <button
               className="cursor-pointer rounded-xl border border-[#E7EAE7] px-4 py-2.5 text-sm font-semibold text-[#2D313A]"
               type="button"

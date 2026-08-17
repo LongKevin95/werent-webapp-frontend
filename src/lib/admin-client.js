@@ -79,3 +79,89 @@ export function deleteAdminUser(token, userId) {
     method: "DELETE",
   });
 }
+
+export function getAdminProperties(token, query = {}, options = {}) {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+
+  const suffix = searchParams.size ? `?${searchParams.toString()}` : "";
+  return adminRequest(`/api/admin/properties${suffix}`, token, options).then(
+    (response) => ({
+      ...response,
+      data: {
+        ...response.data,
+        items: (response.data?.items ?? []).map((property) => ({
+          ...property,
+          id: property.id ?? property._id,
+        })),
+      },
+    }),
+  );
+}
+
+export function reviewAdminProperty(token, propertyId, payload) {
+  return adminRequest(`/api/admin/properties/${propertyId}/review`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function getAdminKycRequests(token, kind, query = {}, options = {}) {
+  const suffix = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== "" && value != null),
+  ).toString();
+  return adminRequest(`/api/admin/kyc/${kind}${suffix ? `?${suffix}` : ""}`, token, options);
+}
+
+export function getAdminKycRequest(token, kind, requestId) {
+  return adminRequest(`/api/admin/kyc/${kind}/${requestId}`, token);
+}
+
+export function reviewAdminKycRequest(token, kind, requestId, payload) {
+  return adminRequest(`/api/admin/kyc/${kind}/${requestId}/review`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function getAdminTransactions(token, query = {}, options = {}) {
+  const suffix = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== "" && value != null),
+  ).toString();
+  return adminRequest(`/api/admin/payments/transactions${suffix ? `?${suffix}` : ""}`, token, options);
+}
+
+export function createAdminBalanceAdjustment(token, payload) {
+  return adminRequest("/api/admin/payments/adjustments", token, { method: "POST", body: payload });
+}
+
+export function createAdminDemoTopUp(token, payload) {
+  return adminRequest("/api/admin/payments/demo-topups", token, { method: "POST", body: payload });
+}
+
+export function getAdminDemoTopUpQuote(token, query = {}, options = {}) {
+  const suffix = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== "" && value != null),
+  ).toString();
+  return adminRequest(`/api/admin/payments/demo-topups/quote${suffix ? `?${suffix}` : ""}`, token, options);
+}
+
+export function getAdminPromotions(token) {
+  return adminRequest("/api/admin/payments/promotions", token);
+}
+
+export function createAdminPromotion(token, payload) {
+  return adminRequest("/api/admin/payments/promotions", token, { method: "POST", body: payload });
+}
+
+export function updateAdminPromotion(token, promotionId, payload) {
+  return adminRequest(`/api/admin/payments/promotions/${promotionId}`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}

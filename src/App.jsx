@@ -1,5 +1,5 @@
 import L from "leaflet";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
@@ -12,8 +12,19 @@ import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
 import AppFooter from "./components/layout/AppFooter";
 import AppHeader from "./components/layout/AppHeader";
+import {
+  PropertySearchHeaderBar,
+  PropertySearchResultsPage,
+} from "./components/search/PropertySearchExperience";
+import {
+  defaultPropertySearchState,
+  filterListingsBySearchState,
+  normalizePropertySearchState,
+} from "./components/search/propertySearchUtils";
 import Button from "./components/ui/Button";
 import Modal from "./components/ui/Modal";
+import KycAccountModal from "./components/KycAccountModal";
+import ListingVerificationModal from "./components/ListingVerificationModal";
 import {
   changePassword as changePasswordRequest,
   getCurrentUser as fetchCurrentUser,
@@ -25,8 +36,14 @@ import {
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
+  createTopUpCheckout,
+  getTopUpPromotions,
+  getWalletOverview,
+} from "./lib/payment-client";
+import {
   createPropertyListing,
   deletePropertyListing,
+  getListingVerification,
   listAdministrativeDivisions,
   listMyProperties,
   listProperties,
@@ -40,15 +57,20 @@ import {
   Bath,
   BedDouble,
   Building2,
+  CarFront,
   CalendarDays,
   Camera,
-  CarFront,
+  Check,
+  CircleDollarSign,
   ChevronDown,
   ChevronRight,
-  CircleDollarSign,
   Clock3,
+  CreditCard,
+  Download,
   FileText,
+  Gift,
   Heart,
+  Headphones,
   Home,
   House,
   ImagePlus,
@@ -63,8 +85,10 @@ import {
   MessageSquare,
   Lock,
   PawPrint,
+  Pencil,
   Phone,
   Plus,
+  QrCode,
   Ruler,
   Save,
   Search,
@@ -80,15 +104,25 @@ import {
   Eye,
   EyeOff,
   Warehouse,
+  Wallet,
   Wind,
   X,
 } from "lucide-react";
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
+const ACCOUNT_KYC_SUBMITTED_MESSAGE =
+  "Yêu cầu xác thực của bạn đã đươc gửi đi. Vui lòng chờ đợi quá trình phê duyệt!";
+const LOGIN_REQUIRED_MESSAGE =
+  "Vui lòng đăng nhập để sử dụng tính năng này.";
 const FRONTEND_ROUTES = Object.freeze({
+  adminDashboard: "/admin",
   home: "/",
+  profile: "/profile",
   myListings: "/my-listings",
   postListing: "/post-listing",
+  search: "/search",
+  wallet: "/wallet",
+  walletTopUp: "/wallet/top-up",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
   Object.fromEntries(
@@ -105,7 +139,24 @@ const MAP_RECENT_PLACES_STORAGE_KEY = "werent.recentMapPlaces";
 const MAP_RECENT_PLACES_LIMIT = 5;
 const MAP_GEOLOCATION_TIMEOUT_MS = 10000;
 const MAP_API_BASE_URL = getApiBaseUrl();
-const LISTING_MAP_MAX_ZOOM = 21;
+const LISTING_MAP_MAX_ZOOM = 19;
+
+function resolveBackendMediaUrl(url) {
+  if (!url) {
+    return "";
+  }
+
+  if (/^(?:https?:|blob:|data:)/i.test(url)) {
+    return url;
+  }
+
+  if (url.startsWith("/api/uploads/") && MAP_API_BASE_URL) {
+    return `${MAP_API_BASE_URL}${url}`;
+  }
+
+  return url;
+}
+
 const PROPERTY_MARKER_ICON = L.divIcon({
   className: "",
   html: '<span class="werent-map-marker"></span>',
@@ -164,19 +215,69 @@ function updateFrontendRoute(view, options = {}) {
   window.history[historyMethod]({ view }, "", nextPath);
 }
 
-function buildRegisterContactPayload(value) {
-  const normalizedValue = value.trim();
+function canUserPostListing(user) {
+  return Boolean(
+    user?.roles?.includes("admin") ||
+    (user?.canPostListing && user?.kycStatus === "verified"),
+  );
+}
 
-  if (!normalizedValue) {
-    return null;
+function getListingVerificationBadgeLabel(status) {
+  if (status === "verified_owner") {
+    return "Chính chủ";
   }
 
-  if (normalizedValue.includes("@")) {
-    return { email: normalizedValue };
+  if (status === "verified_authorized") {
+    return "Xác thực";
   }
 
-  const normalizedPhone = normalizeVietnamPhone(normalizedValue);
-  return normalizedPhone ? { phone: normalizedPhone } : null;
+  return "Xác thực";
+}
+
+function createNoticeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getKycStatusDisplay(status) {
+  const statusMap = {
+    verified: {
+      badgeClassName: "bg-green-50 text-green-700",
+      iconClassName: "bg-green-50 text-green-600",
+      label: "Đã xác thực",
+      description: "Bạn đã có quyền đăng tin trên WeRent.",
+    },
+    pending: {
+      badgeClassName: "bg-[#FFF7E7] text-[#A26A11]",
+      iconClassName: "bg-[#FFF5DF] text-[#B67817]",
+      label: "Hồ sơ đang chờ duyệt",
+      description:
+        "Yêu cầu xác thực của bạn đang được phê duyệt. Vui lòng chờ kết quả.",
+    },
+    need_more_info: {
+      badgeClassName: "bg-blue-50 text-blue-700",
+      iconClassName: "bg-blue-50 text-blue-600",
+      label: "Cần bổ sung thông tin",
+      description:
+        "Vui lòng bổ sung hồ sơ theo phản hồi để tiếp tục xác thực.",
+    },
+    rejected: {
+      badgeClassName: "bg-red-50 text-red-700",
+      iconClassName: "bg-red-50 text-red-600",
+      label: "Hồ sơ bị từ chối",
+      description:
+        "Hồ sơ xác thực chưa được duyệt. Bạn có thể nộp lại thông tin.",
+    },
+  };
+
+  return (
+    statusMap[status] ?? {
+      badgeClassName: "bg-[#FFF7E7] text-[#A26A11]",
+      iconClassName: "bg-[#FFF5DF] text-[#B67817]",
+      label: "Chưa xác thực",
+      description:
+        "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin.",
+    }
+  );
 }
 
 function createPlaceholderImage(title, primary, secondary) {
@@ -209,40 +310,26 @@ function createPlaceholderImage(title, primary, secondary) {
 }
 
 const guestHeaderNavItems = [
-  { key: "home", label: "Trang chủ" },
-  { key: "postListing", label: "Tin đăng" },
+  { key: "postListing", label: "Đăng tin" },
   { key: "support", label: "Hỗ trợ", disabled: true },
   { key: "about", label: "Về chúng tôi", disabled: true },
 ];
 
 const authenticatedHeaderNavItems = [
-  { key: "home", label: "Trang chủ" },
-  { key: "postListing", label: "Tin đăng" },
-  { key: "favorites", label: "Yêu thích", disabled: true },
-  { key: "messages", label: "Tin nhắn", disabled: true },
-];
-
-const searchFilters = [
-  ["Không giá", "Dưới 3 triệu", "3 - 5 triệu", "5 - 10 triệu"],
-  ["Thành phố", "Hồ Chí Minh", "Hà Nội", "Đà Nẵng"],
-  ["Quận / Huyện", "Quận 7", "Thủ Đức", "Bình Thạnh"],
-  ["Diện tích", "Dưới 20m²", "20m² - 35m²", "Trên 35m²"],
-];
-
-const quickFilters = [
-  { icon: CircleDollarSign, label: "Dưới 3 triệu" },
-  { icon: CircleDollarSign, label: "3 - 5 triệu" },
-  { icon: CircleDollarSign, label: "5 - 10 triệu" },
-  { icon: Wind, label: "Có máy lạnh" },
-  { icon: CarFront, label: "Có bãi xe" },
-  { icon: Sofa, label: "Nội thất" },
-  { icon: PawPrint, label: "Thú cưng" },
+  { key: "postListing", label: "Đăng tin", actionGroup: true },
+  {
+    key: "favorites",
+    label: "Yêu thích",
+    ariaLabel: "Yêu thích",
+    icon: Heart,
+    iconOnly: true,
+  },
 ];
 
 const categories = [
   { icon: House, title: "Phòng trọ", count: "1.520 tin" },
   { icon: Building2, title: "Chung cư", count: "680 tin" },
-  { icon: Home, title: "Nhà nguyên căn", count: "230 tin" },
+  { icon: Home, title: "Nhà riêng", count: "230 tin" },
   { icon: BedDouble, title: "Ký túc xá", count: "120 tin" },
   { icon: Landmark, title: "Văn phòng", count: "98 tin" },
   { icon: Store, title: "Mặt bằng", count: "76 tin" },
@@ -279,7 +366,7 @@ const featuredListings = [
   {
     image: createPlaceholderImage("Nhà thuê 04", "#dce3d7", "#f0f4ed"),
     price: "6.000.000đ",
-    title: "Nhà nguyên căn yên tĩnh, gần chợ và trục đường chính",
+    title: "Nhà riêng yên tĩnh, gần chợ và trục đường chính",
     location: "Quận 3, TP. Hồ Chí Minh",
     area: "42m²",
     specs: ["1 WC", "Nội thất cơ bản"],
@@ -438,8 +525,8 @@ const ownerListingRecords = [
   },
   {
     id: "LIST-003",
-    image: createPlaceholderImage("Nhà nguyên căn", "#ddd3c6", "#f3ede5"),
-    title: "Nhà nguyên căn 1 trệt 2 lầu, phù hợp nhóm bạn hoặc gia đình",
+    image: createPlaceholderImage("Nhà riêng", "#ddd3c6", "#f3ede5"),
+    title: "Nhà riêng 1 trệt 2 lầu, phù hợp nhóm bạn hoặc gia đình",
     location: "Quận 7, TP. Hồ Chí Minh",
     price: "18.500.000đ/tháng",
     packageLabel: "VIP Vàng • 10 ngày",
@@ -448,7 +535,7 @@ const ownerListingRecords = [
     updatedAt: "01/08/2026",
     metrics: ["842 lượt xem", "18 lượt liên hệ", "Hết hạn sau 2 ngày"],
     draft: {
-      propertyType: "Nhà nguyên căn",
+      propertyType: "Nhà riêng",
       area: "110",
       bedrooms: "4",
       bathrooms: "3",
@@ -470,7 +557,7 @@ const ownerListingRecords = [
       addressLine: "Số 48/7",
       projectName: "Khu dân cư nội bộ",
       description:
-        "Nhà nguyên căn rộng rãi, có sân trước để xe, phù hợp gia đình hoặc nhóm bạn cần không gian riêng tư.",
+        "Nhà riêng rộng rãi, có sân trước để xe, phù hợp gia đình hoặc nhóm bạn cần không gian riêng tư.",
       locationNote:
         "Nằm trong hẻm xe hơi, gần trường học, chợ và công viên khu dân cư.",
       videoLink: "https://www.youtube.com/watch?v=werent003",
@@ -501,7 +588,7 @@ const ownerListingRecords = [
       "Lưu gần nhất 10 phút trước",
     ],
     draft: {
-      propertyType: "Chung cư mini",
+      propertyType: "Căn hộ dịch vụ",
       area: "28",
       bedrooms: "1",
       bathrooms: "1",
@@ -743,19 +830,6 @@ function SectionHeading({ title }) {
   );
 }
 
-function FilterSelect({ options }) {
-  return (
-    <div className="relative min-w-0 flex-1">
-      <select className="h-11 w-full appearance-none rounded-xl border border-[#E7E8EB] bg-white px-4 pr-10 text-sm text-[#343A45] outline-none transition focus:border-[#34A853] focus:ring-2 focus:ring-[#34A853]/15">
-        {options.map((option) => (
-          <option key={option}>{option}</option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8E939E]" />
-    </div>
-  );
-}
-
 function CategoryCard({ icon: Icon, title, count }) {
   return (
     <button
@@ -806,6 +880,12 @@ function PropertyCard({ listing, onViewListing }) {
         <span className="absolute left-3 top-3 rounded-lg bg-[#49B96E] px-2 py-1 text-[10px] font-bold text-white">
           VIP
         </span>
+        {listing.isVerified ? (
+          <span className="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#159848] shadow">
+            <ShieldCheck className="size-3" />{" "}
+            {getListingVerificationBadgeLabel(listing.verificationStatus)}
+          </span>
+        ) : null}
       </div>
       <div className="space-y-2.5 p-3.5">
         <div>
@@ -880,6 +960,12 @@ function MiniPropertyCard({ listing, onViewListing }) {
         src={listing.image}
       />
       <div className="space-y-3 p-[18px]">
+        {listing.isVerified ? (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700">
+            <ShieldCheck className="size-3" />
+            {getListingVerificationBadgeLabel(listing.verificationStatus)}
+          </span>
+        ) : null}
         <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
           {listing.title}
         </h3>
@@ -898,6 +984,8 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
   const [formValues, setFormValues] = useState({
     fullName: "",
     contact: "",
+    email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
     acceptTerms: false,
@@ -905,6 +993,12 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isLogin = mode === "login";
+  const fieldHeightClassName = "h-12";
+  const labelMarginClassName = "mb-2";
+  const iconLeftClassName = "left-4";
+  const inputPaddingClassName = "pl-11";
+  const inputClassName = `${fieldHeightClassName} w-full rounded-xl border border-[#E7E9EE] bg-white ${inputPaddingClassName} pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15`;
+  const passwordInputClassName = `${fieldHeightClassName} w-full rounded-xl border border-[#E7E9EE] bg-white ${inputPaddingClassName} pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15`;
 
   const featureItems = isLogin
     ? [
@@ -933,7 +1027,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
     event.preventDefault();
     setSubmitError("");
 
-    if (!formValues.contact.trim()) {
+    if (isLogin && !formValues.contact.trim()) {
       setSubmitError("Vui lòng nhập email hoặc số điện thoại.");
       return;
     }
@@ -949,6 +1043,23 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         return;
       }
 
+      if (!formValues.email.trim()) {
+        setSubmitError("Vui lòng nhập email.");
+        return;
+      }
+
+      if (!formValues.phone.trim()) {
+        setSubmitError("Vui lòng nhập số điện thoại.");
+        return;
+      }
+
+      const normalizedPhone = normalizeVietnamPhone(formValues.phone);
+
+      if (!normalizedPhone) {
+        setSubmitError(INVALID_PHONE_MESSAGE);
+        return;
+      }
+
       if (formValues.password.length < 8) {
         setSubmitError("Mật khẩu phải có ít nhất 8 ký tự.");
         return;
@@ -957,15 +1068,6 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
       if (formValues.password !== formValues.confirmPassword) {
         setSubmitError("Mật khẩu xác nhận không khớp.");
         return;
-      }
-
-      if (!formValues.contact.trim().includes("@")) {
-        const normalizedPhone = normalizeVietnamPhone(formValues.contact);
-
-        if (!normalizedPhone) {
-          setSubmitError(INVALID_PHONE_MESSAGE);
-          return;
-        }
       }
 
       if (!formValues.acceptTerms) {
@@ -995,16 +1097,12 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         return;
       }
 
-      const contactPayload = buildRegisterContactPayload(formValues.contact);
-
-      if (!contactPayload) {
-        setSubmitError(INVALID_PHONE_MESSAGE);
-        return;
-      }
+      const normalizedPhone = normalizeVietnamPhone(formValues.phone);
 
       const response = await registerRequest({
         fullName: formValues.fullName.trim(),
-        ...contactPayload,
+        email: formValues.email.trim(),
+        phone: normalizedPhone,
         password: formValues.password,
       });
 
@@ -1102,12 +1200,18 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
         </div>
 
-        <div className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10">
+        <div
+          className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 [scrollbar-width:none] sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10 [&::-webkit-scrollbar]:hidden"
+        >
           <div className="mb-6 pr-12">
-            <h2 className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]">
+            <h2
+              className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]"
+            >
               {isLogin ? "Đăng nhập" : "Đăng ký tài khoản"}
             </h2>
-            <p className="mt-2 text-sm text-[#6C7380] sm:text-[15px]">
+            <p
+              className="mt-2 text-sm text-[#6C7380] sm:text-[15px]"
+            >
               {isLogin
                 ? "Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục."
                 : "Tạo tài khoản để trải nghiệm đầy đủ tính năng."}
@@ -1115,7 +1219,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
 
           {submitError ? (
-            <div className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            <div
+              className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]"
+            >
               {submitError}
             </div>
           ) : null}
@@ -1123,15 +1229,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           <form className="space-y-4" onSubmit={handleSubmit}>
             {!isLogin ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
+                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
                   Họ và tên
                 </span>
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
                     <Home className="size-4" />
                   </span>
                   <input
-                    className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                    className={inputClassName}
                     name="fullName"
                     placeholder="Nhập họ và tên"
                     type="text"
@@ -1142,80 +1248,81 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
               </label>
             ) : null}
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
-                {isLogin ? "Email hoặc số điện thoại" : "Số điện thoại / Email"}
-              </span>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
-                  <Mail className="size-4" />
-                </span>
-                <input
-                  className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-4 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  name="contact"
-                  placeholder={
-                    isLogin
-                      ? "Nhập email hoặc số điện thoại"
-                      : "Nhập số điện thoại hoặc email"
-                  }
-                  type="text"
-                  value={formValues.contact}
-                  onChange={handleFieldChange}
-                />
-              </div>
-            </label>
-
-            <label className="block">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#2A3140]">
-                <span>Mật khẩu</span>
-                {!isLogin ? (
-                  <span className="text-xs font-normal text-[#8C93A1]">
-                    *Tối thiểu 8 ký tự
-                  </span>
-                ) : null}
-              </div>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
-                  <Lock className="size-4" />
-                </span>
-                <input
-                  className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                  name="password"
-                  placeholder={isLogin ? "Nhập mật khẩu" : "Tạo mật khẩu"}
-                  type={showPassword ? "text" : "password"}
-                  value={formValues.password}
-                  onChange={handleFieldChange}
-                />
-                <button
-                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
-                </button>
-              </div>
-            </label>
-
-            {!isLogin ? (
+            {isLogin ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#2A3140]">
-                  Xác nhận mật khẩu
+                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                  Email hoặc số điện thoại
                 </span>
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#96A0AE]">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <Mail className="size-4" />
+                  </span>
+                  <input
+                    className={inputClassName}
+                    name="contact"
+                    placeholder="Nhập email hoặc số điện thoại"
+                    type="text"
+                    value={formValues.contact}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+              </label>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Email
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Mail className="size-4" />
+                    </span>
+                    <input
+                      className={inputClassName}
+                      name="email"
+                      placeholder="Nhập email"
+                      type="email"
+                      value={formValues.email}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Số điện thoại
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Phone className="size-4" />
+                    </span>
+                    <input
+                      className={inputClassName}
+                      name="phone"
+                      placeholder="Nhập số điện thoại"
+                      type="tel"
+                      value={formValues.phone}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {isLogin ? (
+              <label className="block">
+                <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                  <span>Mật khẩu</span>
+                </div>
+                <div className="relative">
+                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
                     <Lock className="size-4" />
                   </span>
                   <input
-                    className="h-12 w-full rounded-xl border border-[#E7E9EE] bg-white pl-11 pr-12 text-sm text-[#263041] outline-none transition placeholder:text-[#9BA3B1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                    name="confirmPassword"
-                    placeholder="Nhập lại mật khẩu"
+                    className={passwordInputClassName}
+                    name="password"
+                    placeholder="Nhập mật khẩu"
                     type={showPassword ? "text" : "password"}
-                    value={formValues.confirmPassword}
+                    value={formValues.password}
                     onChange={handleFieldChange}
                   />
                   <button
@@ -1232,7 +1339,73 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                   </button>
                 </div>
               </label>
-            ) : null}
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                    <span>Mật khẩu</span>
+                    <span className="text-xs font-normal text-[#8C93A1]">
+                      *Tối thiểu 8 ký tự
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Lock className="size-4" />
+                    </span>
+                    <input
+                      className={passwordInputClassName}
+                      name="password"
+                      placeholder="Tạo mật khẩu"
+                      type={showPassword ? "text" : "password"}
+                      value={formValues.password}
+                      onChange={handleFieldChange}
+                    />
+                    <button
+                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+                <label className="block">
+                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                    Xác nhận mật khẩu
+                  </span>
+                  <div className="relative">
+                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                      <Lock className="size-4" />
+                    </span>
+                    <input
+                      className={passwordInputClassName}
+                      name="confirmPassword"
+                      placeholder="Nhập lại mật khẩu"
+                      type={showPassword ? "text" : "password"}
+                      value={formValues.confirmPassword}
+                      onChange={handleFieldChange}
+                    />
+                    <button
+                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+              </div>
+            )}
 
             {isLogin ? (
               <div className="flex items-center justify-end">
@@ -1266,7 +1439,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
             )}
 
             <button
-              className="flex h-12 w-full items-center justify-center rounded-xl bg-[linear-gradient(90deg,#0E6B33_0%,#12833D_100%)] text-sm font-semibold text-white shadow-[0_16px_30px_rgba(16,121,54,0.22)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center rounded-xl bg-[linear-gradient(90deg,#0E6B33_0%,#12833D_100%)] text-sm font-semibold text-white shadow-[0_16px_30px_rgba(16,121,54,0.22)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70`}
               disabled={isSubmitting}
               type="submit"
             >
@@ -1292,7 +1465,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
               type="button"
             >
               <span className="flex size-5 items-center justify-center rounded-full bg-white text-[18px] font-bold text-[#4285F4]">
@@ -1301,7 +1474,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
               {isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
             </button>
             <button
-              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]"
+              className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
               type="button"
             >
               <span className="flex size-5 items-center justify-center rounded-full bg-[#1877F2] text-[18px] font-bold text-white">
@@ -1380,7 +1553,6 @@ const dashboardSidebarSections = [
         key: "wallet",
         icon: CircleDollarSign,
         label: "Ví tiền",
-        disabled: true,
       },
     ],
   },
@@ -1418,6 +1590,73 @@ const ALLOWED_PROPERTY_IMAGE_TYPES = new Set([
 const PROPERTY_IMAGE_ACCEPT = Array.from(ALLOWED_PROPERTY_IMAGE_TYPES).join(
   ",",
 );
+
+const walletSummaryCards = [
+  {
+    key: "totalBalance",
+    icon: Wallet,
+    label: "Tổng số dư",
+    value: 1250000,
+    tone: "blue",
+  },
+  {
+    key: "available",
+    icon: Download,
+    label: "Số dư khả dụng",
+    value: 1100000,
+    tone: "green",
+  },
+  {
+    key: "promotion",
+    icon: Gift,
+    label: "Số dư khuyến mãi",
+    value: 150000,
+    tone: "mint",
+  },
+  {
+    key: "spent",
+    icon: ArrowUp,
+    label: "Tổng đã chi",
+    value: 2150000,
+    tone: "amber",
+  },
+];
+
+const topUpQuickAmounts = [
+  { amount: 500000 },
+  { amount: 1000000 },
+  { amount: 2000000 },
+  { amount: 3000000 },
+  { amount: 5000000 },
+  { amount: 10000000 },
+];
+
+const TOP_UP_PROMOTION_SELECTION_LIMIT = 3;
+const TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT = 100;
+
+const topUpPaymentMethods = [
+  {
+    key: "qr",
+    label: "Mã QR",
+    description: "Quét mã QR để thanh toán",
+    icon: QrCode,
+    enabled: true,
+  },
+  {
+    key: "bank",
+    label: "Chuyển khoản ngân hàng",
+    description: "Chuyển khoản trực tiếp từ tài khoản ngân hàng",
+    icon: Landmark,
+    enabled: false,
+  },
+  {
+    key: "momo",
+    label: "MoMo",
+    description: "Thanh toán nhanh chóng qua ví MoMo",
+    icon: CreditCard,
+    enabled: false,
+  },
+];
 
 let listingImageIdSequence = 0;
 const listingTierOptions = [
@@ -1521,6 +1760,16 @@ const defaultListingDraft = {
   selectedDuration: "custom",
   selectedAmenities: [],
 };
+const listingNumberInputFields = {
+  accessRoad: { allowDecimal: true },
+  area: { allowDecimal: true },
+  bathrooms: {},
+  bedrooms: {},
+  frontage: { allowDecimal: true },
+  moveInDays: {},
+  rentPrice: {},
+  totalFloors: {},
+};
 const draftRequiredFieldSteps = {
   area: 0,
   bathrooms: 0,
@@ -1538,11 +1787,47 @@ const draftValidationToastMessage =
 
 const propertyTypeOptions = [
   "Phòng trọ",
-  "Chung cư mini",
   "Căn hộ dịch vụ",
-  "Nhà nguyên căn",
+  "Nhà riêng",
+  "Nhà mặt phố",
   "Mặt bằng kinh doanh",
 ];
+
+function getCanonicalPropertyType(value = "") {
+  if (["Chung cư mini", "Studio"].includes(value)) {
+    return "Căn hộ dịch vụ";
+  }
+
+  if (value === "Nhà nguyên căn") {
+    return "Nhà riêng";
+  }
+
+  if (["Nhà phố", "Nhà mặt tiền"].includes(value)) {
+    return "Nhà mặt phố";
+  }
+
+  return value;
+}
+
+function formatListingDraftNumberValue(field, value) {
+  const options = listingNumberInputFields[field];
+
+  if (!options) {
+    return value;
+  }
+
+  return formatNumberInputValue(value, options);
+}
+
+function formatListingDraftNumberValues(draft = {}) {
+  return Object.entries(listingNumberInputFields).reduce(
+    (nextDraft, [field, options]) => ({
+      ...nextDraft,
+      [field]: formatNumberInputValue(nextDraft[field], options),
+    }),
+    { ...draft },
+  );
+}
 
 function getDraftRequiredFieldErrors({
   listingDescription,
@@ -1955,31 +2240,101 @@ function parseListingMoneyInput(value) {
     return Number.isFinite(value) ? value : 0;
   }
 
-  return Number(String(value ?? "").replace(/[^\d]/g, "")) || 0;
+  return parseFormattedNumberInput(value);
 }
 
-function parseListingNumericInput(value) {
+const numberInputFormatter = new Intl.NumberFormat("vi-VN");
+
+function getNumberInputDigits(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function splitDecimalNumberInput(value) {
+  const cleanedValue = String(value ?? "")
+    .trim()
+    .replace(/[^\d,.]/g, "");
+
+  if (!cleanedValue) {
+    return { decimalDigits: "", hasDecimal: false, integerDigits: "" };
+  }
+
+  const commaIndex = cleanedValue.indexOf(",");
+
+  if (commaIndex >= 0) {
+    return {
+      decimalDigits: cleanedValue.slice(commaIndex + 1).replace(/\D/g, ""),
+      hasDecimal: true,
+      integerDigits: cleanedValue.slice(0, commaIndex).replace(/\D/g, ""),
+    };
+  }
+
+  const dotParts = cleanedValue.split(".");
+
+  if (dotParts.length > 1) {
+    const digitParts = dotParts.map((part) => part.replace(/\D/g, ""));
+    const looksLikeThousands = digitParts
+      .slice(1)
+      .every((part) => part.length === 3);
+
+    if (!looksLikeThousands) {
+      return {
+        decimalDigits: digitParts.at(-1) ?? "",
+        hasDecimal: true,
+        integerDigits: digitParts.slice(0, -1).join(""),
+      };
+    }
+  }
+
+  return {
+    decimalDigits: "",
+    hasDecimal: false,
+    integerDigits: cleanedValue.replace(/\D/g, ""),
+  };
+}
+
+function formatNumberInputValue(value, options = {}) {
+  const { allowDecimal = false } = options;
+
+  if (!allowDecimal) {
+    const digits = getNumberInputDigits(value);
+    return digits ? numberInputFormatter.format(Number(digits)) : "";
+  }
+
+  const { decimalDigits, hasDecimal, integerDigits } =
+    splitDecimalNumberInput(value);
+  const formattedInteger = integerDigits
+    ? numberInputFormatter.format(Number(integerDigits))
+    : "";
+
+  if (hasDecimal) {
+    return `${formattedInteger || "0"},${decimalDigits}`;
+  }
+
+  return formattedInteger;
+}
+
+function parseFormattedNumberInput(value, options = {}) {
+  const { allowDecimal = false } = options;
+
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
   }
 
-  const normalizedValue = String(value ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .replace(/,/g, ".")
-    .replace(/[^\d.]/g, "");
-
-  if (!normalizedValue) {
-    return 0;
+  if (!allowDecimal) {
+    return Number(getNumberInputDigits(value)) || 0;
   }
 
-  const parts = normalizedValue.split(".");
-
-  if (parts.length > 2) {
-    return Number(parts.join("")) || 0;
-  }
+  const { decimalDigits, hasDecimal, integerDigits } =
+    splitDecimalNumberInput(value);
+  const normalizedValue = hasDecimal
+    ? `${integerDigits || "0"}.${decimalDigits}`
+    : integerDigits;
 
   return Number(normalizedValue) || 0;
+}
+
+function parseListingNumericInput(value) {
+  return parseFormattedNumberInput(value, { allowDecimal: true });
 }
 
 function formatListingDateForApi(value) {
@@ -2762,7 +3117,7 @@ function buildMarketingListingRecord(listing, source, index) {
     },
     draft: {
       propertyType:
-        source === "featured" ? "Căn hộ / Studio" : "Phòng trọ / Căn hộ mini",
+        source === "featured" ? "Căn hộ chung cư" : "Phòng trọ",
       area: areaValue,
       bedrooms: "1",
       bathrooms: bathroomsValue,
@@ -2825,19 +3180,20 @@ function getPropertyStatusLabel(status) {
 
 function mapApiPropertyToListingRecord(property, index = 0) {
   const listingId = property.id ?? property._id ?? `api-property-${index + 1}`;
+  const propertyType = getCanonicalPropertyType(property.propertyType);
   const propertyImages = (property.images ?? [])
     .map((image) => ({
       publicId: image?.publicId ?? null,
-      url: image?.url ?? "",
+      url: resolveBackendMediaUrl(image?.url ?? ""),
     }))
     .filter((image) => image.url);
   const imageUrls = (property.images ?? [])
-    .map((image) => image?.url)
+    .map((image) => resolveBackendMediaUrl(image?.url))
     .filter(Boolean);
   const primaryImage =
     imageUrls[0] ??
     createPlaceholderImage(
-      property.propertyType || "WeRent",
+      propertyType || "WeRent",
       "#dce8d9",
       "#f4f7f4",
     );
@@ -2871,7 +3227,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     property.publishedAt ?? property.createdAt ?? property.updatedAt ?? null;
   const draft = {
     ...defaultListingDraft,
-    propertyType: property.propertyType || defaultListingDraft.propertyType,
+    propertyType: propertyType || defaultListingDraft.propertyType,
     area: property.area ? String(property.area) : "",
     bedrooms: property.bedrooms ? String(property.bedrooms) : "0",
     bathrooms: property.bathrooms ? String(property.bathrooms) : "0",
@@ -2919,10 +3275,15 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     price,
     publishedAtRaw,
     createdAtRaw: property.createdAt ?? null,
+    moderationReason: property.moderationReason ?? "",
     rejectionReason: property.rejectionReason ?? "",
     specs: [bathroomSpec, furnishing],
     status: property.status ?? "active",
     statusLabel: getPropertyStatusLabel(property.status),
+    verificationStatus: property.verificationStatus ?? "unverified",
+    isVerified: ["verified_owner", "verified_authorized"].includes(
+      property.verificationStatus,
+    ),
     title: property.title || "Tin đăng WeRent",
     area,
     updatedAt: formatApiDateForListing(property.updatedAt, "Hôm nay"),
@@ -3019,7 +3380,7 @@ function PasswordField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-[#29313B]">
+      <span className="mb-1.5 block text-sm font-semibold text-[#29313B]">
         {label}
       </span>
       <div className="relative">
@@ -3028,7 +3389,7 @@ function PasswordField({
           autoComplete={
             name === "currentPassword" ? "current-password" : "new-password"
           }
-          className="h-12 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+          className="h-11 w-full rounded-xl border border-[#E2E7E3] bg-white pl-11 pr-12 text-sm outline-none transition focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
           name={name}
           placeholder={placeholder}
           type={visible ? "text" : "password"}
@@ -3131,136 +3492,140 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
       <div
         aria-labelledby="change-password-title"
         aria-modal="true"
-        className="relative max-h-[calc(100dvh-32px)] w-full max-w-[560px] overflow-y-auto rounded-[28px] bg-white p-6 shadow-[0_30px_90px_rgba(10,24,15,0.28)] sm:p-9"
+        className="max-h-[calc(100dvh-32px)] w-full max-w-[560px] overflow-hidden rounded-[18px] bg-white px-3 py-2 shadow-[0_30px_90px_rgba(10,24,15,0.28)]"
         role="dialog"
       >
-        <button
-          aria-label="Đóng popup đổi mật khẩu"
-          className="absolute right-5 top-5 flex size-10 items-center justify-center rounded-full text-[#68717D] transition hover:bg-[#F1F5F1] hover:text-[#242A32]"
-          disabled={isSubmitting}
-          type="button"
-          onClick={onClose}
-        >
-          <X className="size-5" />
-        </button>
-
-        <div className="text-center">
-          <h2
-            className="pr-8 text-[28px] font-bold tracking-[-0.03em] text-[#20262E]"
-            id="change-password-title"
+        <div className="relative max-h-[calc(100dvh-40px)] overflow-y-auto rounded-[14px] px-4 py-4 sm:px-6 sm:py-5">
+          <button
+            aria-label="Đóng popup đổi mật khẩu"
+            className="absolute right-4 top-4 flex size-10 items-center justify-center rounded-full text-[#68717D] transition hover:bg-[#F1F5F1] hover:text-[#242A32]"
+            disabled={isSubmitting}
+            type="button"
+            onClick={onClose}
           >
-            Đổi mật khẩu
-          </h2>
-          <span className="mx-auto mt-5 flex size-16 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
-            <KeyRound className="size-7" />
-          </span>
-          <p className="mx-auto mt-4 max-w-[360px] text-sm leading-6 text-[#68717C]">
-            Tạo mật khẩu mới đủ mạnh để bảo vệ tài khoản của bạn.
-          </p>
-        </div>
+            <X className="size-5" />
+          </button>
 
-        {errorMessage ? (
-          <div className="mt-5 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B33A3A]">
-            {errorMessage}
-          </div>
-        ) : null}
-
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <PasswordField
-            label="Mật khẩu hiện tại"
-            name="currentPassword"
-            placeholder="Nhập mật khẩu hiện tại"
-            value={values.currentPassword}
-            visible={Boolean(visibleFields.currentPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("currentPassword")}
-          />
-          <PasswordField
-            label="Mật khẩu mới"
-            name="newPassword"
-            placeholder="Nhập mật khẩu mới"
-            value={values.newPassword}
-            visible={Boolean(visibleFields.newPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("newPassword")}
-          />
-
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
-              <span
-                className={
-                  strength.score >= 3
-                    ? "font-semibold text-[#2F9C50]"
-                    : "text-[#C35C4D]"
-                }
-              >
-                {strength.label}
+          <div className="text-center">
+            <h2
+              className="pr-8 text-[28px] font-bold tracking-[-0.03em] text-[#20262E]"
+              id="change-password-title"
+            >
+              Đổi mật khẩu
+            </h2>
+            <div className="mx-auto mt-3 flex max-w-[390px] items-center justify-center gap-3 text-left">
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+                <KeyRound className="size-5" />
               </span>
+              <p className="text-sm leading-5 text-[#68717C] sm:whitespace-nowrap">
+                Tạo mật khẩu mới đủ mạnh để bảo vệ tài khoản của bạn.
+              </p>
             </div>
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {[0, 1, 2, 3].map((index) => (
+          </div>
+
+          {errorMessage ? (
+            <div className="mt-3 rounded-xl border border-[#F1D2D2] bg-[#FFF6F6] px-4 py-2.5 text-sm text-[#B33A3A]">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
+            <PasswordField
+              label="Mật khẩu hiện tại"
+              name="currentPassword"
+              placeholder="Nhập mật khẩu hiện tại"
+              value={values.currentPassword}
+              visible={Boolean(visibleFields.currentPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("currentPassword")}
+            />
+            <PasswordField
+              label="Mật khẩu mới"
+              name="newPassword"
+              placeholder="Nhập mật khẩu mới"
+              value={values.newPassword}
+              visible={Boolean(visibleFields.newPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("newPassword")}
+            />
+
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#7C858F]">Độ mạnh mật khẩu</span>
                 <span
-                  key={index}
-                  className={`h-1.5 rounded-full ${
-                    index < strength.score ? "bg-[#35A554]" : "bg-[#E6EAE7]"
-                  }`}
-                />
-              ))}
+                  className={
+                    strength.score >= 3
+                      ? "font-semibold text-[#2F9C50]"
+                      : "text-[#C35C4D]"
+                  }
+                >
+                  {strength.label}
+                </span>
+              </div>
+              <div className="mt-1.5 grid grid-cols-4 gap-2">
+                {[0, 1, 2, 3].map((index) => (
+                  <span
+                    key={index}
+                    className={`h-1.5 rounded-full ${
+                      index < strength.score ? "bg-[#35A554]" : "bg-[#E6EAE7]"
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
 
-          <PasswordField
-            label="Xác nhận mật khẩu mới"
-            name="confirmPassword"
-            placeholder="Nhập lại mật khẩu mới"
-            value={values.confirmPassword}
-            visible={Boolean(visibleFields.confirmPassword)}
-            onChange={handleChange}
-            onToggle={() => toggleField("confirmPassword")}
-          />
+            <PasswordField
+              label="Xác nhận mật khẩu mới"
+              name="confirmPassword"
+              placeholder="Nhập lại mật khẩu mới"
+              value={values.confirmPassword}
+              visible={Boolean(visibleFields.confirmPassword)}
+              onChange={handleChange}
+              onToggle={() => toggleField("confirmPassword")}
+            />
 
-          <div className="rounded-2xl border border-[#DDEEDD] bg-[#F3FAF4] px-4 py-4 text-sm text-[#52705A]">
-            <p className="font-semibold text-[#2F7F45]">Mật khẩu nên có:</p>
-            <ul className="mt-2 space-y-1.5">
-              <li className={strength.checks[0] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất 8 ký tự
-              </li>
-              <li className={strength.checks[1] ? "text-[#2F9C50]" : ""}>
-                ✓ Chữ hoa và chữ thường
-              </li>
-              <li className={strength.checks[2] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất một chữ số
-              </li>
-              <li className={strength.checks[3] ? "text-[#2F9C50]" : ""}>
-                ✓ Ít nhất một ký tự đặc biệt
-              </li>
-            </ul>
-          </div>
+            <div className="rounded-2xl border border-[#DDEEDD] bg-[#F3FAF4] px-4 py-3 text-sm text-[#52705A]">
+              <p className="font-semibold text-[#2F7F45]">Mật khẩu nên có:</p>
+              <ul className="mt-1.5 space-y-1">
+                <li className={strength.checks[0] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất 8 ký tự
+                </li>
+                <li className={strength.checks[1] ? "text-[#2F9C50]" : ""}>
+                  ✓ Chữ hoa và chữ thường
+                </li>
+                <li className={strength.checks[2] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất một chữ số
+                </li>
+                <li className={strength.checks[3] ? "text-[#2F9C50]" : ""}>
+                  ✓ Ít nhất một ký tự đặc biệt
+                </li>
+              </ul>
+            </div>
 
-          <div className="grid gap-3 pt-2 sm:grid-cols-2">
-            <button
-              className="h-12 rounded-xl border border-[#DDE3DE] text-sm font-semibold text-[#4A535D] transition hover:bg-[#F7F9F7]"
-              disabled={isSubmitting}
-              type="button"
-              onClick={onClose}
-            >
-              Hủy
-            </button>
-            <button
-              className="cursor-pointer flex h-12 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
-              disabled={isSubmitting}
-              type="submit"
-            >
-              {isSubmitting ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <KeyRound className="size-4" />
-              )}
-              {isSubmitting ? "Đang cập nhật..." : "Đổi mật khẩu"}
-            </button>
-          </div>
-        </form>
+            <div className="grid gap-3 pt-1 sm:grid-cols-2">
+              <button
+                className="h-11 rounded-xl border border-[#DDE3DE] text-sm font-semibold text-[#4A535D] transition hover:bg-[#F7F9F7]"
+                disabled={isSubmitting}
+                type="button"
+                onClick={onClose}
+              >
+                Hủy
+              </button>
+              <button
+                className="cursor-pointer flex h-11 items-center justify-center gap-2 rounded-xl bg-[#32A452] text-sm font-semibold text-white shadow-[0_14px_25px_rgba(50,164,82,0.22)] transition hover:bg-[#2C9349] disabled:cursor-not-allowed disabled:opacity-65"
+                disabled={isSubmitting}
+                type="submit"
+              >
+                {isSubmitting ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <KeyRound className="size-4" />
+                )}
+                {isSubmitting ? "Đang cập nhật..." : "Đổi mật khẩu"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -3268,7 +3633,7 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
 
 function AccountSidebar({ activeKey, onLogout, onNavigate }) {
   return (
-    <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)]">
+    <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)] lg:sticky lg:top-4">
       {dashboardSidebarSections.map((section) => (
         <div key={section.title} className="first:mt-0 mt-4">
           <p className="px-3 pb-2 pt-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9097A0]">
@@ -3314,6 +3679,1260 @@ function AccountSidebar({ activeKey, onLogout, onNavigate }) {
   );
 }
 
+function formatWalletCurrency(value) {
+  return `${new Intl.NumberFormat("vi-VN").format(value)} đ`;
+}
+
+function formatTopUpPromotionEndDate(value) {
+  if (!value) {
+    return "Không giới hạn";
+  }
+
+  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
+}
+
+function getTopUpPromotionBonusAmount(promotion, amount) {
+  const rawBonus = Math.floor(
+    (Number(amount || 0) * Number(promotion.bonusPercent || 0)) / 100,
+  );
+
+  if (promotion.maximumBonus == null) {
+    return rawBonus;
+  }
+
+  return Math.min(rawBonus, Number(promotion.maximumBonus || 0));
+}
+
+function getTopUpBonus(amount, promotions = []) {
+  return promotions.reduce(
+    (totalBonus, promotion) =>
+      totalBonus + getTopUpPromotionBonusAmount(promotion, amount),
+    0,
+  );
+}
+
+function sortTopUpPromotionsByPriority(promotions, amount) {
+  return [...promotions].sort((a, b) => {
+    const priorityDelta = Number(b.priority || 0) - Number(a.priority || 0);
+
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const bonusDelta =
+      getTopUpPromotionBonusAmount(b, amount) -
+      getTopUpPromotionBonusAmount(a, amount);
+
+    if (bonusDelta !== 0) {
+      return bonusDelta;
+    }
+
+    return a.name.localeCompare(b.name, "vi");
+  });
+}
+
+function getEligibleTopUpPromotions(promotions, amount) {
+  if (!amount) {
+    return [];
+  }
+
+  return sortTopUpPromotionsByPriority(
+    promotions.filter(
+      (promotion) =>
+        amount >= Number(promotion.minimumAmount || 0) &&
+        Number(promotion.remainingUses ?? 1) > 0,
+    ),
+    amount,
+  );
+}
+
+function getTopUpPromotionsForDisplay(promotions, amount) {
+  return sortTopUpPromotionsByPriority(promotions, amount);
+}
+
+function isTopUpPromotionEligible(promotion, amount) {
+  return (
+    Boolean(amount) &&
+    amount >= Number(promotion.minimumAmount || 0) &&
+    Number(promotion.remainingUses ?? 1) > 0
+  );
+}
+
+function getDefaultTopUpPromotion(promotions, amount) {
+  return sortTopUpPromotionsByPriority(promotions, amount)[0] ?? null;
+}
+
+function getTopUpPromotionPercent(promotions) {
+  return promotions.reduce(
+    (totalPercent, promotion) =>
+      totalPercent + Number(promotion.bonusPercent || 0),
+    0,
+  );
+}
+
+function normalizeTopUpPromotion(promotion) {
+  return {
+    ...promotion,
+    id: promotion.id ?? promotion._id,
+    bonusPercent: Number(promotion.bonusPercent || 0),
+    minimumAmount: Number(promotion.minimumAmount || 0),
+    maximumBonus:
+      promotion.maximumBonus == null ? null : Number(promotion.maximumBonus),
+    priority: Number(promotion.priority || 0),
+    stackable: promotion.stackable ?? false,
+    autoApply: promotion.autoApply ?? false,
+  };
+}
+
+function AccountPageShell({
+  activeKey,
+  children,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  return (
+    <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+        <AppHeader
+          activeNav="home"
+          currentUser={user}
+          navItems={authenticatedHeaderNavItems}
+          onLogoClick={() => onNavigate("home")}
+          onLogout={onLogout}
+          onNavigate={onNavigate}
+          onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
+        />
+
+        <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+          <AccountSidebar
+            activeKey={activeKey}
+            onLogout={onLogout}
+            onNavigate={onNavigate}
+          />
+
+          <div className="min-w-0">{children}</div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function WalletSummaryCard({ card }) {
+  const toneClasses = {
+    amber: "bg-[#FFF4DF] text-[#F0A025]",
+    blue: "bg-[#EAF4FF] text-[#1682E6]",
+    green: "bg-[#E6F5E9] text-[#159447]",
+    mint: "bg-[#EAF8EC] text-[#239A4B]",
+  };
+  const Icon = card.icon;
+
+  return (
+    <article className="rounded-[18px] border border-[#E4EAE5] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+      <div className="flex items-start gap-4">
+        <span
+          className={`flex size-14 shrink-0 items-center justify-center rounded-full ${toneClasses[card.tone]}`}
+        >
+          <Icon className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-[#526071]">{card.label}</p>
+          <p className="mt-3 text-[24px] font-bold leading-tight text-[#11182A]">
+            {formatWalletCurrency(card.value)}
+          </p>
+        </div>
+      </div>
+
+      <button
+        className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+        type="button"
+      >
+        Xem chi tiết
+        <ArrowRight className="size-4" />
+      </button>
+    </article>
+  );
+}
+
+function WalletTransactionIcon({ type }) {
+  const toneClasses =
+    type === "spend"
+      ? "bg-[#FFF4DF] text-[#F0A025]"
+      : type === "promotion_credit"
+        ? "bg-[#EAF8EC] text-[#239A4B]"
+        : "bg-[#E6F5E9] text-[#159447]";
+  const Icon =
+    type === "spend" ? ArrowUp : type === "promotion_credit" ? Gift : Download;
+
+  return (
+    <span
+      className={`flex size-10 items-center justify-center rounded-full ${toneClasses}`}
+    >
+      <Icon className="size-5" />
+    </span>
+  );
+}
+
+function getWalletTransactionMethod(transaction) {
+  if (transaction.type === "top_up") {
+    if (transaction.metadata?.provider === "admin_demo") {
+      return "Admin demo";
+    }
+
+    return "Mã QR";
+  }
+
+  if (transaction.type === "promotion_credit") {
+    return "Ưu đãi WeRent";
+  }
+
+  if (transaction.type === "spend") {
+    return "Ví WeRent";
+  }
+
+  return "Ví WeRent";
+}
+
+function getWalletTransactionAmount(transaction) {
+  if (transaction.type === "spend") {
+    return -Number(transaction.amount || 0);
+  }
+
+  return Number(transaction.amount || 0);
+}
+
+function formatWalletTransactionDate(value) {
+  if (!value) {
+    return { date: "--", time: "--" };
+  }
+
+  const date = new Date(value);
+
+  return {
+    date: new Intl.DateTimeFormat("vi-VN").format(date),
+    time: new Intl.DateTimeFormat("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date),
+  };
+}
+
+function WalletPage({
+  accessToken,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  const [walletData, setWalletData] = useState(null);
+  const [isLoadingWallet, setIsLoadingWallet] = useState(true);
+  const [walletError, setWalletError] = useState("");
+  const walletSummary = walletData?.summary ?? {
+    availableBalance: 0,
+    promotionBalance: 0,
+    totalDeposited: 0,
+    totalSpent: 0,
+  };
+  const walletTransactions = walletData?.transactions ?? [];
+  const totalWalletBalance =
+    Number(walletSummary.availableBalance ?? 0) +
+    Number(walletSummary.promotionBalance ?? 0);
+  const walletSummaryCardsWithValues = [
+    {
+      ...walletSummaryCards[0],
+      value: totalWalletBalance,
+    },
+    {
+      ...walletSummaryCards[1],
+      value: walletSummary.availableBalance,
+    },
+    {
+      ...walletSummaryCards[2],
+      value: walletSummary.promotionBalance,
+    },
+    {
+      ...walletSummaryCards[3],
+      value: walletSummary.totalSpent,
+    },
+  ];
+
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingWallet(true);
+        setWalletError("");
+
+        return getWalletOverview(accessToken);
+      })
+      .then((response) => {
+        if (isActive && response) {
+          setWalletData(response.data);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setWalletError(
+            error.message || "Không thể tải dữ liệu ví. Vui lòng thử lại.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingWallet(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken]);
+
+  return (
+    <AccountPageShell
+      activeKey="wallet"
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
+      <div className="space-y-6">
+        <section className="flex flex-col gap-4 rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
+              Ví tiền
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#536179]">
+              Quản lý số dư, theo dõi giao dịch và nạp tiền để sử dụng các dịch
+              vụ trên WeRent.
+            </p>
+          </div>
+          <button
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[#078C3F] px-5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(7,140,63,0.22)] transition hover:bg-[#077C38]"
+            type="button"
+            onClick={() => onNavigate("walletTopUp")}
+          >
+            <Wallet className="size-5" />
+            Nạp tiền
+          </button>
+        </section>
+
+        {walletError ? (
+          <div className="rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            {walletError}
+          </div>
+        ) : null}
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {walletSummaryCardsWithValues.map((card) => (
+            <WalletSummaryCard key={card.key} card={card} />
+          ))}
+        </section>
+
+        <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+          <div className="flex flex-col gap-3 border-b border-[#E7ECE8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-bold text-[#172033]">
+              Lịch sử giao dịch gần đây
+            </h2>
+            <button
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+              type="button"
+            >
+              Xem tất cả giao dịch
+              <ArrowRight className="size-4" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[860px] w-full text-left text-sm">
+              <thead className="bg-[#FBFCFB] text-[#56627A]">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">Thời gian</th>
+                  <th className="px-5 py-4 font-semibold">Nội dung</th>
+                  <th className="px-5 py-4 font-semibold">Phương thức</th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Số tiền
+                  </th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Số dư sau giao dịch
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EEF1EE]">
+                {isLoadingWallet ? (
+                  <tr>
+                    <td
+                      className="px-5 py-8 text-center text-sm text-[#63708A]"
+                      colSpan={5}
+                    >
+                      Đang tải dữ liệu ví...
+                    </td>
+                  </tr>
+                ) : walletTransactions.length ? (
+                  walletTransactions.map((transaction) => {
+                    const transactionTime = formatWalletTransactionDate(
+                      transaction.createdAt,
+                    );
+                    const signedAmount =
+                      getWalletTransactionAmount(transaction);
+                    const availableBalanceAfter = Number(
+                      transaction.balanceAfter ?? 0,
+                    );
+                    const promotionBalanceAfter = Number(
+                      transaction.promotionBalanceAfter ?? 0,
+                    );
+                    const totalBalanceAfter =
+                      availableBalanceAfter + promotionBalanceAfter;
+                    const detailParts = [
+                      transaction.metadata?.orderCode
+                        ? `Mã GD: ${transaction.metadata.orderCode}`
+                        : "",
+                      transaction.expiresAt
+                        ? `HSD: ${formatWalletTransactionDate(transaction.expiresAt).date}`
+                        : "",
+                    ].filter(Boolean);
+
+                    return (
+                      <tr key={transaction.id} className="align-middle">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <WalletTransactionIcon type={transaction.type} />
+                            <div>
+                              <p className="font-semibold text-[#263149]">
+                                {transactionTime.date}
+                              </p>
+                              <p className="mt-1 text-xs text-[#66718A]">
+                                {transactionTime.time}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <p className="font-semibold text-[#263149]">
+                            {transaction.description}
+                          </p>
+                          <p className="mt-1 text-xs text-[#66718A]">
+                            {detailParts.join(" · ") || "Giao dịch ví WeRent"}
+                          </p>
+                        </td>
+                        <td className="px-5 py-4 font-medium text-[#263149]">
+                          {getWalletTransactionMethod(transaction)}
+                        </td>
+                        <td
+                          className={`px-5 py-4 text-right font-bold ${
+                            signedAmount < 0
+                              ? "text-[#EF2417]"
+                              : "text-[#07943F]"
+                          }`}
+                        >
+                          {signedAmount > 0 ? "+" : ""}
+                          {formatWalletCurrency(signedAmount)}
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <p className="font-semibold text-[#263149]">
+                            {Number.isFinite(totalBalanceAfter)
+                              ? formatWalletCurrency(totalBalanceAfter)
+                              : "-"}
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-[#66718A]">
+                            Khả dụng:{" "}
+                            {formatWalletCurrency(availableBalanceAfter)} · KM:{" "}
+                            {formatWalletCurrency(promotionBalanceAfter)}
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td
+                      className="px-5 py-8 text-center text-sm text-[#63708A]"
+                      colSpan={5}
+                    >
+                      Chưa có giao dịch ví.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col gap-4 border-t border-[#EEF1EE] px-5 py-4 text-sm text-[#63708A] sm:flex-row sm:items-center sm:justify-between">
+            <p>Hiển thị {walletTransactions.length} giao dịch gần nhất</p>
+            <div className="flex items-center gap-2">
+              {[1, 2, 3].map((page) => (
+                <button
+                  key={page}
+                  className={`flex size-10 items-center justify-center rounded-xl border text-sm font-semibold ${
+                    page === 1
+                      ? "border-[#078C3F] bg-[#078C3F] text-white"
+                      : "border-[#E1E7E2] bg-white text-[#1E2940]"
+                  }`}
+                  type="button"
+                >
+                  {page}
+                </button>
+              ))}
+              <span className="px-2">...</span>
+              <button
+                className="flex size-10 items-center justify-center rounded-xl border border-[#E1E7E2] bg-white text-sm font-semibold text-[#1E2940]"
+                type="button"
+              >
+                5
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </AccountPageShell>
+  );
+}
+
+function TopUpPaymentPage({
+  accessToken,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  user,
+}) {
+  const [selectedMethod, setSelectedMethod] = useState("qr");
+  const [amountValue, setAmountValue] = useState("");
+  const [note, setNote] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(true);
+  const [notice, setNotice] = useState(null);
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+  const [selectedPromotionIds, setSelectedPromotionIds] = useState([]);
+  const [topUpPromotionItems, setTopUpPromotionItems] = useState([]);
+  const [autoTopUpPromotionItems, setAutoTopUpPromotionItems] = useState([]);
+  const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
+  const [promotionLoadError, setPromotionLoadError] = useState("");
+  const [isPromotionSummaryOpen, setIsPromotionSummaryOpen] = useState(false);
+
+  const amount = Number(amountValue || 0);
+  const autoPromotions = useMemo(
+    () => getEligibleTopUpPromotions(autoTopUpPromotionItems, amount),
+    [amount, autoTopUpPromotionItems],
+  );
+  const eligiblePromotions = useMemo(
+    () => getEligibleTopUpPromotions(topUpPromotionItems, amount),
+    [amount, topUpPromotionItems],
+  );
+  const displayPromotions = useMemo(
+    () => getTopUpPromotionsForDisplay(topUpPromotionItems, amount),
+    [amount, topUpPromotionItems],
+  );
+  const selectedPromotions = eligiblePromotions.filter((promotion) =>
+    selectedPromotionIds.includes(promotion.id),
+  );
+  const appliedPromotions = [...autoPromotions, ...selectedPromotions];
+  const selectedPromotionPercent = getTopUpPromotionPercent(appliedPromotions);
+  const autoBonus = getTopUpBonus(amount, autoPromotions);
+  const selectedBonus = getTopUpBonus(amount, selectedPromotions);
+  const bonus = autoBonus + selectedBonus;
+  const appliedPromotionDetails = appliedPromotions.map((promotion) => ({
+    ...promotion,
+    bonusAmount: getTopUpPromotionBonusAmount(promotion, amount),
+  }));
+  const shouldShowPromotionSummary =
+    isPromotionSummaryOpen && appliedPromotionDetails.length > 0;
+  const total = amount + bonus;
+  const selectedMethodDetail = topUpPaymentMethods.find(
+    (method) => method.key === selectedMethod,
+  );
+  const canContinue =
+    Boolean(selectedMethodDetail?.enabled) && amount >= 10000 && acceptedTerms;
+
+  useEffect(() => {
+    let ignore = false;
+
+    getTopUpPromotions(accessToken)
+      .then((response) => {
+        if (ignore) {
+          return;
+        }
+
+        const items = (response.data?.items ?? []).map(normalizeTopUpPromotion);
+        const autoItems = (response.data?.autoItems ?? []).map(
+          normalizeTopUpPromotion,
+        );
+        setTopUpPromotionItems(items);
+        setAutoTopUpPromotionItems(autoItems);
+        setPromotionLoadError("");
+      })
+      .catch((error) => {
+        if (ignore) {
+          return;
+        }
+
+        setTopUpPromotionItems([]);
+        setAutoTopUpPromotionItems([]);
+        setPromotionLoadError(
+          error.message ||
+            "Không thể tải danh sách khuyến mãi nạp tiền lúc này.",
+        );
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLoadingPromotions(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken]);
+
+  function selectDefaultPromotionForAmount(nextAmount) {
+    const nextAutoPromotions = getEligibleTopUpPromotions(
+      autoTopUpPromotionItems,
+      nextAmount,
+    );
+
+    if (nextAutoPromotions.some((promotion) => !promotion.stackable)) {
+      setSelectedPromotionIds([]);
+      return;
+    }
+
+    const defaultPromotion = getDefaultTopUpPromotion(
+      getEligibleTopUpPromotions(topUpPromotionItems, nextAmount),
+      nextAmount,
+    );
+
+    setSelectedPromotionIds(defaultPromotion ? [defaultPromotion.id] : []);
+  }
+
+  function handleAmountChange(event) {
+    const nextAmountValue = event.target.value.replace(/\D/g, "");
+
+    setAmountValue(nextAmountValue);
+    selectDefaultPromotionForAmount(Number(nextAmountValue || 0));
+    setIsPromotionSummaryOpen(false);
+    setNotice(null);
+  }
+
+  function handlePromotionToggle(promotion) {
+    const isSelected = selectedPromotionIds.includes(promotion.id);
+    setNotice(null);
+
+    if (!isTopUpPromotionEligible(promotion, amount)) {
+      setNotice({
+        type: "error",
+        message: `Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`,
+      });
+      return;
+    }
+
+    if (isSelected) {
+      setSelectedPromotionIds((currentIds) =>
+        currentIds.filter((promotionId) => promotionId !== promotion.id),
+      );
+      return;
+    }
+
+    if (!promotion.stackable) {
+      setSelectedPromotionIds([promotion.id]);
+      setNotice({
+        type: "success",
+        message: `${promotion.name} không áp dụng song song với chương trình khác.`,
+      });
+      return;
+    }
+
+    const hasExclusivePromotion = appliedPromotions.some(
+      (selectedPromotion) => !selectedPromotion.stackable,
+    );
+
+    if (hasExclusivePromotion) {
+      setNotice({
+        type: "error",
+        message:
+          "Khuyến mãi đang chọn không thể áp dụng song song. Vui lòng bỏ chọn trước khi thêm chương trình khác.",
+      });
+      return;
+    }
+
+    if (appliedPromotions.length >= TOP_UP_PROMOTION_SELECTION_LIMIT) {
+      setNotice({
+        type: "error",
+        message: `Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`,
+      });
+      return;
+    }
+
+    if (
+      selectedPromotionPercent + Number(promotion.bonusPercent || 0) >
+      TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT
+    ) {
+      setNotice({
+        type: "error",
+        message: `Tổng % khuyến mãi áp dụng song song không được vượt quá ${TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT}%.`,
+      });
+      return;
+    }
+
+    setSelectedPromotionIds((currentIds) => [...currentIds, promotion.id]);
+  }
+
+  async function handleContinue() {
+    if (!canContinue) {
+      return;
+    }
+
+    setIsCreatingCheckout(true);
+    setNotice(null);
+
+    try {
+      const response = await createTopUpCheckout(accessToken, {
+        amount,
+        note,
+        paymentMethod: selectedMethod,
+        promotionIds: selectedPromotions.map((promotion) => promotion.id),
+        expectedBonusAmount: bonus,
+      });
+      const checkout = response.data?.checkout;
+
+      if (!checkout?.actionUrl || !checkout.fields) {
+        throw new Error("Không nhận được thông tin thanh toán từ máy chủ.");
+      }
+
+      const form = document.createElement("form");
+      form.method = checkout.method ?? "POST";
+      form.action = checkout.actionUrl;
+      form.style.display = "none";
+
+      Object.entries(checkout.fields).forEach(([name, value]) => {
+        if (value === undefined || value === null) {
+          return;
+        }
+
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = String(value);
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message:
+          error.message ||
+          "Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.",
+      });
+      setIsCreatingCheckout(false);
+    }
+  }
+
+  return (
+    <AccountPageShell
+      activeKey="wallet"
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
+      <div className="space-y-5">
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-2 text-sm font-medium text-[#5D6880]"
+        >
+          <button
+            className="transition hover:text-[#078C3F]"
+            type="button"
+            onClick={() => onNavigate("wallet")}
+          >
+            Ví tiền
+          </button>
+          <ChevronRight className="size-4 text-[#91A0B4]" />
+          <span className="font-semibold text-[#078C3F]">
+            Thanh toán nạp tiền
+          </span>
+        </nav>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-6">
+            <section>
+              <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
+                Thanh toán nạp tiền
+              </h1>
+            </section>
+
+            <section>
+              <h2 className="text-base font-bold text-[#172033]">
+                Chọn phương thức thanh toán
+              </h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                {topUpPaymentMethods.map((method) => {
+                  const Icon = method.icon;
+                  const isSelected = selectedMethod === method.key;
+
+                  return (
+                    <button
+                      key={method.key}
+                      className={`relative min-h-[170px] rounded-[18px] border bg-white p-5 text-center shadow-[0_10px_28px_rgba(45,69,54,0.045)] transition ${
+                        isSelected
+                          ? "border-[#10964A] ring-2 ring-[#10964A]/10"
+                          : "border-[#E1E7E3] hover:border-[#BFDCC7]"
+                      } ${method.enabled ? "" : "opacity-70"}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMethod(method.key);
+                        setNotice(null);
+                      }}
+                    >
+                      {isSelected ? (
+                        <span className="absolute right-4 top-4 flex size-6 items-center justify-center rounded-full bg-[#10964A] text-white">
+                          <Check className="size-4" />
+                        </span>
+                      ) : null}
+                      {!method.enabled ? (
+                        <span className="absolute left-4 top-4 rounded-full bg-[#F1F4F2] px-2.5 py-1 text-[11px] font-bold text-[#68717C]">
+                          Sắp có
+                        </span>
+                      ) : null}
+                      <span
+                        className={`mx-auto flex size-14 items-center justify-center rounded-full ${
+                          method.key === "momo"
+                            ? "bg-[#FCE7F3] text-[#C20D78]"
+                            : method.key === "bank"
+                              ? "bg-[#EAF4FF] text-[#1477C9]"
+                              : "bg-[#E6F5E9] text-[#10964A]"
+                        }`}
+                      >
+                        <Icon className="size-7" />
+                      </span>
+                      <span className="mt-4 block font-bold text-[#182238]">
+                        {method.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-[#172033]">
+                  Nhập số tiền muốn nạp (đ){" "}
+                  <span className="text-[#EF2417]">*</span>
+                </span>
+                <input
+                  className="h-12 w-full rounded-xl border border-[#DDE4DF] bg-white px-4 text-sm outline-none transition placeholder:text-[#A6AFBA] focus:border-[#10964A] focus:ring-2 focus:ring-[#10964A]/15"
+                  inputMode="numeric"
+                  placeholder="Nhập từ 2.000.000 đ để được nhận khuyến mãi"
+                  value={
+                    amountValue
+                      ? new Intl.NumberFormat("vi-VN").format(amount)
+                      : ""
+                  }
+                  onChange={handleAmountChange}
+                />
+              </label>
+
+              <div>
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-sm font-semibold text-[#273149]">
+                    Hoặc chọn nhanh
+                  </p>
+                  <button
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#EF2417]"
+                    type="button"
+                  >
+                    Xem tất cả ưu đãi
+                    <ChevronRight className="size-4" />
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {topUpQuickAmounts.map((option) => {
+                    const isSelected = amount === option.amount;
+                    const quickDefaultPromotion = getDefaultTopUpPromotion(
+                      getEligibleTopUpPromotions(
+                        topUpPromotionItems,
+                        option.amount,
+                      ),
+                      option.amount,
+                    );
+                    const quickAutoPromotions = getEligibleTopUpPromotions(
+                      autoTopUpPromotionItems,
+                      option.amount,
+                    );
+                    const quickPromotions = [
+                      ...quickAutoPromotions,
+                      ...(quickDefaultPromotion ? [quickDefaultPromotion] : []),
+                    ];
+                    const quickBonus = getTopUpBonus(option.amount, quickPromotions);
+
+                    return (
+                      <button
+                        key={option.amount}
+                        className={`rounded-[14px] border bg-white px-5 py-4 text-left transition ${
+                          isSelected
+                            ? "border-[#10964A] ring-2 ring-[#10964A]/10"
+                            : "border-[#DDE4DF] hover:border-[#BFDCC7]"
+                        }`}
+                        type="button"
+                        onClick={() => {
+                          setAmountValue(String(option.amount));
+                          selectDefaultPromotionForAmount(option.amount);
+                          setNotice(null);
+                        }}
+                      >
+                        <span className="block text-lg font-bold text-[#11182A]">
+                          {formatWalletCurrency(option.amount)}
+                        </span>
+                        {quickBonus ? (
+                          <span className="mt-2 block text-sm text-[#273149]">
+                            Tặng:{" "}
+                            <span className="font-bold text-[#07943F]">
+                              {formatWalletCurrency(quickBonus)}
+                            </span>
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-[#172033]">
+                      Chương trình khuyến mãi
+                    </h2>
+                    <p className="mt-1 whitespace-nowrap text-[11px] font-semibold leading-5 text-[#D05252]">
+                      (*) Không được áp dụng song song.
+                    </p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#FFF5E5] text-[#D98713]">
+                    <Gift className="size-5" />
+                  </span>
+                </div>
+
+                {autoPromotions.length ? (
+                  <div className="mt-5 rounded-2xl border border-[#D6EFD7] bg-[#F4FBF5] px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-[#172033]">
+                        Khuyến mãi tự động
+                      </span>
+                      <span className="font-bold text-[#07943F]">
+                        {formatWalletCurrency(autoBonus)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-[#63708A]">
+                      {autoPromotions.map((promotion) => promotion.name).join(", ")}
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className={`${autoPromotions.length ? "mt-3" : "mt-5"} space-y-3`}>
+                  {isLoadingPromotions ? (
+                    <div className="rounded-2xl border border-dashed border-[#DDE4DF] px-4 py-5 text-sm leading-6 text-[#63708A]">
+                      Đang tải chương trình khuyến mãi...
+                    </div>
+                  ) : promotionLoadError ? (
+                    <div className="rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-5 text-sm leading-6 text-[#B73A3A]">
+                      {promotionLoadError}
+                    </div>
+                  ) : displayPromotions.length ? (
+                    displayPromotions.map((promotion) => {
+                      const isSelected = selectedPromotionIds.includes(
+                        promotion.id,
+                      );
+                      const isBelowMinimumAmount = !isTopUpPromotionEligible(
+                        promotion,
+                        amount,
+                      );
+                      const isBlockedByExclusiveSelection =
+                        appliedPromotions.some(
+                          (selectedPromotion) =>
+                            !selectedPromotion.stackable &&
+                            selectedPromotion.id !== promotion.id,
+                        );
+                      const isExclusiveBlockedByOtherSelection =
+                        !promotion.stackable &&
+                        appliedPromotions.some(
+                          (selectedPromotion) =>
+                            selectedPromotion.id !== promotion.id,
+                        );
+                      const isPromotionDisabled =
+                        isBelowMinimumAmount ||
+                        isBlockedByExclusiveSelection ||
+                        isExclusiveBlockedByOtherSelection;
+
+                      return (
+                        <label
+                          className={`flex gap-3 rounded-2xl border px-3 py-3 transition ${
+                            isSelected
+                              ? "border-[#10964A] bg-[#F4FBF5]"
+                              : "border-[#E5EAE6] bg-white hover:border-[#BFDCC7]"
+                          } ${
+                            isPromotionDisabled
+                              ? "cursor-not-allowed opacity-55"
+                              : "cursor-pointer"
+                          }`}
+                          key={promotion.id}
+                        >
+                          <input
+                            checked={isSelected}
+                            className="mt-1 size-4 accent-[#10964A]"
+                            disabled={isPromotionDisabled}
+                            type="checkbox"
+                            onChange={() => handlePromotionToggle(promotion)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-start justify-between gap-3">
+                              <span className="min-w-0">
+                                <span className="block text-sm font-bold text-[#172033]">
+                                  {promotion.name}
+                                  {!promotion.stackable ? (
+                                    <span className="text-[#D05252]">
+                                      {" "}
+                                      (*)
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span className="block text-sm font-bold text-[#07943F]">
+                                  +{promotion.bonusPercent}%
+                                </span>
+                              </span>
+                            </span>
+                            <span className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-medium text-[#63708A]">
+                              <span>
+                                Tối thiểu từ{" "}
+                                {formatWalletCurrency(promotion.minimumAmount)}
+                              </span>
+                              <span className="text-[#CAD2CC]">•</span>
+                              <span>
+                                Hết hạn{" "}
+                                {formatTopUpPromotionEndDate(promotion.endsAt)}
+                              </span>
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-[#DDE4DF] px-4 py-5 text-sm leading-6 text-[#63708A]">
+                      Chưa có chương trình khuyến mãi nạp tiền đang hoạt động.
+                    </div>
+                  )}
+                </div>
+
+                {appliedPromotions.length ? (
+                  <div className="mt-4 rounded-xl bg-[#EEF7EF] px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-[#172033]">
+                        Tổng tiền khuyến mãi
+                      </span>
+                      <span className="font-bold text-[#07943F]">
+                        {formatWalletCurrency(bonus)}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
+              <div className="space-y-3">
+                <h2 className="text-base font-bold text-[#172033]">
+                  Thông tin bổ sung
+                </h2>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-[#273149]">
+                    Ghi chú (tùy chọn)
+                  </span>
+                  <input
+                    className="h-12 w-full rounded-xl border border-[#DDE4DF] bg-white px-4 text-sm outline-none transition placeholder:text-[#A6AFBA] focus:border-[#10964A] focus:ring-2 focus:ring-[#10964A]/15"
+                    placeholder="Nhập ghi chú nếu có"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="flex items-center gap-3 text-sm font-medium text-[#3D4658]">
+                <input
+                  checked={acceptedTerms}
+                  className="size-4 accent-[#10964A]"
+                  type="checkbox"
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                />
+                <span>
+                  Tôi đã đọc và đồng ý với{" "}
+                  <span className="font-semibold text-[#078C3F]">
+                    điều khoản thanh toán
+                  </span>{" "}
+                  của WeRent
+                </span>
+              </label>
+
+              {notice ? (
+                <div
+                  className={`rounded-2xl border px-4 py-3 text-sm ${
+                    notice.type === "error"
+                      ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
+                      : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
+                  }`}
+                >
+                  {notice.message}
+                </div>
+              ) : null}
+            </section>
+          </div>
+
+          <aside className="space-y-5">
+            <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+              <h2 className="text-lg font-bold text-[#172033]">
+                Thông tin thanh toán
+              </h2>
+              <dl className="mt-5 space-y-4 text-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Phương thức thanh toán</dt>
+                  <dd className="font-bold text-[#172033]">
+                    {selectedMethodDetail?.label ?? "-"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Số tiền nạp</dt>
+                  <dd className="font-bold text-[#172033]">
+                    {amount ? formatWalletCurrency(amount) : "-"}
+                  </dd>
+                </div>
+                <div className="border-b border-dashed border-[#DDE4DF] pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-[#526071]">Chương trình áp dụng</dt>
+                    <dd className="max-w-[190px] text-right">
+                      {appliedPromotions.length ? (
+                        <button
+                          className="inline-flex items-center justify-end gap-1.5 text-right font-bold text-[#172033] transition hover:text-[#078C3F]"
+                          type="button"
+                          onClick={() =>
+                            setIsPromotionSummaryOpen((current) => !current)
+                          }
+                        >
+                          <span>{appliedPromotions.length} chương trình</span>
+                          <ChevronDown
+                            className={`size-4 shrink-0 transition ${
+                              isPromotionSummaryOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      ) : (
+                        <span className="font-bold text-[#172033]">-</span>
+                      )}
+                    </dd>
+                  </div>
+                  {shouldShowPromotionSummary ? (
+                    <div className="mt-3 space-y-2 rounded-xl bg-[#F8FAF8] px-3 py-3">
+                      {appliedPromotionDetails.map((promotion) => (
+                        <div
+                          className="flex items-center justify-between gap-3 text-xs"
+                          key={promotion.id}
+                        >
+                          <p className="min-w-0 truncate text-left font-semibold text-[#172033]">
+                            {promotion.name}(+{promotion.bonusPercent}%)
+                          </p>
+                          <span className="shrink-0 font-bold text-[#07943F]">
+                            {formatWalletCurrency(promotion.bonusAmount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
+                  <dt className="text-[#526071]">Khuyến mãi dự kiến</dt>
+                  <dd className="font-bold text-[#07943F]">
+                    {bonus ? formatWalletCurrency(bonus) : "-"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-5 rounded-xl bg-[#EEF7EF] p-4">
+                <p className="text-sm font-semibold text-[#172033]">
+                  Tổng nhận vào ví
+                </p>
+                <p className="mt-2 text-2xl font-bold text-[#0A873E]">
+                  {total ? formatWalletCurrency(total) : "-"}
+                </p>
+              </div>
+
+              <button
+                className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0A873E] text-sm font-bold text-white shadow-[0_12px_24px_rgba(10,135,62,0.22)] transition hover:bg-[#077C38] disabled:cursor-not-allowed disabled:bg-[#D7DCE4] disabled:text-[#97A1B2] disabled:shadow-none"
+                disabled={!canContinue || isCreatingCheckout}
+                type="button"
+                onClick={handleContinue}
+              >
+                {isCreatingCheckout ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="size-4" />
+                )}
+                {isCreatingCheckout ? "Đang chuyển..." : "Tiếp tục"}
+              </button>
+
+              <p className="mt-4 flex items-center gap-2 text-xs font-medium text-[#63708A]">
+                <Lock className="size-4" />
+                Yêu cầu thanh toán sẽ hết hạn sau{" "}
+                <span className="font-bold text-[#EF2417]">15 phút</span>
+              </p>
+            </section>
+
+            <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+              <h2 className="text-lg font-bold text-[#172033]">
+                Thông tin cần biết
+              </h2>
+              <div className="mt-5 space-y-5">
+                {[
+                  {
+                    icon: Clock3,
+                    title: "Thời gian xử lý",
+                    text: "Tiền sẽ được nạp vào ví ngay sau khi thanh toán thành công.",
+                  },
+                  {
+                    icon: ShieldCheck,
+                    title: "Bảo mật tuyệt đối",
+                    text: "Mọi giao dịch đều được mã hóa và bảo mật theo tiêu chuẩn quốc tế.",
+                  },
+                  {
+                    icon: Headphones,
+                    title: "Hỗ trợ 24/7",
+                    text: "Liên hệ với chúng tôi nếu bạn cần hỗ trợ trong quá trình thanh toán.",
+                  },
+                ].map(({ icon: Icon, text, title }) => (
+                  <div key={title} className="flex gap-4">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[#E1E7E3] text-[#172033]">
+                      <Icon className="size-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-[#172033]">
+                        {title}
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-[#63708A]">
+                        {text}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </AccountPageShell>
+  );
+}
+
 function ListingField({ children, label, required }) {
   return (
     <label className="block">
@@ -3335,6 +4954,7 @@ function ListingInput({
   readOnly = false,
   required = false,
   error = "",
+  inputMode,
   suffix,
   type = "text",
   value,
@@ -3357,6 +4977,7 @@ function ListingInput({
           placeholder={placeholder}
           readOnly={readOnly}
           type={type}
+          inputMode={inputMode}
           {...inputValueProps}
         />
         {suffix ? (
@@ -3707,6 +5328,11 @@ function PostListingBasicInfoStep({
   validationErrors = {},
 }) {
   const getFieldProps = (field) => ({
+    inputMode: listingNumberInputFields[field]?.allowDecimal
+      ? "decimal"
+      : listingNumberInputFields[field]
+        ? "numeric"
+        : undefined,
     value: draftValues[field] ?? "",
     onChange: (event) => onDraftValueChange(field, event.target.value),
   });
@@ -5883,10 +7509,17 @@ function PostListingViewportNotice({ notice, onClose }) {
     return null;
   }
 
+  const isSuccess = notice.type === "success";
+
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
       <div
-        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border border-[#F0CACA] bg-[#FFF7F7] px-5 py-3 text-sm font-semibold text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)] transition duration-300 ease-out ${
+        key={notice.id ?? notice.message}
+        className={`flex max-w-[720px] items-center gap-3 rounded-2xl border px-5 py-3 text-sm font-semibold shadow-[0_18px_45px_rgba(40,120,70,0.14)] transition duration-300 ease-out ${
+          isSuccess
+            ? "werent-reflection-sweep border-[#35A554] bg-[#35A554] text-white"
+            : "border-[#F0CACA] bg-[#FFF7F7] text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)]"
+        } ${
           isVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
         }`}
       >
@@ -5897,12 +7530,69 @@ function PostListingViewportNotice({ notice, onClose }) {
   );
 }
 
+function AccountVerificationRequiredModal({ onBack, onVerifyNow }) {
+  return (
+    <Modal
+      footer={
+        <>
+          <Button variant="outline" onClick={onBack}>
+            Quay lại
+          </Button>
+          <Button variant="primary" onClick={onVerifyNow}>
+            <ShieldCheck className="size-4" />
+            Xác thực ngay
+          </Button>
+        </>
+      }
+      footerClassName="pb-5 pt-5"
+      showCloseButton={false}
+      size="sm"
+      title="Xác thực tài khoản"
+      onClose={onBack}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+        <ShieldCheck className="size-7" />
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        <span className="block">Tài khoản bạn chưa được xác thực.</span>
+        <span className="block">Vui lòng xác thực để tiến hành đăng tin.</span>
+      </p>
+    </Modal>
+  );
+}
+
+function AccountKycSubmittedModal({ onClose }) {
+  return (
+    <Modal
+      footer={
+        <Button className="px-5" variant="primary" onClick={onClose}>
+          Đã hiểu
+        </Button>
+      }
+      footerClassName="pb-5 pt-5"
+      size="sm"
+      title="Đã gửi yêu cầu xác thực"
+      onClose={onClose}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+        <Check className="size-7" />
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        {ACCOUNT_KYC_SUBMITTED_MESSAGE}
+      </p>
+    </Modal>
+  );
+}
+
 function PostListingPage({
   accessToken,
   editingListing,
+  headerSearchContent,
   onListingCreated,
+  onHeaderSearchSubmit,
   onLogout,
   onNavigate,
+  renderHeaderSearchContent,
   user,
 }) {
   const draftValues = editingListing?.draft ?? defaultListingDraft;
@@ -5917,20 +7607,22 @@ function PostListingPage({
   const [currentPostListingStep, setCurrentPostListingStep] = useState(
     defaultPostListingStep,
   );
-  const [listingDraft, setListingDraft] = useState(() => ({
-    ...defaultListingDraft,
-    ...draftValues,
-    electricityPrice: getSelectOptionValue(
-      draftValues.electricityPrice,
-      electricityPriceOptions,
-    ),
-    internetPrice: getSelectOptionValue(
-      draftValues.internetPrice,
-      internetPriceOptions,
-    ),
-    propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
-    waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
-  }));
+  const [listingDraft, setListingDraft] = useState(() =>
+    formatListingDraftNumberValues({
+      ...defaultListingDraft,
+      ...draftValues,
+      electricityPrice: getSelectOptionValue(
+        draftValues.electricityPrice,
+        electricityPriceOptions,
+      ),
+      internetPrice: getSelectOptionValue(
+        draftValues.internetPrice,
+        internetPriceOptions,
+      ),
+      propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
+      waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
+    }),
+  );
   const [listingTitle, setListingTitle] = useState(editingListing?.title ?? "");
   const [listingDescription, setListingDescription] = useState(
     draftValues.description,
@@ -5965,6 +7657,14 @@ function PostListingPage({
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [submitNotice, setSubmitNotice] = useState(null);
+  const [showListingVerificationModal, setShowListingVerificationModal] =
+    useState(false);
+  const [listingVerificationNotice, setListingVerificationNotice] =
+    useState("");
+  const [
+    submittedListingVerificationRequest,
+    setSubmittedListingVerificationRequest,
+  ] = useState(null);
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
@@ -6008,6 +7708,16 @@ function PostListingPage({
   const administrativeDivisionsNotice = isAdministrativeDivisionsLoading
     ? "Đang tải dữ liệu tỉnh/thành, quận/huyện, phường/xã..."
     : administrativeDivisionsError;
+  const editingListingVerificationStatus =
+    submittedListingVerificationRequest?.status ??
+    editingListing?.verificationStatus;
+  const isEditingListingVerified =
+    editingListing?.isVerified ||
+    ["verified_owner", "verified_authorized"].includes(
+      editingListingVerificationStatus,
+    );
+  const isEditingListingVerificationPending =
+    editingListingVerificationStatus === "pending";
   const hasUnsavedNewListingInput = useMemo(
     () =>
       !isEditingListing &&
@@ -6156,10 +7866,12 @@ function PostListingPage({
   }
 
   function handleDraftValueChange(field, value) {
+    const nextValue = formatListingDraftNumberValue(field, value);
+
     setListingDraft((current) => {
       const nextDraft = {
         ...current,
-        [field]: value,
+        [field]: nextValue,
       };
 
       if (field === "city") {
@@ -6174,7 +7886,7 @@ function PostListingPage({
       return nextDraft;
     });
 
-    if (hasListingInputValue(value)) {
+    if (hasListingInputValue(nextValue)) {
       clearDraftValidationError(field);
     }
   }
@@ -6315,6 +8027,11 @@ function PostListingPage({
       return;
     }
 
+    if (action?.type === "search") {
+      onHeaderSearchSubmit?.(action.searchState);
+      return;
+    }
+
     onNavigate(action?.view ?? backTarget);
   }
 
@@ -6418,7 +8135,7 @@ function PostListingPage({
         getFirstDraftValidationStep(nextValidationErrors),
       );
       setViewportNotice({
-        id: Date.now(),
+        id: createNoticeId(),
         message: draftValidationToastMessage,
       });
       return;
@@ -6437,7 +8154,7 @@ function PostListingPage({
     if (videoLinkError) {
       setCurrentPostListingStep(2);
       setViewportNotice({
-        id: Date.now(),
+        id: createNoticeId(),
         message: videoLinkError,
       });
       return;
@@ -6516,8 +8233,8 @@ function PostListingPage({
       setSubmitNotice({
         type: "success",
         message: isEditingListing
-          ? "Cập nhật tin thành công."
-          : "Đăng tin thành công. Tin đã hiển thị công khai để bạn kiểm tra.",
+          ? "Cập nhật tin thành công. Tin đã được gửi lại để chờ kiểm duyệt."
+          : "Đăng tin thành công. Tin đang chờ quản trị viên kiểm duyệt.",
       });
 
       if (savedProperty) {
@@ -6636,6 +8353,18 @@ function PostListingPage({
         notice={viewportNotice}
         onClose={() => setViewportNotice(null)}
       />
+      {showListingVerificationModal && editingListing ? (
+        <ListingVerificationModal
+          accessToken={accessToken}
+          listing={editingListing}
+          onClose={() => setShowListingVerificationModal(false)}
+          onSuccess={(response) => {
+            setShowListingVerificationModal(false);
+            setSubmittedListingVerificationRequest(response.data?.item ?? null);
+            setListingVerificationNotice(response.message);
+          }}
+        />
+      ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
           activeNav="postListing"
@@ -6648,6 +8377,16 @@ function PostListingPage({
           onNavigate={requestPostListingNavigation}
           onUserClick={() =>
             requestExitAction({ type: "navigate", view: "profile" })
+          }
+          searchContent={
+            renderHeaderSearchContent?.({
+              keyPrefix: "post-listing-header",
+              onSubmit: (nextSearchState) =>
+                requestExitAction({
+                  type: "search",
+                  searchState: nextSearchState,
+                }),
+            }) ?? headerSearchContent
           }
         />
 
@@ -6684,6 +8423,29 @@ function PostListingPage({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                  {isEditingListingVerificationPending ? (
+                    <span className="inline-flex h-11 items-center rounded-xl border border-[#CFE8D4] bg-[#F4FBF5] px-4 text-sm font-bold text-[#278B45]">
+                      Đã gửi yêu cầu xác thực BĐS
+                    </span>
+                  ) : (
+                    <Button
+                      disabled={!isEditingListing || isEditingListingVerified}
+                      title={
+                        !isEditingListing
+                          ? "Hãy lưu tin trước, sau đó mở chỉnh sửa để tải giấy tờ xác thực."
+                          : isEditingListingVerified
+                            ? "Bất động sản đã được xác thực."
+                            : "Tải giấy tờ chứng minh quyền sở hữu hoặc quyền cho thuê."
+                      }
+                      variant="outline"
+                      onClick={() => setShowListingVerificationModal(true)}
+                    >
+                      <ShieldCheck className="size-4" />
+                      {isEditingListingVerified
+                        ? "Đã xác thực BĐS"
+                        : "Xác thực BĐS"}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -6695,6 +8457,11 @@ function PostListingPage({
                   </Button>
                 </div>
               </div>
+              {listingVerificationNotice ? (
+                <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {listingVerificationNotice}
+                </div>
+              ) : null}
               <div className="mt-7">
                 <ListingProgress activeStep={currentPostListingStep} />
               </div>
@@ -6728,31 +8495,325 @@ function PostListingPage({
   );
 }
 
-function ListingDetailHeroImage({ alt, src }) {
+function ListingDetailHeroImage({ alt, onClick, src }) {
   const [portraitImageSrc, setPortraitImageSrc] = useState("");
   const isPortraitImage = portraitImageSrc === src;
 
   return (
-    <img
-      alt={alt}
-      className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
-        isPortraitImage ? "bg-black object-contain" : "object-cover"
-      }`}
-      src={src}
-      onLoad={(event) => {
-        const image = event.currentTarget;
+    <button
+      aria-label="Mở chế độ xem ảnh lớn"
+      className="block w-full cursor-zoom-in text-left"
+      type="button"
+      onClick={onClick}
+    >
+      <img
+        alt={alt}
+        className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
+          isPortraitImage ? "bg-black object-contain" : "object-cover"
+        }`}
+        src={src}
+        onLoad={(event) => {
+          const image = event.currentTarget;
 
-        setPortraitImageSrc(
-          image.naturalHeight > image.naturalWidth ? src : "",
-        );
-      }}
-    />
+          setPortraitImageSrc(
+            image.naturalHeight > image.naturalWidth ? src : "",
+          );
+        }}
+      />
+    </button>
+  );
+}
+
+function ListingDetailMediaViewer({
+  activeIndex,
+  listingTitle,
+  mediaItems,
+  onClose,
+  onNext,
+  onPrevious,
+  onSelect,
+}) {
+  const activeMedia = mediaItems[activeIndex] ?? mediaItems[0];
+  const didDragImageRef = useRef(false);
+  const imageAnimationFrameRef = useRef(0);
+  const imageDragStateRef = useRef(null);
+  const imageElementRef = useRef(null);
+  const imagePanRef = useRef({ x: 0, y: 0 });
+  const [isImageZoomed, setIsImageZoomed] = useState(false);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+
+  useEffect(() => {
+    imageDragStateRef.current = null;
+    imagePanRef.current = { x: 0, y: 0 };
+    didDragImageRef.current = false;
+    setIsImageZoomed(false);
+    setIsDraggingImage(false);
+  }, [activeMedia?.key]);
+
+  useEffect(
+    () => () => {
+      if (imageAnimationFrameRef.current) {
+        window.cancelAnimationFrame(imageAnimationFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  function applyImagePanTransform() {
+    const imageElement = imageElementRef.current;
+
+    if (!imageElement) {
+      return;
+    }
+
+    const { x, y } = imagePanRef.current;
+    imageElement.style.transform = isImageZoomed
+      ? `translate3d(${x}px, ${y}px, 0) scale(1.5)`
+      : "translate3d(0, 0, 0) scale(1)";
+  }
+
+  function scheduleImagePanTransform() {
+    if (imageAnimationFrameRef.current) {
+      return;
+    }
+
+    imageAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      imageAnimationFrameRef.current = 0;
+      applyImagePanTransform();
+    });
+  }
+
+  function handleImageDragMove(event) {
+    const dragState = imageDragStateRef.current;
+
+    if (!dragState) {
+      return;
+    }
+
+    const movementX = event.clientX - dragState.originX;
+    const movementY = event.clientY - dragState.originY;
+
+    if (Math.abs(movementX) > 3 || Math.abs(movementY) > 3) {
+      didDragImageRef.current = true;
+    }
+
+    imagePanRef.current = {
+      x: dragState.originPanX + movementX,
+      y: dragState.originPanY + movementY,
+    };
+    scheduleImagePanTransform();
+  }
+
+  function handleImageDragEnd() {
+    imageDragStateRef.current = null;
+    if (imageElementRef.current) {
+      imageElementRef.current.style.transition = "transform 180ms ease";
+    }
+    setIsDraggingImage(false);
+    window.removeEventListener("mousemove", handleImageDragMove);
+    window.removeEventListener("mouseup", handleImageDragEnd);
+  }
+
+  function toggleImageZoom() {
+    if (didDragImageRef.current) {
+      didDragImageRef.current = false;
+      return;
+    }
+
+    setIsImageZoomed((current) => {
+      if (current) {
+        imagePanRef.current = { x: 0, y: 0 };
+      }
+
+      return !current;
+    });
+  }
+
+  function startImageDrag(event) {
+    if (!isImageZoomed) {
+      return;
+    }
+
+    event.preventDefault();
+    didDragImageRef.current = false;
+    if (imageElementRef.current) {
+      imageElementRef.current.style.transition = "none";
+    }
+    imageDragStateRef.current = {
+      originPanX: imagePanRef.current.x,
+      originPanY: imagePanRef.current.y,
+      originX: event.clientX,
+      originY: event.clientY,
+    };
+    setIsDraggingImage(true);
+    window.addEventListener("mousemove", handleImageDragMove);
+    window.addEventListener("mouseup", handleImageDragEnd);
+  }
+
+  if (!activeMedia) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[1400] flex flex-col bg-[#080C10]/95 text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Xem ảnh và video tin đăng"
+      onMouseDown={onClose}
+    >
+      <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 sm:px-6">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{listingTitle}</p>
+          <p className="mt-0.5 text-xs text-white/62">
+            {activeIndex + 1}/{mediaItems.length} · {activeMedia.title}
+          </p>
+        </div>
+        <button
+          aria-label="Đóng trình xem media"
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/18"
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-4 sm:px-6"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        {activeMedia.type === "video" ? (
+          activeMedia.embedUrl ? (
+            <iframe
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="aspect-video max-h-full w-full max-w-[1180px] rounded-2xl bg-black shadow-[0_26px_80px_rgba(0,0,0,0.42)]"
+              referrerPolicy="strict-origin-when-cross-origin"
+              src={activeMedia.embedUrl}
+              title={`${listingTitle} video`}
+            />
+          ) : (
+            <div className="flex w-full max-w-[620px] flex-col items-center justify-center rounded-[24px] border border-white/12 bg-white/8 p-8 text-center shadow-[0_26px_80px_rgba(0,0,0,0.32)]">
+              <span className="flex size-16 items-center justify-center rounded-full bg-white/12 text-white">
+                <Video className="size-7" />
+              </span>
+              <p className="mt-5 text-xl font-bold">Video tham quan thực tế</p>
+              <p className="mt-2 text-sm leading-6 text-white/68">
+                Liên kết video hiện chưa hỗ trợ nhúng trực tiếp. Bạn có thể mở
+                video ở tab mới để xem đầy đủ.
+              </p>
+              <a
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#111827] transition hover:bg-white/90"
+                href={activeMedia.src}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Link2 className="size-4" />
+                Mở video
+              </a>
+            </div>
+          )
+        ) : (
+          <button
+            aria-label={
+              isImageZoomed ? "Thu nhỏ ảnh" : "Phóng lớn ảnh"
+            }
+            className={`mx-auto flex min-h-full min-w-full select-none items-center justify-center ${
+              isImageZoomed
+                ? isDraggingImage
+                  ? "cursor-grabbing"
+                  : "cursor-grab"
+                : "cursor-zoom-in"
+            }`}
+            type="button"
+            onClick={toggleImageZoom}
+            onMouseDown={startImageDrag}
+          >
+            <img
+              alt={`${listingTitle} - ${activeMedia.title}`}
+              className="max-h-full max-w-full rounded-2xl object-contain shadow-[0_26px_80px_rgba(0,0,0,0.42)]"
+              draggable={false}
+              ref={imageElementRef}
+              src={activeMedia.src}
+              style={{
+                transform: isImageZoomed
+                  ? `translate3d(${imagePanRef.current.x}px, ${imagePanRef.current.y}px, 0) scale(1.5)`
+                  : "translate3d(0, 0, 0) scale(1)",
+                transition: isDraggingImage ? "none" : "transform 180ms ease",
+                transformOrigin: "center center",
+                willChange: "transform",
+              }}
+            />
+          </button>
+        )}
+
+        {mediaItems.length > 1 ? (
+          <>
+            <button
+              aria-label="Xem media trước"
+              className="absolute left-3 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-2xl bg-white/12 text-white shadow-[0_14px_38px_rgba(0,0,0,0.28)] transition hover:bg-white/22 sm:left-6 sm:size-12"
+              type="button"
+              onClick={onPrevious}
+            >
+              <ArrowRight className="size-5 rotate-180" />
+            </button>
+            <button
+              aria-label="Xem media tiếp theo"
+              className="absolute right-3 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-2xl bg-white/12 text-white shadow-[0_14px_38px_rgba(0,0,0,0.28)] transition hover:bg-white/22 sm:right-6 sm:size-12"
+              type="button"
+              onClick={onNext}
+            >
+              <ArrowRight className="size-5" />
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      <div
+        className="shrink-0 border-t border-white/10 px-4 py-3 sm:px-6"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto flex max-w-[1180px] gap-2 overflow-x-auto pb-1">
+          {mediaItems.map((item, index) => {
+            const isActive = index === activeIndex;
+
+            return (
+              <button
+                key={item.key}
+                aria-label={item.title}
+                className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-xl border transition sm:h-20 sm:w-28 ${
+                  isActive
+                    ? "border-white ring-2 ring-white/30"
+                    : "border-white/16 opacity-68 hover:opacity-100"
+                }`}
+                type="button"
+                onClick={() => onSelect(index)}
+              >
+                <img
+                  alt={item.title}
+                  className="h-full w-full object-cover"
+                  src={item.thumb}
+                />
+                {item.type === "video" ? (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/38 text-white">
+                    <Video className="size-5" />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
 function ListingDetailPage({
+  accessToken,
   backView,
   currentUser,
+  headerSearchContent,
   listing,
   onLogout,
   onNavigate,
@@ -6767,6 +8828,14 @@ function ListingDetailPage({
     : guestHeaderNavItems;
   const mediaItems = buildListingMediaItems(listing, detail, draft);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [mediaViewerIndex, setMediaViewerIndex] = useState(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [listingVerificationRequest, setListingVerificationRequest] =
+    useState(null);
+  const [isLoadingListingVerification, setIsLoadingListingVerification] =
+    useState(false);
+  const [listingVerificationError, setListingVerificationError] =
+    useState("");
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
   const fullAddress =
     draft.formattedAddress ||
@@ -6780,12 +8849,27 @@ function ListingDetailPage({
   const isAdminViewer = currentUser?.roles?.includes("admin");
   const isOwnerViewer =
     Boolean(currentUser) && backView === "myListings" && !isAdminViewer;
+  const listingVerificationStatus =
+    listingVerificationRequest?.status ?? listing.verificationStatus;
+  const isListingVerified =
+    listing.isVerified ||
+    ["verified_owner", "verified_authorized"].includes(
+      listingVerificationStatus,
+    );
+  const listingVerificationBadgeLabel = getListingVerificationBadgeLabel(
+    listingVerificationStatus,
+  );
+  const isListingVerificationPending = listingVerificationStatus === "pending";
+  const isListingVerificationRejected = listingVerificationStatus === "rejected";
+  const isListingVerificationNeedMoreInfo =
+    listingVerificationStatus === "need_more_info";
   const previewMessage = {
     pending:
       "Tin này đang chờ kiểm duyệt. Đây là bản xem trước giao diện hiển thị cho khách thuê.",
     draft:
       "Tin này hiện là bản nháp. Bạn có thể dùng trang này để xem trước trải nghiệm của khách thuê.",
     hidden:
+      listing.moderationReason ||
       "Tin này đang tạm ẩn. Khi bật lại hiển thị, giao diện khách thuê sẽ giống như bên dưới.",
     rejected:
       listing.rejectionReason ||
@@ -6840,8 +8924,131 @@ function ListingDetailPage({
     );
   }
 
+  function showPreviousViewerMedia() {
+    setMediaViewerIndex((current) =>
+      current === null || current === 0 ? mediaItems.length - 1 : current - 1,
+    );
+  }
+
+  function showNextViewerMedia() {
+    setMediaViewerIndex((current) =>
+      current === null || current === mediaItems.length - 1 ? 0 : current + 1,
+    );
+  }
+
+  useEffect(() => {
+    if (mediaViewerIndex === null) {
+      return undefined;
+    }
+
+    function handleViewerKeyDown(event) {
+      if (event.key === "Escape") {
+        setMediaViewerIndex(null);
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        showPreviousViewerMedia();
+      }
+
+      if (event.key === "ArrowRight") {
+        showNextViewerMedia();
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleViewerKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleViewerKeyDown);
+    };
+  }, [mediaViewerIndex, mediaItems.length]);
+
+  useEffect(() => {
+    if (!accessToken || !isOwnerViewer) {
+      return undefined;
+    }
+
+    let isActive = true;
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingListingVerification(true);
+        setListingVerificationError("");
+        return getListingVerification(accessToken, listing.id);
+      })
+      .then((response) => {
+        if (!isActive || !response) {
+          return;
+        }
+
+        setListingVerificationRequest(response.data?.item ?? null);
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setListingVerificationError(
+          error.message || "Không thể tải trạng thái xác thực BĐS.",
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingListingVerification(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken, isOwnerViewer, listing.id]);
+
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      {mediaViewerIndex !== null ? (
+        <ListingDetailMediaViewer
+          activeIndex={mediaViewerIndex}
+          listingTitle={listing.title}
+          mediaItems={mediaItems}
+          onClose={() => setMediaViewerIndex(null)}
+          onNext={showNextViewerMedia}
+          onPrevious={showPreviousViewerMedia}
+          onSelect={setMediaViewerIndex}
+        />
+      ) : null}
+
+      {showVerificationModal ? (
+        <ListingVerificationModal
+          accessToken={accessToken}
+          initialRequest={listingVerificationRequest}
+          listing={listing}
+          onClose={() => setShowVerificationModal(false)}
+          onSuccess={(response) => {
+            setShowVerificationModal(false);
+            setListingVerificationRequest(response.data?.item ?? null);
+            setListingVerificationError("");
+          }}
+          readOnly={isListingVerificationRejected}
+          submitLabel={
+            isListingVerificationNeedMoreInfo
+              ? "Duyệt lại"
+              : "Gửi hồ sơ xác thực"
+          }
+          title={
+            isListingVerificationRejected
+              ? "Chi tiết từ chối xác thực BĐS"
+              : isListingVerificationNeedMoreInfo
+              ? "Duyệt lại xác thực bất động sản"
+              : "Xác thực bất động sản"
+          }
+        />
+      ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
           activeNav="home"
@@ -6853,7 +9060,7 @@ function ListingDetailPage({
           onNavigate={onNavigate}
           onSignup={currentUser ? undefined : () => onNavigate("home")}
           onUserClick={currentUser ? () => onNavigate("profile") : undefined}
-          searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 space-y-5">
@@ -6870,16 +9077,36 @@ function ListingDetailPage({
                   <div className="relative overflow-hidden rounded-[22px] bg-black">
                     {activeMedia?.type === "video" ? (
                       activeMedia.embedUrl ? (
-                        <iframe
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                          className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
-                          referrerPolicy="strict-origin-when-cross-origin"
-                          src={activeMedia.embedUrl}
-                          title={`${listing.title} video`}
-                        />
+                        <div className="relative">
+                          <iframe
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                            className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            src={activeMedia.embedUrl}
+                            title={`${listing.title} video`}
+                          />
+                          <button
+                            className="absolute right-4 top-4 rounded-xl bg-white/95 px-3 py-2 text-sm font-semibold text-[#1F252D] shadow-[0_10px_24px_rgba(31,37,45,0.16)] transition hover:bg-white"
+                            type="button"
+                            onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                          >
+                            Xem lớn
+                          </button>
+                        </div>
                       ) : (
-                        <div className="flex h-[260px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="flex h-[260px] w-full cursor-zoom-in flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]"
+                          onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setMediaViewerIndex(activeMediaIndex);
+                            }
+                          }}
+                        >
                           <span className="flex size-16 items-center justify-center rounded-full bg-white text-[#35A554] shadow-sm">
                             <Video className="size-7" />
                           </span>
@@ -6897,6 +9124,7 @@ function ListingDetailPage({
                             href={activeMedia.src}
                             rel="noreferrer"
                             target="_blank"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <Link2 className="size-4" />
                             Mở video
@@ -6907,6 +9135,7 @@ function ListingDetailPage({
                       <ListingDetailHeroImage
                         key={activeMedia?.src ?? listing.image}
                         alt={`${listing.title} - ${activeMedia?.title ?? "ảnh hiển thị"}`}
+                        onClick={() => setMediaViewerIndex(activeMediaIndex)}
                         src={activeMedia?.src ?? listing.image}
                       />
                     )}
@@ -6951,7 +9180,14 @@ function ListingDetailPage({
                               : "border-[#E4E9E5]"
                           }`}
                           type="button"
-                          onClick={() => setActiveMediaIndex(index)}
+                          onClick={() => {
+                            if (index === activeMediaIndex) {
+                              setMediaViewerIndex(index);
+                              return;
+                            }
+
+                            setActiveMediaIndex(index);
+                          }}
                         >
                           <img
                             alt={item.title}
@@ -6977,6 +9213,12 @@ function ListingDetailPage({
                     <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
                       {draft.projectName || draft.propertyType}
                     </p>
+                    {isListingVerified ? (
+                      <span className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700">
+                        <ShieldCheck className="size-4" />
+                        {listingVerificationBadgeLabel}
+                      </span>
+                    ) : null}
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
@@ -7180,6 +9422,58 @@ function ListingDetailPage({
                         </p>
                       </div>
                     </div>
+                    {!isListingVerified ? (
+                      <div className="mt-4">
+                        {isLoadingListingVerification ? (
+                          <p className="rounded-xl border border-[#E1E8E3] bg-[#F8FAF8] px-4 py-3 text-sm font-semibold text-[#60706A]">
+                            Đang kiểm tra trạng thái xác thực BĐS...
+                          </p>
+                        ) : isListingVerificationPending ? (
+                          <p className="rounded-xl border border-[#CFE8D4] bg-[#F4FBF5] px-4 py-3 text-sm font-bold text-[#278B45]">
+                            Đã gửi yêu cầu xác thực BĐS
+                          </p>
+                        ) : isListingVerificationRejected ? (
+                          <div className="rounded-xl border border-[#F1CCCC] bg-[#FFF6F6] px-4 py-3">
+                            <p className="text-sm font-bold text-[#C43D3D]">
+                              Yêu cầu xác thực bị từ chối
+                            </p>
+                            <button
+                              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-[#E7B8B8] px-3 text-sm font-semibold text-[#B83B3B] transition hover:bg-white"
+                              type="button"
+                              onClick={() => setShowVerificationModal(true)}
+                            >
+                              Xem chi tiết
+                            </button>
+                          </div>
+                        ) : isListingVerificationNeedMoreInfo ? (
+                          <div className="rounded-xl border border-[#F4D8A7] bg-[#FFF9ED] px-4 py-3">
+                            <p className="text-sm font-bold text-[#B97817]">
+                              Cần bổ sung hồ sơ xác thực BĐS
+                            </p>
+                            <button
+                              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-[#E8C98B] px-3 text-sm font-semibold text-[#9B6714] transition hover:bg-white"
+                              type="button"
+                              onClick={() => setShowVerificationModal(true)}
+                            >
+                              Xem chi tiết
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50"
+                            type="button"
+                            onClick={() => setShowVerificationModal(true)}
+                          >
+                            Xác thực bất động sản
+                          </button>
+                        )}
+                        {listingVerificationError ? (
+                          <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-600">
+                            {listingVerificationError}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </section>
                 ) : null}
 
@@ -7244,6 +9538,7 @@ function ListingDetailPage({
 
 function MyListingsPage({
   accessToken,
+  headerSearchContent,
   onEditListing,
   onListingVisibilityChange,
   onLogout,
@@ -7539,6 +9834,7 @@ function MyListingsPage({
           onLogout={onLogout}
           onNavigate={onNavigate}
           onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -7748,7 +10044,11 @@ function MyListingsPage({
                                 <Trash2 className="size-3.5 shrink-0 self-center" />
                                 <span className="leading-none">Xóa</span>
                               </Button>
-                              {["active", "hidden"].includes(listing.status) ? (
+                              {["active", "hidden"].includes(listing.status) &&
+                              !(
+                                listing.status === "hidden" &&
+                                listing.moderationReason
+                              ) ? (
                                 <Button
                                   className="h-9 gap-1 whitespace-nowrap border-[#D8DEE2] px-2.5 text-xs text-[#66707A] hover:bg-[#F5F7F8]"
                                   disabled={
@@ -7785,12 +10085,19 @@ function MyListingsPage({
                             </div>
                           </div>
 
-                          {listing.status === "rejected" ? (
+                          {["hidden", "rejected"].includes(listing.status) &&
+                          (listing.moderationReason ||
+                            listing.rejectionReason) ? (
                             <div className="mt-3 rounded-2xl border border-[#F2D4D4] bg-[#FFF7F7] px-3 py-2 text-xs leading-5 text-[#8F3A3A]">
                               <p className="font-semibold text-[#B63A3A]">
-                                Lý do bị từ chối
+                                {listing.status === "hidden"
+                                  ? "Lý do bị ẩn"
+                                  : "Lý do bị từ chối"}
                               </p>
-                              <p className="mt-1">{listing.rejectionReason}</p>
+                              <p className="mt-1">
+                                {listing.moderationReason ||
+                                  listing.rejectionReason}
+                              </p>
                             </div>
                           ) : (
                             <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -7906,40 +10213,86 @@ function MyListingsPage({
 
 function ProfilePage({
   accessToken,
+  headerSearchContent,
   onLogout,
   onNavigate,
   onUserChange,
   user,
 }) {
   const avatarInputRef = useRef(null);
+  const personalInfoSectionRef = useRef(null);
+  const formatProfileInputDate = (value) =>
+    value ? new Date(value).toISOString().slice(0, 10) : "";
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showKycModal, setShowKycModal] = useState(false);
+  const [showKycSubmittedModal, setShowKycSubmittedModal] = useState(false);
   const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
+    dateOfBirth: formatProfileInputDate(user.dateOfBirth),
     email: user.email ?? "",
     phone: user.phone ?? "",
+    address: user.address ?? "",
+    identityNumber: user.identityNumber ?? "",
+    passportNumber: user.passportNumber ?? "",
+    taxCode: user.taxCode ?? "",
   });
 
   const memberSince = user.createdAt
     ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
     : "Chưa có dữ liệu";
-  const roleLabel = user.roles?.includes("admin")
-    ? "Quản trị viên"
-    : "Người dùng";
+  const kycStatusDisplay = getKycStatusDisplay(user.kycStatus);
+  const formatProfileDate = (value) =>
+    value ? new Intl.DateTimeFormat("vi-VN").format(new Date(value)) : "";
+  const profileInfoRows = [
+    ["Họ và tên", user.fullName],
+    ["Ngày sinh", formatProfileDate(user.dateOfBirth)],
+    ["Email", user.email],
+    ["Số điện thoại", user.phone],
+    ["Địa chỉ", user.address],
+    ["Số CCCD", user.identityNumber],
+    ["Số hộ Chiếu", user.passportNumber],
+    ["Mã số thuế", user.taxCode],
+  ];
+  const profileEditFields = [
+    ["fullName", "Họ và tên", "text"],
+    ["dateOfBirth", "Ngày sinh", "date"],
+    ["email", "Email", "email"],
+    ["phone", "Số điện thoại", "tel"],
+    ["address", "Địa chỉ", "text"],
+    ["identityNumber", "Số CCCD", "text"],
+    ["passportNumber", "Số hộ Chiếu", "text"],
+    ["taxCode", "Mã số thuế", "text"],
+  ];
 
   function handleFormChange(event) {
     const { name, value } = event.target;
     setFormValues((current) => ({ ...current, [name]: value }));
   }
 
+  function startProfileEditing() {
+    setIsEditing(true);
+    window.requestAnimationFrame(() => {
+      personalInfoSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
   function cancelEditing() {
     setFormValues({
       fullName: user.fullName ?? "",
+      dateOfBirth: formatProfileInputDate(user.dateOfBirth),
       email: user.email ?? "",
       phone: user.phone ?? "",
+      address: user.address ?? "",
+      identityNumber: user.identityNumber ?? "",
+      passportNumber: user.passportNumber ?? "",
+      taxCode: user.taxCode ?? "",
     });
     setIsEditing(false);
     setNotice(null);
@@ -7954,20 +10307,20 @@ function ProfilePage({
       return;
     }
 
-    const email = formValues.email.trim();
-    const rawPhone = formValues.phone.trim();
-    const phone = rawPhone ? normalizeVietnamPhone(rawPhone) : "";
-
-    if (rawPhone && !phone) {
-      setNotice({ type: "error", message: INVALID_PHONE_MESSAGE });
-      return;
-    }
-
-    if (!email && !phone) {
-      setNotice({
-        type: "error",
-        message: "Hồ sơ phải có ít nhất một email hoặc số điện thoại.",
-      });
+    const changesVerifiedIdentity =
+      user.kycStatus === "verified" &&
+      (formValues.fullName.trim() !== user.fullName ||
+        formValues.dateOfBirth !== formatProfileInputDate(user.dateOfBirth) ||
+        formValues.address.trim() !== (user.address ?? "") ||
+        formValues.identityNumber.trim() !== (user.identityNumber ?? "") ||
+        formValues.passportNumber.trim() !== (user.passportNumber ?? "") ||
+        formValues.taxCode.trim() !== (user.taxCode ?? ""));
+    if (
+      changesVerifiedIdentity &&
+      !window.confirm(
+        "Thay đổi thông tin định danh sẽ đưa tài khoản về trạng thái chưa xác thực và tạm khóa quyền đăng tin. Bạn vẫn muốn tiếp tục?",
+      )
+    ) {
       return;
     }
 
@@ -7976,8 +10329,11 @@ function ProfilePage({
     try {
       const payload = {
         fullName: formValues.fullName.trim(),
-        ...(email ? { email } : {}),
-        ...(phone ? { phone } : {}),
+        dateOfBirth: formValues.dateOfBirth || null,
+        address: formValues.address.trim(),
+        identityNumber: formValues.identityNumber.trim(),
+        passportNumber: formValues.passportNumber.trim(),
+        taxCode: formValues.taxCode.trim(),
       };
       const response = await updateProfileRequest(accessToken, payload);
       onUserChange(response.data.user);
@@ -8049,6 +10405,28 @@ function ProfilePage({
           }
         />
       ) : null}
+      {showKycModal ? (
+        <KycAccountModal
+          accessToken={accessToken}
+          user={user}
+          onClose={() => setShowKycModal(false)}
+          onSuccess={() => {
+            setShowKycModal(false);
+            onUserChange({
+              ...user,
+              kycStatus: "pending",
+              canPostListing: false,
+            });
+            setNotice(null);
+            setShowKycSubmittedModal(true);
+          }}
+        />
+      ) : null}
+      {showKycSubmittedModal ? (
+        <AccountKycSubmittedModal
+          onClose={() => setShowKycSubmittedModal(false)}
+        />
+      ) : null}
 
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
@@ -8059,6 +10437,7 @@ function ProfilePage({
           onLogout={onLogout}
           onNavigate={onNavigate}
           onUserClick={() => onNavigate("profile")}
+          searchContent={headerSearchContent}
         />
 
         <main className="mt-3 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -8069,24 +10448,24 @@ function ProfilePage({
           />
 
           <div className="min-w-0 space-y-5">
-            <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                   <div className="relative mx-auto shrink-0 sm:mx-0">
                     {user.avatarUrl ? (
                       <img
                         alt={`Ảnh đại diện của ${user.fullName}`}
-                        className="size-28 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-32"
+                        className="size-24 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-28"
                         src={user.avatarUrl}
                       />
                     ) : (
-                      <span className="flex size-28 items-center justify-center rounded-full border-4 border-[#F0F6F1] bg-[#E6F4E8] text-[#32A452] sm:size-32">
-                        <UserRound className="size-14" />
+                      <span className="flex size-24 items-center justify-center rounded-full border-4 border-[#F0F6F1] bg-[#E6F4E8] text-[#32A452] sm:size-28">
+                        <UserRound className="size-12" />
                       </span>
                     )}
                     <button
                       aria-label="Đổi ảnh đại diện"
-                      className="absolute bottom-1 right-1 flex size-10 items-center justify-center rounded-full border-4 border-white bg-[#31A451] text-white shadow-lg disabled:opacity-60"
+                      className="absolute bottom-1 right-1 flex size-9 items-center justify-center rounded-full border-4 border-white bg-[#31A451] text-white shadow-lg disabled:opacity-60"
                       disabled={isUploadingAvatar}
                       type="button"
                       onClick={() => avatarInputRef.current?.click()}
@@ -8111,88 +10490,42 @@ function ProfilePage({
                       <h1 className="text-[30px] font-bold tracking-[-0.03em] text-[#1E242C]">
                         {user.fullName}
                       </h1>
-                      <span className="rounded-full bg-[#FFF7E7] px-3 py-1 text-xs font-semibold text-[#A26A11]">
-                        Chưa xác thực
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${kycStatusDisplay.badgeClassName}`}
+                      >
+                        {kycStatusDisplay.label}
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#68717B] sm:justify-start">
+                    <div className="mt-0.5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm text-[#68717B] sm:justify-start">
                       {user.phone ? (
                         <span className="flex items-center gap-2">
                           <Phone className="size-4" />
                           {user.phone}
                         </span>
                       ) : null}
-                      {user.email ? (
-                        <span className="flex items-center gap-2">
-                          <Mail className="size-4" />
-                          {user.email}
-                        </span>
-                      ) : null}
                     </div>
-                    <p className="mt-3 text-xs text-[#9198A1]">
+                    <p className="mt-1 text-sm text-[#9198A1]">
                       Thành viên từ {memberSince}
                     </p>
-                    <p className="mt-2 text-xs text-[#758079]">
-                      Ảnh JPG, PNG, WEBP hoặc GIF, tối đa 5 MB.
+                    <p className="mt-1 text-sm text-[#9198A1]">
+                      Cập nhật gần nhất:{" "}
+                      {user.updatedAt
+                        ? new Intl.DateTimeFormat("vi-VN").format(
+                            new Date(user.updatedAt),
+                          )
+                        : "Chưa có dữ liệu"}
                     </p>
                   </div>
                 </div>
 
                 <button
-                  className="rounded-xl border border-[#9DCAAA] px-5 py-2.5 text-sm font-semibold text-[#2E9149] transition hover:bg-[#F0F8F1]"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#9DCAAA] px-4 text-sm font-semibold text-[#2E9149] transition hover:bg-[#F0F8F1]"
                   type="button"
-                  onClick={() => setIsEditing(true)}
+                  onClick={startProfileEditing}
                 >
+                  <Pencil className="size-4" />
                   Chỉnh sửa hồ sơ
                 </button>
-              </div>
-
-              <div className="mt-7 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <ShieldCheck className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">Trạng thái</p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {user.isActive === false ? "Đã khóa" : "Đang hoạt động"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <UserRound className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">Vai trò của bạn</p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {roleLabel}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[#F8FAF8] p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E7F5E9] text-[#2E9D4E]">
-                      <CalendarDays className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-xs text-[#858D96]">
-                        Cập nhật gần nhất
-                      </p>
-                      <p className="mt-1 font-semibold text-[#29313A]">
-                        {user.updatedAt
-                          ? new Intl.DateTimeFormat("vi-VN").format(
-                              new Date(user.updatedAt),
-                            )
-                          : "Chưa có dữ liệu"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -8209,18 +10542,22 @@ function ProfilePage({
             ) : null}
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
-              <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6">
+              <section
+                ref={personalInfoSectionRef}
+                className="scroll-mt-5 rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)] sm:p-6"
+              >
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-lg font-bold text-[#252C34]">
                     Thông tin cá nhân
                   </h2>
                   {!isEditing ? (
                     <button
-                      className="text-sm font-semibold text-[#2E9B4D]"
+                      aria-label="Chỉnh sửa thông tin cá nhân"
+                      className="flex size-9 items-center justify-center rounded-full text-[#2E9B4D] transition hover:bg-[#ECF8EE] hover:text-[#238C43]"
                       type="button"
-                      onClick={() => setIsEditing(true)}
+                      onClick={startProfileEditing}
                     >
-                      Thay đổi
+                      <Pencil className="size-4" />
                     </button>
                   ) : null}
                 </div>
@@ -8230,45 +10567,47 @@ function ProfilePage({
                     className="mt-5 space-y-4"
                     onSubmit={handleProfileSubmit}
                   >
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Họ và tên
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        name="fullName"
-                        value={formValues.fullName}
-                        onChange={handleFormChange}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Số điện thoại
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        inputMode="tel"
-                        name="phone"
-                        placeholder="Ví dụ: 0900000000"
-                        value={formValues.phone}
-                        onChange={handleFormChange}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-[#4B545E]">
-                        Email
-                      </span>
-                      <input
-                        className="h-12 w-full rounded-xl border border-[#E1E6E1] px-4 text-sm outline-none focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                        name="email"
-                        type="email"
-                        value={formValues.email}
-                        onChange={handleFormChange}
-                      />
-                    </label>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {profileEditFields.map(([name, label, type]) => {
+                        const isLockedContactField =
+                          name === "email" || name === "phone";
+
+                        return (
+                          <label
+                            className={
+                              name === "address"
+                                ? "block md:col-span-2"
+                                : "block"
+                            }
+                            key={name}
+                          >
+                            <span className="mb-2 block text-sm font-medium text-[#4B545E]">
+                              {label}
+                            </span>
+                            <input
+                              className={`h-12 w-full rounded-xl border px-4 text-sm outline-none ${
+                                isLockedContactField
+                                  ? "border-[#E4E8E4] bg-[#F7F9F7] text-[#87908A] cursor-not-allowed"
+                                  : "border-[#E1E6E1] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
+                              }`}
+                              disabled={isLockedContactField}
+                              inputMode={name === "phone" ? "tel" : undefined}
+                              name={name}
+                              placeholder={
+                                name === "phone" ? "Ví dụ: 0900000000" : ""
+                              }
+                              required={name === "fullName"}
+                              type={type}
+                              value={formValues[name]}
+                              onChange={handleFormChange}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
                     <p className="text-xs leading-5 text-[#858D96]">
-                      Tài khoản phải giữ lại ít nhất một email hoặc số điện
-                      thoại hợp lệ.
+                      Email và số điện thoại chỉ có thể thay đổi qua admin hoặc
+                      bộ phận chăm sóc khách hàng.
                     </p>
                     <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                       <button
@@ -8295,26 +10634,23 @@ function ProfilePage({
                   </form>
                 ) : (
                   <dl className="mt-4 divide-y divide-[#EEF1EE]">
-                    {[
-                      ["Họ và tên", user.fullName],
-                      ["Số điện thoại", user.phone || "Chưa cập nhật"],
-                      ["Email", user.email || "Chưa cập nhật"],
-                      ["Vai trò", roleLabel],
-                    ].map(([label, value]) => (
+                    {profileInfoRows.map(([label, value]) => (
                       <div
                         key={label}
                         className="grid gap-1 py-4 text-sm sm:grid-cols-[150px_minmax(0,1fr)]"
                       >
                         <dt className="text-[#777F89]">{label}</dt>
-                        <dd className="font-medium text-[#333B44]">{value}</dd>
+                        <dd className="font-medium text-[#333B44]">
+                          {value || ""}
+                        </dd>
                       </div>
                     ))}
                   </dl>
                 )}
               </section>
 
-              <div className="space-y-5">
-                <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 text-center shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+              <div className="flex flex-col gap-5">
+                <section className="order-2 rounded-[22px] border border-[#E8ECE7] bg-white p-5 text-center shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
                   <h2 className="text-left text-lg font-bold text-[#252C34]">
                     Bảo mật tài khoản
                   </h2>
@@ -8334,28 +10670,47 @@ function ProfilePage({
                   </button>
                 </section>
 
-                <section className="rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
-                  <h2 className="text-lg font-bold text-[#252C34]">
-                    Xác thực tài khoản
-                  </h2>
-                  <div className="mt-4 flex gap-3">
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#FFF5DF] text-[#B67817]">
-                      <ShieldCheck className="size-5" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-[#414A53]">
-                        Chưa triển khai OTP/email
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-[#7D858F]">
-                        Tính năng xác thực sẽ được bổ sung ở giai đoạn sau.
-                      </p>
+                {user.kycStatus !== "verified" ? (
+                  <section className="order-1 rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+                    <h2 className="text-lg font-bold text-[#252C34]">
+                      Xác thực tài khoản
+                    </h2>
+                    <div className="mt-4 flex gap-3">
+                      <span
+                        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${kycStatusDisplay.iconClassName}`}
+                      >
+                        <ShieldCheck className="size-5" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-[#414A53]">
+                          {kycStatusDisplay.label}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-[#7D858F]">
+                          {kycStatusDisplay.description}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </section>
+                    {user.kycStatus !== "verified" &&
+                    user.kycStatus !== "pending" ? (
+                      <button
+                        className="mt-4 w-full rounded-xl bg-[#32A452] py-2.5 text-sm font-semibold text-white"
+                        type="button"
+                        onClick={() => setShowKycModal(true)}
+                      >
+                        {user.kycStatus === "rejected" ||
+                        user.kycStatus === "need_more_info"
+                          ? "Nộp lại hồ sơ"
+                          : "Xác thực tài khoản"}
+                      </button>
+                    ) : null}
+                  </section>
+                ) : null}
               </div>
             </div>
           </div>
         </main>
+
+        <AppFooter />
       </div>
     </div>
   );
@@ -8368,17 +10723,42 @@ function HomePage() {
     getStoredAccessToken() ? undefined : null,
   );
   const [authNotice, setAuthNotice] = useState(null);
+  const [viewportNotice, setViewportNotice] = useState(null);
+  const [
+    isPostListingVerificationModalOpen,
+    setIsPostListingVerificationModalOpen,
+  ] = useState(false);
+  const [isAccountKycModalOpen, setIsAccountKycModalOpen] = useState(false);
+  const [isAccountKycSubmittedModalOpen, setIsAccountKycSubmittedModalOpen] =
+    useState(false);
   const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
   const [listingDetailBackView, setListingDetailBackView] = useState("home");
-  const [propertyKeyword, setPropertyKeyword] = useState("");
-  const [appliedPropertyKeyword, setAppliedPropertyKeyword] = useState("");
+  const [propertySearchDraft, setPropertySearchDraft] = useState(
+    defaultPropertySearchState,
+  );
+  const [appliedPropertySearch, setAppliedPropertySearch] = useState(
+    defaultPropertySearchState,
+  );
   const [apiListings, setApiListings] = useState([]);
   const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [propertyListError, setPropertyListError] = useState("");
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
+  const [searchAdministrativeDivisions, setSearchAdministrativeDivisions] =
+    useState(() => readCachedAdministrativeDivisions());
+  const closeViewportNotice = useCallback(() => {
+    setViewportNotice(null);
+  }, []);
+  const showLoginRequiredNotice = useCallback(() => {
+    setAuthNotice(null);
+    setViewportNotice({
+      id: createNoticeId(),
+      type: "success",
+      message: LOGIN_REQUIRED_MESSAGE,
+    });
+  }, []);
 
   useEffect(() => {
     function handleRouteChange() {
@@ -8418,6 +10798,35 @@ function HomePage() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [authModal]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    listAdministrativeDivisions()
+      .then((response) => {
+        if (!isActive) {
+          return;
+        }
+
+        const provinces = Array.isArray(response.data?.provinces)
+          ? response.data.provinces
+          : [];
+
+        if (provinces.length) {
+          setSearchAdministrativeDivisions(provinces);
+          writeCachedAdministrativeDivisions(provinces);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setSearchAdministrativeDivisions(readCachedAdministrativeDivisions());
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -8494,7 +10903,56 @@ function HomePage() {
   }, [accessToken, currentUser]);
 
   useEffect(() => {
-    const routeProtectedViews = ["postListing", "myListings"];
+    if (!accessToken || currentView !== "profile") {
+      return undefined;
+    }
+
+    let isActive = true;
+    let isRefreshing = false;
+
+    function refreshCurrentUser() {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      fetchCurrentUser(accessToken)
+        .then((response) => {
+          if (isActive) {
+            setCurrentUser(response.data.user);
+          }
+        })
+        .catch(() => null)
+        .finally(() => {
+          isRefreshing = false;
+        });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshCurrentUser();
+      }
+    }
+
+    refreshCurrentUser();
+    window.addEventListener("focus", refreshCurrentUser);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      window.removeEventListener("focus", refreshCurrentUser);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [accessToken, currentView]);
+
+  useEffect(() => {
+    const routeProtectedViews = [
+      "profile",
+      "postListing",
+      "myListings",
+      "wallet",
+      "walletTopUp",
+    ];
 
     if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
       return undefined;
@@ -8507,11 +10965,34 @@ function HomePage() {
         return;
       }
 
-      setAuthNotice({
-        type: "error",
-        message: "Vui lòng đăng nhập để sử dụng tính năng này.",
-      });
+      showLoginRequiredNotice();
       setAuthModal("login");
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView, showLoginRequiredNotice]);
+
+  useEffect(() => {
+    if (
+      currentView !== "postListing" ||
+      !currentUser ||
+      canUserPostListing(currentUser)
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      updateFrontendRoute("home", { replace: true });
+      setCurrentView("home");
+      setIsPostListingVerificationModalOpen(true);
     });
 
     return () => {
@@ -8532,8 +11013,7 @@ function HomePage() {
         setPropertyListError("");
 
         return listProperties({
-          keyword: appliedPropertyKeyword,
-          limit: 12,
+          limit: 50,
         });
       })
       .then((response) => {
@@ -8565,7 +11045,7 @@ function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [appliedPropertyKeyword, propertyRefreshKey]);
+  }, [propertyRefreshKey]);
 
   function handleLogout() {
     setAccessToken("");
@@ -8591,10 +11071,21 @@ function HomePage() {
       return;
     }
 
+    if (view === "search") {
+      updateFrontendRoute("search");
+      setEditingListing(null);
+      setSelectedListingDetail(null);
+      setListingDetailBackView("home");
+      setCurrentView("search");
+      return;
+    }
+
     const protectedViews = [
       "profile",
       "postListing",
       "myListings",
+      "wallet",
+      "walletTopUp",
       "adminDashboard",
     ];
 
@@ -8602,10 +11093,7 @@ function HomePage() {
       if (!currentUser) {
         updateFrontendRoute(view);
         setCurrentView(view);
-        setAuthNotice({
-          type: "error",
-          message: "Vui lòng đăng nhập để sử dụng tính năng này.",
-        });
+        showLoginRequiredNotice();
         setAuthModal("login");
         return;
       }
@@ -8615,6 +11103,12 @@ function HomePage() {
           type: "error",
           message: "Bạn không có quyền truy cập khu vực quản trị.",
         });
+        return;
+      }
+
+      if (view === "postListing" && !canUserPostListing(currentUser)) {
+        setAuthNotice(null);
+        setIsPostListingVerificationModalOpen(true);
         return;
       }
 
@@ -8634,12 +11128,12 @@ function HomePage() {
       "about",
       "accountSettings",
       "rentalAppointments",
-      "wallet",
       "notifications",
     ];
 
     if (comingSoonViews.includes(view)) {
-      setAuthNotice({
+      setViewportNotice({
+        id: createNoticeId(),
         type: "success",
         message: "Tính năng này đang được phát triển.",
       });
@@ -8648,11 +11142,21 @@ function HomePage() {
 
   function openListingEditor(listing) {
     if (!currentUser) {
+      showLoginRequiredNotice();
+      setAuthModal("login");
+      return;
+    }
+
+    if (
+      !currentUser.roles?.includes("admin") &&
+      (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
+    ) {
       setAuthNotice({
         type: "error",
-        message: "Vui lòng đăng nhập để sử dụng tính năng này.",
+        message: "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin.",
       });
-      setAuthModal("login");
+      updateFrontendRoute("profile");
+      setCurrentView("profile");
       return;
     }
 
@@ -8667,8 +11171,17 @@ function HomePage() {
     setCurrentView("listingDetail");
   }
 
-  function handleApplyPropertySearch() {
-    setAppliedPropertyKeyword(propertyKeyword.trim());
+  function handlePropertySearchDraftChange(nextSearchState) {
+    setPropertySearchDraft(normalizePropertySearchState(nextSearchState));
+  }
+
+  function handleApplyPropertySearch(nextSearchState = propertySearchDraft) {
+    const normalizedSearchState = normalizePropertySearchState(nextSearchState);
+
+    setPropertySearchDraft(normalizedSearchState);
+    setAppliedPropertySearch(normalizedSearchState);
+    updateFrontendRoute("search");
+    setCurrentView("search");
   }
 
   function handleListingCreated(property, options = {}) {
@@ -8685,8 +11198,8 @@ function HomePage() {
         : current.filter((listing) => listing.id !== savedListing.id),
     );
     setHasFetchedProperties(true);
-    setPropertyKeyword("");
-    setAppliedPropertyKeyword("");
+    setPropertySearchDraft(defaultPropertySearchState);
+    setAppliedPropertySearch(defaultPropertySearchState);
     setPropertyRefreshKey((current) => current + 1);
     setEditingListing(null);
     setSelectedListingDetail(null);
@@ -8707,7 +11220,7 @@ function HomePage() {
 
   function handleListingVisibilityChange(property) {
     const updatedListing = mapApiPropertyToListingRecord(property);
-    const keyword = appliedPropertyKeyword.trim().toLowerCase();
+    const keyword = appliedPropertySearch.keyword.trim().toLowerCase();
     const matchesCurrentKeyword =
       !keyword ||
       [
@@ -8736,63 +11249,215 @@ function HomePage() {
 
   const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
   const shouldUseApiListings = hasFetchedProperties && !propertyListError;
+  const propertySearchListings = useMemo(() => {
+    const baseListings = shouldUseApiListings
+      ? apiListings
+      : [...featuredListings, ...latestListings];
+    const seenListingIds = new Set();
+
+    return baseListings.reduce((results, listing, index) => {
+      const normalizedListing = {
+        ...listing,
+        draft: listing.draft ?? {},
+        detail: listing.detail ?? {},
+        id:
+          listing.id ||
+          `listing-search-${index}-${listing.title || "untitled"}-${listing.location || "unknown"}`,
+      };
+
+      if (seenListingIds.has(normalizedListing.id)) {
+        return results;
+      }
+
+      seenListingIds.add(normalizedListing.id);
+      results.push(normalizedListing);
+      return results;
+    }, []);
+  }, [apiListings, shouldUseApiListings]);
+  const filteredSearchListings = useMemo(
+    () =>
+      filterListingsBySearchState(
+        propertySearchListings,
+        appliedPropertySearch,
+      ),
+    [appliedPropertySearch, propertySearchListings],
+  );
+  function renderBasicHeaderSearchContent(options = {}) {
+    const keyPrefix = options.keyPrefix ?? "header";
+    const handleSubmit =
+      options.onSubmit ??
+      ((nextSearchState) =>
+        handleApplyPropertySearch(nextSearchState ?? propertySearchDraft));
+
+    return (
+      <PropertySearchHeaderBar
+        key={`${keyPrefix}-${propertySearchDraft.keyword}`}
+        administrativeDivisions={searchAdministrativeDivisions}
+        listings={propertySearchListings}
+        searchState={propertySearchDraft}
+        variant="basic"
+        onSearchStateChange={handlePropertySearchDraftChange}
+        onSubmit={handleSubmit}
+      />
+    );
+  }
+  const basicHeaderSearchContent = renderBasicHeaderSearchContent();
+  const bannerSearchContent = (
+    <PropertySearchHeaderBar
+      key={`banner-${propertySearchDraft.keyword}`}
+      administrativeDivisions={searchAdministrativeDivisions}
+      listings={propertySearchListings}
+      searchState={propertySearchDraft}
+      onSearchStateChange={handlePropertySearchDraftChange}
+      onSubmit={(nextSearchState) =>
+        handleApplyPropertySearch(nextSearchState ?? propertySearchDraft)
+      }
+    />
+  );
   const visibleFeaturedListings = shouldUseApiListings
     ? apiListings.slice(0, 4)
     : featuredListings;
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
     : latestListings;
+  function closePostListingVerificationModal() {
+    setIsPostListingVerificationModalOpen(false);
+  }
+
+  function openAccountKycFromPostListingPrompt() {
+    setIsPostListingVerificationModalOpen(false);
+    updateFrontendRoute("profile");
+    setCurrentView("profile");
+    setIsAccountKycModalOpen(true);
+  }
+
+  function handleGlobalAccountKycSuccess() {
+    setIsAccountKycModalOpen(false);
+    setCurrentUser((current) =>
+      current
+        ? { ...current, kycStatus: "pending", canPostListing: false }
+        : current,
+    );
+    setViewportNotice(null);
+    setIsAccountKycSubmittedModalOpen(true);
+  }
+
+  function renderWithViewportNotice(content) {
+    return (
+      <>
+        <PostListingViewportNotice
+          notice={viewportNotice}
+          onClose={closeViewportNotice}
+        />
+        {isPostListingVerificationModalOpen ? (
+          <AccountVerificationRequiredModal
+            onBack={closePostListingVerificationModal}
+            onVerifyNow={openAccountKycFromPostListingPrompt}
+          />
+        ) : null}
+        {isAccountKycModalOpen && currentUser ? (
+          <KycAccountModal
+            accessToken={accessToken}
+            user={currentUser}
+            onClose={() => setIsAccountKycModalOpen(false)}
+            onSuccess={handleGlobalAccountKycSuccess}
+          />
+        ) : null}
+        {isAccountKycSubmittedModalOpen ? (
+          <AccountKycSubmittedModal
+            onClose={() => setIsAccountKycSubmittedModalOpen(false)}
+          />
+        ) : null}
+        {content}
+      </>
+    );
+  }
 
   if (currentView === "profile" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <ProfilePage
         accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onUserChange={setCurrentUser}
         user={currentUser}
-      />
+      />,
     );
   }
 
-  if (currentView === "postListing" && currentUser) {
-    return (
+  if (
+    currentView === "postListing" &&
+    currentUser &&
+    canUserPostListing(currentUser)
+  ) {
+    return renderWithViewportNotice(
       <PostListingPage
         accessToken={accessToken}
         editingListing={editingListing}
+        headerSearchContent={basicHeaderSearchContent}
+        onHeaderSearchSubmit={handleApplyPropertySearch}
         onListingCreated={handleListingCreated}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        renderHeaderSearchContent={renderBasicHeaderSearchContent}
         user={currentUser}
-      />
+      />,
     );
   }
 
   if (currentView === "listingDetail" && selectedListingDetail) {
-    return (
+    return renderWithViewportNotice(
       <ListingDetailPage
+        accessToken={accessToken}
         key={selectedListingDetail.id}
         backView={listingDetailBackView}
         currentUser={currentUser ?? null}
+        headerSearchContent={basicHeaderSearchContent}
         listing={selectedListingDetail}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         showFooter={listingDetailBackView === "home"}
-      />
+      />,
     );
   }
 
   if (currentView === "myListings" && currentUser) {
-    return (
+    return renderWithViewportNotice(
       <MyListingsPage
         accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
         onEditListing={openListingEditor}
         onListingVisibilityChange={handleListingVisibilityChange}
         onLogout={handleLogout}
         onNavigate={navigateTo}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
         user={currentUser}
-      />
+      />,
+    );
+  }
+
+  if (currentView === "wallet" && currentUser) {
+    return renderWithViewportNotice(
+      <WalletPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        user={currentUser}
+      />,
+    );
+  }
+
+  if (currentView === "walletTopUp" && currentUser) {
+    return renderWithViewportNotice(
+      <TopUpPaymentPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        user={currentUser}
+      />,
     );
   }
 
@@ -8800,17 +11465,17 @@ function HomePage() {
     currentView === "adminDashboard" &&
     currentUser?.roles?.includes("admin")
   ) {
-    return (
+    return renderWithViewportNotice(
       <AdminPage
         accessToken={accessToken}
         currentUser={currentUser}
         onBack={() => navigateTo("home")}
         onLogout={handleLogout}
-      />
+      />,
     );
   }
 
-  return (
+  return renderWithViewportNotice(
     <div className="min-h-screen bg-[linear-gradient(180deg,#fcfcf8_0%,#f7f9f4_100%)] text-[#20252F]">
       {authModal ? (
         <AuthModal
@@ -8834,7 +11499,7 @@ function HomePage() {
           onNavigate={navigateTo}
           onSignup={() => setAuthModal("signup")}
           onUserClick={() => navigateTo("profile")}
-          searchPlaceholder="Tìm theo địa chỉ, khu vực, trường học, ..."
+          searchContent={basicHeaderSearchContent}
         />
 
         {isCheckingSession ? (
@@ -8855,84 +11520,6 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-4">
-          <div className="relative overflow-hidden rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[390px]">
-            <div className="h-full grid items-stretch lg:grid-cols-[1.9fr_1fr]">
-              <div className="px-5 pb-24 pr-0 pt-10 sm:px-10 sm:pt-10 lg:px-12 lg:pr-0 lg:pb-30 overflow-visible">
-                <h1 className="whitespace-nowrap max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-[-0.03em] text-[#252A31] sm:text-[52px]">
-                  Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>
-                  <br />
-                  với bạn
-                </h1>
-                <p className="mt-4 max-w-[520px] text-base text-[#565E69] sm:text-[18px]">
-                  Hơn 20.000 bất động sản đang chờ bạn khám phá.
-                </p>
-              </div>
-
-              <div className="relative h-full min-h-[220px] lg:min-h-[330px]">
-                <img
-                  alt="Banner WeRent"
-                  className="absolute h-full scale-122 object-contain object-center lg:object-right top-[-10px] right-8"
-                  src={bannerImg}
-                />
-              </div>
-            </div>
-            <div className="absolute bottom-7 w-[70%] z-10 -mt-14 px-1 sm:px-6">
-              <div className="relative rounded-[24px] border border-[#EFF1F4] bg-white p-4 shadow-[0_24px_54px_rgba(64,83,72,0.12)] sm:p-4">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#A0A5AF]" />
-                  <input
-                    className="h-12 w-full rounded-2xl border border-[#E8EAED] bg-[#FFFFFF] pl-11 pr-4 text-sm text-[#38404A] outline-none transition placeholder:text-[#A0A5AF] focus:border-[#35A554] focus:ring-2 focus:ring-[#35A554]/15"
-                    placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
-                    type="text"
-                    value={propertyKeyword}
-                    onChange={(event) => setPropertyKeyword(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        handleApplyPropertySearch();
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-[repeat(4,minmax(0,1fr))_190px]">
-                {searchFilters.map((options) => (
-                  <FilterSelect key={options[0]} options={options} />
-                ))}
-                <button
-                  className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 text-sm font-semibold text-white shadow-[0_16px_28px_rgba(53,165,84,0.25)] transition hover:bg-[#2F954B]"
-                  type="button"
-                  onClick={handleApplyPropertySearch}
-                >
-                  <Search className="size-4" />
-                  Tìm kiếm
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 flex flex-wrap items-center gap-3">
-          {quickFilters.map((filter, index) => {
-            const Icon = filter.icon;
-
-            return (
-              <button
-                key={filter.label}
-                className="flex items-center gap-2 rounded-xl border border-[#E8ECE8] bg-white px-4 py-2.5 text-sm font-medium text-[#49505B] shadow-[0_8px_20px_rgba(56,77,62,0.05)] transition hover:border-[#D4EEDB] hover:text-[#35A554]"
-                type="button"
-              >
-                <Icon className="size-4 text-[#35A554]" />
-                <span>{filter.label}</span>
-                {index === quickFilters.length - 1 ? (
-                  <ChevronRight className="size-4 text-[#7D838F]" />
-                ) : null}
-              </button>
-            );
-          })}
-        </section>
-
         {isLoadingProperties ? (
           <div className="mt-5 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
             Đang tải danh sách tin đăng...
@@ -8945,90 +11532,140 @@ function HomePage() {
           </div>
         ) : null}
 
-        <section className="mt-8">
-          <SectionHeading title="Danh mục nổi bật" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            {categories.map((category) => (
-              <CategoryCard key={category.title} {...category} />
-            ))}
-          </div>
-        </section>
+        {currentView === "search" ? (
+          <>
+            <PropertySearchResultsPage
+              administrativeDivisions={searchAdministrativeDivisions}
+              appliedSearchState={appliedPropertySearch}
+              listings={filteredSearchListings}
+              onApplyFilters={handleApplyPropertySearch}
+              onClearFilters={() =>
+                handleApplyPropertySearch(defaultPropertySearchState)
+              }
+              onSearchStateChange={handlePropertySearchDraftChange}
+              onViewListing={(listing) => openListingDetail(listing, "search")}
+              searchState={propertySearchDraft}
+            />
 
-        <section className="mt-10">
-          <SectionHeading title="Bất động sản nổi bật" />
-          {visibleFeaturedListings.length > 0 ? (
-            <>
-              <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-                {visibleFeaturedListings.map((listing) => (
-                  <PropertyCard
-                    key={listing.id}
-                    listing={listing}
-                    onViewListing={() => openListingDetail(listing)}
-                  />
+            <AppFooter />
+          </>
+        ) : (
+          <>
+            <section className="mt-4">
+              <div className="relative rounded-[34px] bg-[linear-gradient(90deg,#F8FBF5_0%,#F4F9F3_45%,#EDF3EB_100%)] shadow-[0_0_0_1px_rgba(218,230,222,0.72),0_14px_42px_rgba(50,75,58,0.1)] lg:h-[335px]">
+                <div className="h-full grid items-stretch lg:grid-cols-[1.7fr_1.3fr]">
+                  <div className="overflow-visible px-5 pb-14 pr-0 pt-8 sm:px-8 sm:pt-8 lg:px-10 lg:pb-16 lg:pr-0">
+                    <h1 className="max-w-[1020px] text-[38px] font-bold leading-[1.12] tracking-normal text-[#252A31] sm:text-[52px] lg:whitespace-nowrap">
+                      Tìm nơi ở <span className="text-[#35A554]">phù hợp</span>{" "}
+                      với bạn
+                    </h1>
+                    <p className="mt-4 max-w-[520px] text-base text-[#565E69] sm:text-[18px]">
+                      Hơn 20.000 bất động sản đang chờ bạn khám phá.
+                    </p>
+                    <div className="relative z-20 mt-5 w-full max-w-[980px] lg:absolute lg:left-10 lg:top-[155px] lg:mt-0 lg:w-[70%] lg:max-w-none">
+                      {bannerSearchContent}
+                    </div>
+                  </div>
+
+                  <div className="relative h-full min-h-[220px] rounded-b-[34px] lg:min-h-[330px] lg:rounded-b-none lg:rounded-r-[34px]">
+                    <div className="pointer-events-none absolute inset-y-0 right-0 z-0 h-full w-[165%] overflow-hidden rounded-b-[34px] lg:rounded-b-none lg:rounded-r-[34px]">
+                      <img
+                        alt="Banner WeRent"
+                        className="h-full w-full max-w-none origin-right -translate-y-1 scale-[1.22] object-contain object-center lg:object-right"
+                        src={bannerImg}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-8">
+              <SectionHeading title="Danh mục nổi bật" />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                {categories.map((category) => (
+                  <CategoryCard key={category.title} {...category} />
                 ))}
               </div>
-              <div className="mt-5 flex items-center justify-center gap-2">
-                <span className="size-2 rounded-full bg-[#39AA57]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
-                <span className="size-2 rounded-full bg-[#D5D9DE]" />
+            </section>
+
+            <section className="mt-10">
+              <SectionHeading title="Bất động sản nổi bật" />
+              {visibleFeaturedListings.length > 0 ? (
+                <>
+                  <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                    {visibleFeaturedListings.map((listing) => (
+                      <PropertyCard
+                        key={listing.id}
+                        listing={listing}
+                        onViewListing={() => openListingDetail(listing)}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-5 flex items-center justify-center gap-2">
+                    <span className="size-2 rounded-full bg-[#39AA57]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                    <span className="size-2 rounded-full bg-[#D5D9DE]" />
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+                  Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+                </div>
+              )}
+            </section>
+
+            <section className="mt-10">
+              <SectionHeading title="Tin mới nhất" />
+              {visibleLatestListings.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {visibleLatestListings.map((listing) => (
+                    <MiniPropertyCard
+                      key={listing.id}
+                      listing={listing}
+                      onViewListing={() => openListingDetail(listing)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
+                  Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
+                </div>
+              )}
+            </section>
+
+            <section className="mt-10 rounded-[22px] border border-[#E5F0E7] bg-[linear-gradient(90deg,#EAF8EC_0%,#F8FCF8_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(62,102,74,0.06)] sm:px-7">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="flex size-16 items-center justify-center rounded-[20px] bg-white/75 text-[#35A554] shadow-inner">
+                    <Warehouse className="size-8" />
+                  </span>
+                  <div>
+                    <h3 className="text-[30px] font-bold leading-none text-[#21262F]">
+                      Bạn có bất động sản cho thuê?
+                    </h3>
+                    <p className="mt-2 text-sm text-[#5B626D]">
+                      Đăng tin ngay để tiếp cận hàng nghìn người thuê tiềm năng
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(53,165,84,0.22)]"
+                  type="button"
+                  onClick={() => navigateTo("postListing")}
+                >
+                  <ArrowRight className="size-4" />
+                  Đăng tin ngay
+                </button>
               </div>
-            </>
-          ) : (
-            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
-              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
-            </div>
-          )}
-        </section>
+            </section>
 
-        <section className="mt-10">
-          <SectionHeading title="Tin mới nhất" />
-          {visibleLatestListings.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {visibleLatestListings.map((listing) => (
-                <MiniPropertyCard
-                  key={listing.id}
-                  listing={listing}
-                  onViewListing={() => openListingDetail(listing)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[20px] border border-[#E8ECE8] bg-white px-5 py-6 text-sm text-[#68717C]">
-              Chưa có tin đăng phù hợp với tìm kiếm hiện tại.
-            </div>
-          )}
-        </section>
-
-        <section className="mt-10 rounded-[22px] border border-[#E5F0E7] bg-[linear-gradient(90deg,#EAF8EC_0%,#F8FCF8_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(62,102,74,0.06)] sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <span className="flex size-16 items-center justify-center rounded-[20px] bg-white/75 text-[#35A554] shadow-inner">
-                <Warehouse className="size-8" />
-              </span>
-              <div>
-                <h3 className="text-[30px] font-bold leading-none text-[#21262F]">
-                  Bạn có bất động sản cho thuê?
-                </h3>
-                <p className="mt-2 text-sm text-[#5B626D]">
-                  Đăng tin ngay để tiếp cận hàng nghìn người thuê tiềm năng
-                </p>
-              </div>
-            </div>
-            <button
-              className="flex items-center justify-center gap-2 rounded-xl bg-[#35A554] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(53,165,84,0.22)]"
-              type="button"
-              onClick={() => navigateTo("postListing")}
-            >
-              <ArrowRight className="size-4" />
-              Đăng tin ngay
-            </button>
-          </div>
-        </section>
-
-        <AppFooter />
+            <AppFooter />
+          </>
+        )}
       </div>
-    </div>
+    </div>,
   );
 }
 

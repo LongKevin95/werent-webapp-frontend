@@ -1,33 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   Bell,
   Building2,
   CalendarDays,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   CreditCard,
   Download,
   FileWarning,
+  Headphones,
   Home,
   LayoutDashboard,
   LoaderCircle,
   LockKeyhole,
   LogOut,
   Mail,
-  MapPin,
+  Menu,
   Pencil,
   Plus,
   Search,
   Settings,
   ShieldCheck,
-  Star,
-  Tags,
   Trash2,
   UserRoundCheck,
   Users,
   X,
 } from "lucide-react";
+import AdminPropertiesPage from "./AdminPropertiesPage";
+import AdminKycPage from "./AdminKycPage";
+import AdminPaymentsPage from "./AdminPaymentsPage";
 import bannerImg from "./assets/banner-img.png";
 import {
   createAdminUser,
@@ -37,44 +41,6 @@ import {
   updateAdminUser,
 } from "./lib/admin-client";
 
-const sidebarGroups = [
-  {
-    label: "",
-    items: [{ icon: LayoutDashboard, key: "overview", label: "Tổng quan" }],
-  },
-  {
-    label: "Quản lý người dùng",
-    items: [
-      { icon: Users, key: "users", label: "Quản lý người dùng" },
-      { icon: UserRoundCheck, label: "Quản lý chủ nhà" },
-      { icon: ShieldCheck, label: "Xác minh KYC" },
-    ],
-  },
-  {
-    label: "Quản lý bất động sản",
-    items: [
-      { icon: Building2, label: "Tin đăng" },
-      { icon: Tags, label: "Danh mục & Loại BĐS" },
-      { icon: MapPin, label: "Khu vực & Vị trí" },
-    ],
-  },
-  {
-    label: "Quản lý giao dịch",
-    items: [
-      { icon: CalendarDays, label: "Yêu cầu xem phòng" },
-      { icon: CreditCard, label: "Giao dịch & Thanh toán" },
-    ],
-  },
-  {
-    label: "Quản lý nội dung",
-    items: [
-      { icon: FileWarning, label: "Báo cáo & Khiếu nại" },
-      { icon: Star, label: "Đánh giá" },
-      { icon: Bell, label: "Thông báo" },
-    ],
-  },
-];
-
 const emptyForm = {
   fullName: "",
   email: "",
@@ -83,6 +49,7 @@ const emptyForm = {
   role: "user",
   isActive: true,
 };
+const ADMIN_TOAST_TIMEOUT_MS = 3500;
 
 function formatDate(value) {
   if (!value) return "—";
@@ -99,114 +66,106 @@ function getInitials(name = "") {
     .toUpperCase();
 }
 
+function AdminToast({ toast, onClose }) {
+  if (!toast) {
+    return null;
+  }
+
+  const isError = toast.type === "error";
+
+  return (
+    <div className="pointer-events-none fixed left-1/2 top-4 z-[1600] w-[calc(100%-32px)] max-w-[520px] -translate-x-1/2">
+      <div
+        className={`pointer-events-auto flex items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-[0_18px_48px_rgba(19,31,25,0.18)] ${
+          isError
+            ? "border-[#F1C5C9] bg-[#FFF5F6] text-[#B93643]"
+            : "border-[#BFE5CA] bg-[#EFFAF2] text-[#1F7E3A]"
+        }`}
+      >
+        <span className="min-w-0 leading-6">{toast.message}</span>
+        <button
+          aria-label="Đóng thông báo"
+          className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition ${
+            isError ? "hover:bg-[#F9E3E6]" : "hover:bg-[#DDF4E3]"
+          }`}
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminSidebar({
   activeSection,
   currentUser,
+  isSidebarOpen,
   onBack,
   onLogout,
+  onPropertyStatusChange,
   onSectionChange,
+  propertyCounts,
+  propertyStatus,
 }) {
+  const propertyItems = [
+    { key: "", label: "Tất cả tin đăng", count: propertyCounts.all, tone: "gray" },
+    { key: "pending", label: "Chờ phê duyệt", count: propertyCounts.pending, tone: "amber" },
+    { key: "active", label: "Đã đăng", count: propertyCounts.active, tone: "green" },
+    { key: "rejected", label: "Bị từ chối", count: propertyCounts.rejected, tone: "red" },
+    { key: "hidden", label: "Đã ẩn", count: propertyCounts.hidden, tone: "gray" },
+  ];
+  const menuItems = [
+    { key: "kyc", icon: ShieldCheck, label: "Quản lý xác thực (KYC)" },
+    { icon: FileWarning, label: "Quản lý báo cáo" },
+    { key: "payments", icon: CreditCard, label: "Gói dịch vụ & Thanh toán" },
+    { icon: BarChart3, label: "Thống kê & Báo cáo" },
+    { icon: Settings, label: "Cài đặt hệ thống" },
+    { icon: Bell, label: "Nhật ký hoạt động" },
+  ];
+
+  function selectPropertyStatus(nextStatus) {
+    onSectionChange("properties");
+    onPropertyStatusChange(nextStatus);
+  }
+
   return (
-    <aside className="border-b border-[#E9EDE9] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[250px] lg:border-b-0 lg:border-r">
+    <aside className={`border-b border-[#E5EAE6] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[242px] lg:border-b-0 lg:border-r ${isSidebarOpen ? "lg:block" : "lg:hidden"}`}>
       <div className="flex h-full flex-col">
         <button
           className="flex items-center gap-3 px-5 py-5 text-left"
           type="button"
           onClick={onBack}
         >
-          <span className="flex size-10 items-center justify-center rounded-xl bg-[#E6F5E9] text-[#31A451]">
-            <Home className="size-6" />
+          <span className="flex size-10 items-center justify-center text-[#159848]">
+            <Home className="size-9 fill-[#159848] stroke-white" />
           </span>
           <span>
-            <span className="block text-[22px] font-bold leading-none text-[#2F9D4C]">
+            <span className="block text-[21px] font-bold leading-none text-[#129747]">
               WeRent
             </span>
-            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#EAF6EC] px-2 py-1 text-[10px] font-semibold text-[#278E45]">
-              <ShieldCheck className="size-3" /> Admin Panel
-            </span>
+            <span className="mt-1 block text-[11px] text-[#64707B]">Admin</span>
           </span>
         </button>
 
         <nav className="flex gap-2 overflow-x-auto px-3 pb-4 lg:block lg:flex-1 lg:overflow-y-auto lg:pb-5">
-          {sidebarGroups.map((group) => (
-            <div key={group.label || "overview"} className="shrink-0 lg:mt-2">
-              {group.label ? (
-                <p className="hidden px-3 pb-2 pt-3 text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9199] lg:block">
-                  {group.label}
-                </p>
-              ) : null}
-              <div className="flex gap-1 lg:block lg:space-y-1">
-                {group.items.map(({ icon: Icon, key, label }) => {
-                  const isAvailable = Boolean(key);
-                  const isActive = key === activeSection;
+          <button className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "overview" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("overview")}><LayoutDashboard className="size-4" />Tổng quan</button>
+          <button className={`mt-1 flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "users" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("users")}><Users className="size-4" /><span className="flex-1">Quản lý người dùng</span><ChevronDown className="size-3.5" /></button>
 
-                  return (
-                  <button
-                    key={label}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${
-                      isActive
-                        ? "bg-[#EAF5EC] font-semibold text-[#2D9A4B] shadow-[inset_3px_0_0_#31A451]"
-                        : isAvailable
-                          ? "text-[#5F6872] hover:bg-[#F5F8F5] hover:text-[#2D9149]"
-                          : "cursor-not-allowed text-[#5F6872] opacity-75"
-                    }`}
-                    disabled={!isAvailable}
-                    type="button"
-                    title={!isAvailable ? "Tính năng sẽ được phát triển sau" : undefined}
-                    onClick={() => isAvailable && onSectionChange(key)}
-                  >
-                    <Icon className="size-4" />
-                    {label}
-                  </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+          <div className="mt-1 min-w-max lg:min-w-0">
+            <button className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "properties" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => selectPropertyStatus(propertyStatus)}><Building2 className="size-4" /><span className="flex-1">Quản lý tin đăng</span><ChevronDown className={`size-3.5 transition ${activeSection === "properties" ? "rotate-180" : ""}`} /></button>
+            {activeSection === "properties" ? <div className="ml-1 mt-1 border-l border-[#DDE8DF] pl-3">{propertyItems.map((item) => <button key={item.label} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] ${propertyStatus === item.key ? "bg-[#F0F8F2] font-semibold text-[#168B40]" : "text-[#53606D] hover:bg-[#F7F9F7]"}`} type="button" onClick={() => selectPropertyStatus(item.key)}><span className="flex-1">{item.label}</span>{Number.isFinite(item.count) ? <span className={`min-w-7 rounded-full border px-1.5 py-0.5 text-center text-[10px] font-semibold ${item.tone === "amber" ? "border-[#FFD08B] bg-[#FFF7E8] text-[#C46F00]" : item.tone === "green" ? "border-[#BCE4C6] bg-[#ECF8EF] text-[#16883B]" : item.tone === "red" ? "border-[#FFC2C8] bg-[#FFF0F1] text-[#DB3342]" : "border-[#D8DEE5] bg-[#F2F4F6] text-[#596674]"}`}>{item.count}</span> : null}</button>)}</div> : null}
+          </div>
 
-          <div className="hidden lg:block">
-            <p className="px-3 pb-2 pt-5 text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9199]">
-              Hệ thống
-            </p>
-            <button
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-[#5F6872] opacity-75"
-              disabled
-              type="button"
-            >
-              <Settings className="size-4" /> Cài đặt hệ thống
-            </button>
+          <div className="mt-2 space-y-1">
+            {menuItems.map(({ key, icon: Icon, label }) => <button key={label} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] ${key && activeSection === key ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : key ? "text-[#3E4B59] hover:bg-[#F5F8F5]" : "cursor-not-allowed text-[#3E4B59] opacity-55"}`} disabled={!key} type="button" onClick={() => key && onSectionChange(key)}><Icon className="size-4" />{label}</button>)}
           </div>
         </nav>
 
-        <div className="hidden border-t border-[#E9EDE9] p-3 lg:block">
-          <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-            {currentUser.avatarUrl ? (
-              <img
-                alt={`Ảnh đại diện của ${currentUser.fullName}`}
-                className="size-10 rounded-full object-cover"
-                src={currentUser.avatarUrl}
-              />
-            ) : (
-              <span className="flex size-10 items-center justify-center rounded-full bg-[#E3F3E6] text-sm font-bold text-[#2E984A]">
-                {getInitials(currentUser.fullName)}
-              </span>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-[#2D333B]">
-                {currentUser.fullName}
-              </p>
-              <p className="mt-0.5 text-[11px] text-[#2E9A4B]">Super Admin</p>
-            </div>
-            <button
-              aria-label="Đăng xuất"
-              className="flex size-8 items-center justify-center rounded-lg text-[#78818B] hover:bg-[#F2F5F2]"
-              type="button"
-              onClick={onLogout}
-            >
-              <LogOut className="size-4" />
-            </button>
-          </div>
+        <div className="hidden p-4 lg:block">
+          <button className="flex w-full items-center gap-3 rounded-xl border border-[#DDE4DE] p-3 text-left hover:bg-[#F8FAF8]" type="button"><span className="flex size-9 items-center justify-center rounded-full bg-[#EEF3F8] text-[#53657A]"><Headphones className="size-4" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-[#34404C]">Trung tâm hỗ trợ</span><span className="mt-1 block text-[10px] text-[#7A858F]">Hỗ trợ giải đáp thắc mắc</span></span><ChevronRight className="size-4 text-[#607087]" /></button>
+          <button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs text-[#7A858F] hover:bg-[#F5F7F5]" type="button" onClick={onLogout}><LogOut className="size-3.5" />Đăng xuất {currentUser.fullName}</button>
         </div>
       </div>
     </aside>
@@ -486,7 +445,7 @@ function DashboardOverview({ summary }) {
   );
 }
 
-function UserFormModal({ user, onClose, onSubmit }) {
+function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
   const isEditing = Boolean(user);
   const [form, setForm] = useState(() =>
     user
@@ -528,7 +487,12 @@ function UserFormModal({ user, onClose, onSubmit }) {
       return;
     }
 
-    if (!form.email.trim() && !form.phone.trim()) {
+    if (!isEditing && (!form.email.trim() || !form.phone.trim())) {
+      setError("Vui lòng nhập đầy đủ email và số điện thoại.");
+      return;
+    }
+
+    if (isEditing && !form.email.trim() && !form.phone.trim()) {
       setError("Cần có ít nhất một email hoặc số điện thoại.");
       return;
     }
@@ -555,7 +519,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
       });
       onClose();
     } catch (submitError) {
-      setError(submitError.message || "Không thể lưu tài khoản.");
+      const message = submitError.message || "Không thể lưu tài khoản.";
+      setError(message);
+      onNotify(message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -613,7 +579,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Email</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Email {!isEditing ? "*" : ""}
+            </span>
             <input
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               name="email"
@@ -623,7 +591,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Số điện thoại</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Số điện thoại {!isEditing ? "*" : ""}
+            </span>
             <input
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               inputMode="tel"
@@ -697,7 +667,7 @@ function UserFormModal({ user, onClose, onSubmit }) {
   );
 }
 
-function DeleteConfirmModal({ user, onClose, onConfirm }) {
+function DeleteConfirmModal({ onNotify = () => {}, user, onClose, onConfirm }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
@@ -708,7 +678,9 @@ function DeleteConfirmModal({ user, onClose, onConfirm }) {
       await onConfirm();
       onClose();
     } catch (deleteError) {
-      setError(deleteError.message || "Không thể xóa tài khoản.");
+      const message = deleteError.message || "Không thể xóa tài khoản.";
+      setError(message);
+      onNotify(message, "error");
     } finally {
       setIsDeleting(false);
     }
@@ -751,6 +723,9 @@ function DeleteConfirmModal({ user, onClose, onConfirm }) {
 
 export default function AdminPage({ accessToken, currentUser, onBack, onLogout }) {
   const [activeSection, setActiveSection] = useState("overview");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [propertyStatus, setPropertyStatus] = useState("");
+  const [propertyCounts, setPropertyCounts] = useState({});
   const [users, setUsers] = useState([]);
   const [summary, setSummary] = useState({});
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
@@ -761,11 +736,12 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [formUser, setFormUser] = useState(undefined);
   const [showForm, setShowForm] = useState(false);
   const [deleteUser, setDeleteUser] = useState(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [adminToast, setAdminToast] = useState(null);
+  const adminToastTimerRef = useRef(null);
   const formUserId = formUser?.id ?? formUser?._id ?? "";
   const deleteUserId = deleteUser?.id ?? deleteUser?._id ?? "";
 
@@ -819,51 +795,103 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
     return () => controller.abort();
   }, [accessToken, activeSection, debouncedSearch, page, refreshVersion, role, status]);
 
+  const closeAdminToast = useCallback(() => {
+    if (adminToastTimerRef.current) {
+      window.clearTimeout(adminToastTimerRef.current);
+      adminToastTimerRef.current = null;
+    }
+
+    setAdminToast(null);
+  }, []);
+
+  const showAdminToast = useCallback((message, type = "success") => {
+    if (!message) {
+      return;
+    }
+
+    if (adminToastTimerRef.current) {
+      window.clearTimeout(adminToastTimerRef.current);
+    }
+
+    setAdminToast({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      message,
+      type,
+    });
+    adminToastTimerRef.current = window.setTimeout(() => {
+      setAdminToast(null);
+      adminToastTimerRef.current = null;
+    }, ADMIN_TOAST_TIMEOUT_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (adminToastTimerRef.current) {
+        window.clearTimeout(adminToastTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (error) {
+      showAdminToast(error, "error");
+    }
+  }, [error, showAdminToast]);
+
   useEffect(() => {
     getAdminDashboard(accessToken)
       .then((response) => setSummary(response.data.summary))
       .catch(() => setSummary({}));
   }, [accessToken, refreshVersion]);
 
-  function refresh(message) {
-    setNotice(message);
+  function refresh() {
     setRefreshVersion((value) => value + 1);
-    window.setTimeout(() => setNotice(""), 3500);
   }
 
   async function handleFormSubmit(payload) {
     if (formUserId) {
       const response = await updateAdminUser(accessToken, formUserId, payload);
-      refresh(response.message);
+      showAdminToast(response.message || "Cáº­p nháº­t tÃ i khoáº£n thÃ nh cÃ´ng.");
+      refresh();
       return;
     }
 
     const response = await createAdminUser(accessToken, payload);
+    showAdminToast(response.message || "Táº¡o tÃ i khoáº£n thÃ nh cÃ´ng.");
     setPage(1);
-    refresh(response.message);
+    refresh();
   }
 
   async function handleDelete() {
     if (!deleteUserId) return;
 
     const response = await deleteAdminUser(accessToken, deleteUserId);
+    showAdminToast(response.message || "XÃ³a tÃ i khoáº£n thÃ nh cÃ´ng.");
     if (users.length === 1 && page > 1) setPage((value) => value - 1);
-    refresh(response.message);
+    refresh();
   }
 
   return (
     <div className="min-h-screen bg-[#F7F9F7] text-[#20262E]">
+      <AdminToast toast={adminToast} onClose={closeAdminToast} />
+
       <AdminSidebar
         activeSection={activeSection}
         currentUser={currentUser}
+        isSidebarOpen={isSidebarOpen}
         onBack={onBack}
         onLogout={onLogout}
+        onPropertyStatusChange={setPropertyStatus}
         onSectionChange={setActiveSection}
+        propertyCounts={propertyCounts}
+        propertyStatus={propertyStatus}
       />
 
       {showForm ? (
         <UserFormModal
           user={formUser}
+          onNotify={showAdminToast}
           onClose={() => {
             setShowForm(false);
             setFormUser(undefined);
@@ -874,23 +902,41 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       {deleteUser ? (
         <DeleteConfirmModal
           user={deleteUser}
+          onNotify={showAdminToast}
           onClose={() => setDeleteUser(null)}
           onConfirm={handleDelete}
         />
       ) : null}
 
-      <main className="lg:ml-[250px]">
+      <main className={isSidebarOpen ? "lg:ml-[242px]" : ""}>
         <header className="border-b border-[#E9EDE9] bg-white px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-[1500px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+            <div className="flex items-start gap-4">
+              <button aria-label={isSidebarOpen ? "Thu gọn menu" : "Mở menu"} className="mt-0.5 hidden size-9 items-center justify-center rounded-lg text-[#435572] hover:bg-[#F3F6F4] lg:flex" type="button" onClick={() => setIsSidebarOpen((value) => !value)}><Menu className="size-5" /></button>
+              <div>
               <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">
-                {activeSection === "overview" ? "Tổng quan" : "Quản lý người dùng"}
+                {activeSection === "overview"
+                  ? "Tổng quan"
+                  : activeSection === "users"
+                    ? "Quản lý người dùng"
+                    : activeSection === "properties"
+                      ? "Quản lý tin đăng"
+                      : activeSection === "kyc"
+                        ? "Quản lý xác thực (KYC)"
+                        : "Quản lý nạp tiền"}
               </h1>
               <p className="mt-1 text-sm text-[#747D87]">
                 {activeSection === "overview"
                   ? "Theo dõi hoạt động và hiệu suất của hệ thống."
-                  : "Quản lý tài khoản và quyền truy cập trên hệ thống."}
+                  : activeSection === "users"
+                    ? "Quản lý tài khoản và quyền truy cập trên hệ thống."
+                    : activeSection === "properties"
+                      ? "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."
+                      : activeSection === "kyc"
+                        ? "Đối chiếu và duyệt hồ sơ tài khoản, hồ sơ bất động sản."
+                        : "Theo dõi giao dịch nạp tiền, khuyến mãi và điều chỉnh số dư."}
               </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -910,7 +956,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                     <Download className="size-4" /> Xuất báo cáo
                   </button>
                 </>
-              ) : (
+              ) : activeSection === "users" ? (
                 <button
                   className="flex h-11 items-center gap-2 rounded-xl bg-[#31A451] px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(49,164,81,0.2)]"
                   type="button"
@@ -921,7 +967,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                 >
                   <Plus className="size-4" /> Thêm người dùng
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         </header>
@@ -929,15 +975,23 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
         <div className="mx-auto max-w-[1500px] space-y-5 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
           {activeSection === "overview" ? (
             <DashboardOverview summary={summary} />
+          ) : activeSection === "properties" ? (
+            <AdminPropertiesPage
+              accessToken={accessToken}
+              status={propertyStatus}
+              onCountsChange={setPropertyCounts}
+              onNotify={showAdminToast}
+              onStatusChange={setPropertyStatus}
+            />
+          ) : activeSection === "kyc" ? (
+            <AdminKycPage accessToken={accessToken} onNotify={showAdminToast} />
+          ) : activeSection === "payments" ? (
+            <AdminPaymentsPage accessToken={accessToken} onNotify={showAdminToast} />
           ) : (
             <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
           </section>
-
-          {notice ? (
-            <div className="rounded-xl border border-[#CFE8D3] bg-[#F0F9F2] px-4 py-3 text-sm text-[#277C40]">{notice}</div>
-          ) : null}
 
           <section className="overflow-hidden rounded-2xl border border-[#E7EBE7] bg-white shadow-[0_10px_35px_rgba(40,61,46,0.045)]">
             <div className="border-b border-[#E9EDE9] p-4 sm:p-5">
@@ -981,10 +1035,6 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                 </div>
               </div>
             </div>
-
-            {error ? (
-              <div className="m-5 rounded-xl border border-[#F0CECE] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B53E3E]">{error}</div>
-            ) : null}
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] border-collapse text-left">
