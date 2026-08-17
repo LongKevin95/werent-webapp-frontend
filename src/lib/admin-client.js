@@ -158,3 +158,10 @@ export function getAdminPromotions(token) {
 export function createAdminPromotion(token, payload) {
   return adminRequest("/api/admin/payments/promotions", token, { method: "POST", body: payload });
 }
+
+export function updateAdminPromotion(token, promotionId, payload) {
+  return adminRequest(`/api/admin/payments/promotions/${promotionId}`, token, {
+    method: "PATCH",
+    body: payload,
+  });
+}

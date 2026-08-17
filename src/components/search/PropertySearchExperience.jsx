@@ -29,6 +29,7 @@ import {
   buildSearchStateFromKeyword,
   getListingSearchRelevanceScore,
 } from "./propertySearchUtils";
+import { listSearchSuggestions } from "../../lib/property-client";
 
 const defaultPropertySearchState = Object.freeze({
   keyword: "",
@@ -93,11 +94,15 @@ const fallbackAdministrativeDivisions = [
 const propertyTypeOptions = [
   { label: "Tất cả loại hình", value: "", icon: Landmark },
   { label: "Căn hộ chung cư", value: "Căn hộ chung cư", icon: Building2 },
-  { label: "Nhà nguyên căn", value: "Nhà nguyên căn", icon: House },
   { label: "Phòng trọ", value: "Phòng trọ", icon: Home },
-  { label: "Chung cư mini", value: "Chung cư mini", icon: Building2 },
-  { label: "Studio", value: "Studio", icon: BedDouble },
-  { label: "Ký túc xá, ở ghép", value: "Ký túc xá, ở ghép", icon: Building2 },
+  { label: "Căn hộ dịch vụ", value: "Căn hộ dịch vụ", icon: BedDouble },
+  { label: "Nhà riêng", value: "Nhà riêng", icon: House },
+  { label: "Nhà mặt phố", value: "Nhà mặt phố", icon: House },
+  {
+    label: "Mặt bằng kinh doanh",
+    value: "Mặt bằng kinh doanh",
+    icon: Landmark,
+  },
 ];
 
 const bedroomOptions = [
@@ -133,7 +138,7 @@ const SEARCH_HISTORY_STORAGE_KEY = "werent.propertySearchHistory";
 const SEARCH_HISTORY_LIMIT = 5;
 const keywordSuggestionOptions = [
   "Căn hộ gần cầu Phú Mỹ",
-  "Nhà nguyên căn hẻm xe hơi",
+  "Nhà riêng hẻm xe hơi",
   "Phòng trọ giá rẻ sinh viên",
   "Chung cư cao cấp Quận 2",
   "Thuê nhà gần Đại học RMIT",
@@ -143,14 +148,26 @@ const keywordSuggestionOptions = [
 
 const popularSearchCities = ["Hà Nội", "Hồ Chí Minh", "Đà Nẵng"];
 const majorCitySuggestionPriorityMap = {
-  "ho chi minh": 24,
-  "hcm": 24,
-  "tp ho chi minh": 24,
-  "thanh pho ho chi minh": 24,
-  "ha noi": 23,
-  "thanh pho ha noi": 23,
-  "da nang": 22,
-  "thanh pho da nang": 22,
+  "ho chi minh": 700,
+  hcm: 700,
+  saigon: 700,
+  "sai gon": 700,
+  "tp ho chi minh": 700,
+  "thanh pho ho chi minh": 700,
+  "ha noi": 600,
+  "thanh pho ha noi": 600,
+  "da nang": 500,
+  "thanh pho da nang": 500,
+  "can tho": 400,
+  "thanh pho can tho": 400,
+  "hai phong": 300,
+  "thanh pho hai phong": 300,
+  hue: 200,
+  "thua thien hue": 200,
+  "thanh pho hue": 200,
+  "tinh thua thien hue": 200,
+  "dong nai": 100,
+  "tinh dong nai": 100,
 };
 const intentSuggestionGroups = [
   {
@@ -203,6 +220,16 @@ const locationSuggestionTemplates = [
   "Thuê biệt thự tại {location}",
   "Thuê shophouse tại {location}",
   "Thuê kho tại {location}",
+];
+const streetSuggestionTemplates = [
+  "Mua bán BĐS tại {location}",
+  "Thuê BĐS tại {location}",
+  "Mua bán đất tại {location}",
+  "Thuê nhà đất tại {location}",
+  "Mua bán chung cư tại {location}",
+  "Thuê chung cư tại {location}",
+  "Thuê phòng trọ tại {location}",
+  "Thuê nhà riêng tại {location}",
 ];
 const knownLocationSuggestionTargets = [
   {
@@ -303,6 +330,113 @@ const knownLocationSuggestionTargets = [
   },
 ];
 
+const knownStreetSuggestionGroups = [
+  {
+    street: "Lê Văn Quới",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận Bình Tân" },
+      { city: "Hồ Chí Minh", district: "Quận Tân Phú" },
+    ],
+  },
+  {
+    street: "Đồng Khởi",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+      { city: "Đồng Nai", district: "TP. Long Khánh" },
+    ],
+  },
+  {
+    street: "Lê Duẩn",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Hà Nội", district: "Quận Ba Đình" },
+      { city: "Đà Nẵng", district: "Quận Hải Châu" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+  {
+    street: "Nguyễn Trãi",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Hồ Chí Minh", district: "Quận 5" },
+      { city: "Hà Nội", district: "Quận Thanh Xuân" },
+      { city: "Đà Nẵng", district: "Quận Hải Châu" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Hải Phòng", district: "Quận Ngô Quyền" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+  {
+    street: "Trần Hưng Đạo",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Hồ Chí Minh", district: "Quận 5" },
+      { city: "Hà Nội", district: "Quận Hoàn Kiếm" },
+      { city: "Đà Nẵng", district: "Quận Sơn Trà" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Hải Phòng", district: "Quận Hồng Bàng" },
+      { city: "Thừa Thiên Huế", district: "TP. Huế" },
+    ],
+  },
+  {
+    street: "Lê Lợi",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Hà Nội", district: "Quận Hà Đông" },
+      { city: "Đà Nẵng", district: "Quận Hải Châu" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Hải Phòng", district: "Quận Ngô Quyền" },
+      { city: "Thừa Thiên Huế", district: "TP. Huế" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+  {
+    street: "Điện Biên Phủ",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận Bình Thạnh" },
+      { city: "Hà Nội", district: "Quận Ba Đình" },
+      { city: "Đà Nẵng", district: "Quận Thanh Khê" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Hải Phòng", district: "Quận Hồng Bàng" },
+      { city: "Thừa Thiên Huế", district: "TP. Huế" },
+    ],
+  },
+  {
+    street: "Nguyễn Văn Linh",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 7" },
+      { city: "Hồ Chí Minh", district: "Huyện Nhà Bè" },
+      { city: "Hà Nội", district: "Quận Long Biên" },
+      { city: "Đà Nẵng", district: "Quận Hải Châu" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Hải Phòng", district: "Quận Lê Chân" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+  {
+    street: "Cách Mạng Tháng 8",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 3" },
+      { city: "Hồ Chí Minh", district: "Quận 10" },
+      { city: "Đà Nẵng", district: "Quận Cẩm Lệ" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Thừa Thiên Huế", district: "TP. Huế" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+  {
+    street: "Nguyễn Huệ",
+    placements: [
+      { city: "Hồ Chí Minh", district: "Quận 1" },
+      { city: "Đà Nẵng", district: "Quận Hải Châu" },
+      { city: "Cần Thơ", district: "Quận Ninh Kiều" },
+      { city: "Thừa Thiên Huế", district: "TP. Huế" },
+      { city: "Đồng Nai", district: "TP. Biên Hòa" },
+    ],
+  },
+];
+
 const tierPriorityMap = {
   vipDiamond: 4,
   vipGold: 3,
@@ -337,8 +471,16 @@ function getPropertyTypeLabel(value) {
     return "Loại BĐS";
   }
 
-  if (value === "Nhà phố") {
-    return "Nhà phố";
+  if (["Chung cư mini", "Studio"].includes(value)) {
+    return "Căn hộ dịch vụ";
+  }
+
+  if (value === "Nhà nguyên căn") {
+    return "Nhà riêng";
+  }
+
+  if (["Nhà phố", "Nhà mặt tiền"].includes(value)) {
+    return "Nhà mặt phố";
   }
 
   if (["Nhà đất", "Đất nền", "Biệt thự", "Văn phòng"].includes(value)) {
@@ -391,9 +533,42 @@ function getTierBadgeClassName(listing) {
   return "bg-[#F3F5F7] text-[#5F6976]";
 }
 
+const numericInputFormatter = new Intl.NumberFormat("vi-VN");
+
+function getNumericInputDigits(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function formatIntegerInputValue(value) {
+  const digits = getNumericInputDigits(value);
+  return digits ? numericInputFormatter.format(Number(digits)) : "";
+}
+
 function parseNumberValue(value) {
-  const normalized = String(value ?? "").replace(/[^\d.]/g, "");
-  return normalized ? Number(normalized) : 0;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const cleanedValue = String(value ?? "")
+    .trim()
+    .replace(/[^\d,.]/g, "");
+
+  if (!cleanedValue) {
+    return 0;
+  }
+
+  if (cleanedValue.includes(",")) {
+    return Number(cleanedValue.replace(/\./g, "").replace(",", ".")) || 0;
+  }
+
+  const dotParts = cleanedValue.split(".");
+  const looksLikeThousands =
+    dotParts.length > 1 && dotParts.slice(1).every((part) => part.length === 3);
+  const normalizedValue = looksLikeThousands
+    ? dotParts.join("")
+    : cleanedValue.replace(/[^\d.]/g, "");
+
+  return Number(normalizedValue) || 0;
 }
 
 function normalizePropertySearchState(searchState = {}) {
@@ -408,6 +583,18 @@ function normalizePropertySearchState(searchState = {}) {
       ),
     ),
   };
+}
+
+const numericSearchDraftKeys = ["maxArea", "maxPrice", "minArea", "minPrice"];
+
+function formatSearchDraftNumberFields(searchState = {}) {
+  const nextSearchState = { ...searchState };
+
+  numericSearchDraftKeys.forEach((key) => {
+    nextSearchState[key] = formatIntegerInputValue(nextSearchState[key]);
+  });
+
+  return nextSearchState;
 }
 
 function sortListingsBySearchPriority(listings = [], searchState = {}) {
@@ -478,7 +665,10 @@ function buildActiveSearchChips(searchState) {
   }
 
   if (normalizedState.propertyType) {
-    chips.push({ key: "propertyType", label: normalizedState.propertyType });
+    chips.push({
+      key: "propertyType",
+      label: getPropertyTypeLabel(normalizedState.propertyType),
+    });
   }
 
   if (normalizedState.minPrice || normalizedState.maxPrice) {
@@ -523,7 +713,7 @@ function getPresetButtonClassName(isActive) {
 
 function getResultItemTags(listing) {
   return [
-    listing.draft?.propertyType,
+    getPropertyTypeLabel(listing.draft?.propertyType),
     listing.specs?.[1],
     listing.draft?.projectName,
     listing.draft?.locationNote,
@@ -638,6 +828,106 @@ function getMajorCitySuggestionPriority(cityName) {
   );
 }
 
+function getStreetDisplayName(street = "") {
+  const trimmedStreet = String(street).trim();
+
+  if (!trimmedStreet) {
+    return "";
+  }
+
+  return /^(?:đường|phố|quốc lộ|tỉnh lộ|hẻm)\s/i.test(trimmedStreet)
+    ? trimmedStreet
+    : `Đường ${trimmedStreet}`;
+}
+
+function getStreetAliasCore(street = "") {
+  return normalizeSuggestionText(street).replace(
+    /^(?:duong|pho|quoc lo|tinh lo|hem)\s+/,
+    "",
+  );
+}
+
+function isExplicitStreetKeyword(keyword = "") {
+  return /^(?:duong|pho|hem|quoc lo|tinh lo)\s+/.test(
+    normalizeSuggestionText(keyword),
+  );
+}
+
+function getStreetSuggestionCityKey(cityName = "") {
+  const cityPriorityKey = Object.entries(majorCitySuggestionPriorityMap).find(
+    ([key]) => normalizeSuggestionText(cityName).includes(key),
+  )?.[0];
+
+  return cityPriorityKey ?? normalizeSuggestionText(cityName);
+}
+
+function createStreetSuggestionTarget({
+  city,
+  district,
+  priorityBoost = 0,
+  street,
+  ward,
+}) {
+  const streetLabel = getStreetDisplayName(street);
+
+  if (!streetLabel || !city) {
+    return null;
+  }
+
+  const streetAliasCore = getStreetAliasCore(streetLabel);
+  const locationParts = [streetLabel, ward, district, city].filter(Boolean);
+  const aliases = [
+    streetLabel,
+    street,
+    streetAliasCore,
+    `${streetLabel} ${district ?? ""}`,
+    `${streetAliasCore} ${district ?? ""}`,
+    `${streetLabel} ${city}`,
+    `${streetAliasCore} ${city}`,
+  ].filter(Boolean);
+  const cityPriority = getMajorCitySuggestionPriority(city);
+
+  return {
+    aliases,
+    category: "street",
+    cityKey: getStreetSuggestionCityKey(city),
+    cityName: city,
+    label: locationParts.join(", "),
+    normalizedAliases: aliases.map(normalizeSuggestionText),
+    priority: (cityPriority || 20) + priorityBoost + 1,
+  };
+}
+
+function getKnownStreetSuggestionTargets() {
+  return knownStreetSuggestionGroups.flatMap((group) =>
+    group.placements
+      .map((placement) =>
+        createStreetSuggestionTarget({
+          ...placement,
+          priorityBoost: 0.25,
+          street: group.street,
+        }),
+      )
+      .filter(Boolean),
+  );
+}
+
+function getListingStreetSuggestionTargets(listings = []) {
+  return listings
+    .map((listing) => {
+      const draft = listing?.draft ?? {};
+
+      return createStreetSuggestionTarget({
+        city: draft.city ?? listing?.city,
+        district: draft.district ?? listing?.district,
+        priorityBoost: 0.5,
+        street: draft.street ?? listing?.street,
+        ward: draft.ward ?? listing?.ward,
+      });
+    })
+    .filter(Boolean);
+}
+
 function getAdministrativeLocationSuggestionTargets(divisions = []) {
   return divisions.flatMap((city) => {
     const cityPriority = getMajorCitySuggestionPriority(city.name);
@@ -680,10 +970,76 @@ function getAdministrativeLocationSuggestionTargets(divisions = []) {
   });
 }
 
-function buildLocationKeywordSuggestions(keyword, administrativeLocationTargets = []) {
+function getStreetTargetCityPriority(target) {
+  return getMajorCitySuggestionPriority(target.cityName) || target.priority || 0;
+}
+
+function buildStreetKeywordSuggestions(streetTargets = []) {
+  const groupedTargets = streetTargets.reduce((groups, target) => {
+    const cityKey = target.cityKey || normalizeSuggestionText(target.cityName);
+
+    if (!cityKey) {
+      return groups;
+    }
+
+    const currentGroup = groups.get(cityKey) ?? {
+      cityPriority: getStreetTargetCityPriority(target),
+      targets: [],
+    };
+
+    currentGroup.cityPriority = Math.max(
+      currentGroup.cityPriority,
+      getStreetTargetCityPriority(target),
+    );
+    currentGroup.targets.push(target);
+    groups.set(cityKey, currentGroup);
+
+    return groups;
+  }, new Map());
+
+  const cityGroups = [...groupedTargets.values()]
+    .map((group) => ({
+      ...group,
+      targets: group.targets
+        .sort(
+          (left, right) =>
+            right.matchScore - left.matchScore ||
+            right.priority - left.priority ||
+            left.label.length - right.label.length,
+        )
+        .slice(0, 4),
+    }))
+    .sort((left, right) => right.cityPriority - left.cityPriority);
+  const balancedTargets = [];
+
+  for (let itemIndex = 0; itemIndex < 4; itemIndex += 1) {
+    cityGroups.forEach((group) => {
+      if (group.targets[itemIndex]) {
+        balancedTargets.push(group.targets[itemIndex]);
+      }
+    });
+  }
+
+  return streetSuggestionTemplates.flatMap((template) =>
+    balancedTargets.map((target) => template.replace("{location}", target.label)),
+  );
+}
+
+function buildLocationKeywordSuggestions(
+  keyword,
+  administrativeLocationTargets = [],
+  streetLocationTargets = [],
+  options = {},
+) {
+  const targetsSource = options.streetOnly
+    ? streetLocationTargets
+    : [
+        ...knownLocationSuggestionTargets,
+        ...administrativeLocationTargets,
+        ...streetLocationTargets,
+      ];
   const targets = [
-    ...knownLocationSuggestionTargets,
-    ...administrativeLocationTargets,
+    ...targetsSource,
   ]
     .map((target) => ({
       ...target,
@@ -710,6 +1066,14 @@ function buildLocationKeywordSuggestions(keyword, administrativeLocationTargets 
       uniqueTargets.push(target);
     }
   });
+
+  const streetTargets = uniqueTargets.filter(
+    (target) => target.category === "street",
+  );
+
+  if (streetTargets.length > 0) {
+    return buildStreetKeywordSuggestions(streetTargets);
+  }
 
   if (uniqueTargets.length <= 1) {
     return uniqueTargets.flatMap((target) =>
@@ -754,6 +1118,40 @@ function buildIntentKeywordSuggestions(keyword) {
   return group.templates.flatMap((template) =>
     popularSearchCities.map((city) => template.replace("{city}", city)),
   );
+}
+
+function mergeKeywordSuggestions(...groups) {
+  const seenSuggestions = new Set();
+  const suggestions = [];
+
+  groups.flat().forEach((item) => {
+    const label = typeof item === "string" ? item : item?.label;
+    const normalizedLabel = normalizeSuggestionText(label);
+
+    if (!label || seenSuggestions.has(normalizedLabel)) {
+      return;
+    }
+
+    seenSuggestions.add(normalizedLabel);
+    suggestions.push(label);
+  });
+
+  return suggestions;
+}
+
+function shouldFetchRemoteStreetSuggestions(keyword = "") {
+  const normalizedKeyword = normalizeSuggestionText(keyword);
+  const tokens = normalizedKeyword.split(" ").filter(Boolean);
+
+  if (normalizedKeyword.length < 4) {
+    return false;
+  }
+
+  if (tokens.length >= 2) {
+    return true;
+  }
+
+  return /^(?:duong|pho|hem|quoc lo|tinh lo)\s+/.test(normalizedKeyword);
 }
 
 function getStoredSearchHistory() {
@@ -1154,6 +1552,7 @@ function SearchResultsListItem({ listing, onViewListing }) {
 
 export function PropertySearchHeaderBar({
   administrativeDivisions = [],
+  listings = [],
   searchState = defaultPropertySearchState,
   onSearchStateChange,
   onSubmit,
@@ -1167,18 +1566,22 @@ export function PropertySearchHeaderBar({
     () => searchState.keyword,
   );
   const deferredKeywordInput = useDeferredValue(keywordInput);
+  const [remoteKeywordSuggestions, setRemoteKeywordSuggestions] = useState({
+    items: [],
+    keyword: "",
+  });
   const [pendingLocation, setPendingLocation] = useState({
     city: searchState.city,
     district: searchState.district,
     ward: searchState.ward,
   });
   const [priceDraft, setPriceDraft] = useState({
-    minPrice: searchState.minPrice,
-    maxPrice: searchState.maxPrice,
+    minPrice: formatIntegerInputValue(searchState.minPrice),
+    maxPrice: formatIntegerInputValue(searchState.maxPrice),
   });
   const [areaDraft, setAreaDraft] = useState({
-    minArea: searchState.minArea,
-    maxArea: searchState.maxArea,
+    minArea: formatIntegerInputValue(searchState.minArea),
+    maxArea: formatIntegerInputValue(searchState.maxArea),
   });
   const searchBarRef = useRef(null);
   const locationPanelRef = useRef(null);
@@ -1192,6 +1595,13 @@ export function PropertySearchHeaderBar({
     () => getAdministrativeLocationSuggestionTargets(divisions),
     [divisions],
   );
+  const streetLocationTargets = useMemo(
+    () => [
+      ...getKnownStreetSuggestionTargets(),
+      ...getListingStreetSuggestionTargets(listings),
+    ],
+    [listings],
+  );
   const selectedCity = useMemo(
     () => divisions.find((item) => item.name === pendingLocation.city) ?? null,
     [divisions, pendingLocation.city],
@@ -1203,9 +1613,58 @@ export function PropertySearchHeaderBar({
       ) ?? null,
     [pendingLocation.district, selectedCity],
   );
+
+  useEffect(() => {
+    const keyword = String(deferredKeywordInput ?? "").trim();
+
+    if (!shouldFetchRemoteStreetSuggestions(keyword)) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      listSearchSuggestions(
+        {
+          keyword,
+          limit: 10,
+        },
+        {
+          signal: controller.signal,
+        },
+      )
+        .then((response) => {
+          if (!controller.signal.aborted) {
+            setRemoteKeywordSuggestions({
+              items: response.data?.items ?? [],
+              keyword,
+            });
+          }
+        })
+        .catch((error) => {
+          if (error.name !== "AbortError") {
+            setRemoteKeywordSuggestions({
+              items: [],
+              keyword,
+            });
+          }
+        });
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [deferredKeywordInput]);
+
   const visibleKeywordSuggestions = useMemo(() => {
     const keyword = String(deferredKeywordInput ?? "");
     const normalizedKeyword = normalizeSuggestionText(keyword);
+    const isStreetKeyword = isExplicitStreetKeyword(keyword);
+    const activeRemoteSuggestions =
+      normalizeSuggestionText(remoteKeywordSuggestions.keyword) ===
+      normalizedKeyword
+        ? remoteKeywordSuggestions.items
+        : [];
 
     if (!normalizedKeyword) {
       return keywordSuggestionOptions;
@@ -1214,10 +1673,18 @@ export function PropertySearchHeaderBar({
     const locationSuggestions = buildLocationKeywordSuggestions(
       keyword,
       administrativeLocationTargets,
+      streetLocationTargets,
+      {
+        streetOnly: isStreetKeyword,
+      },
     );
 
-    if (locationSuggestions.length) {
-      return locationSuggestions.slice(0, 10);
+    if (locationSuggestions.length || activeRemoteSuggestions.length) {
+      return (
+        isStreetKeyword
+          ? mergeKeywordSuggestions(activeRemoteSuggestions, locationSuggestions)
+          : mergeKeywordSuggestions(locationSuggestions, activeRemoteSuggestions)
+      ).slice(0, 10);
     }
 
     const intentSuggestions = buildIntentKeywordSuggestions(keyword);
@@ -1231,7 +1698,12 @@ export function PropertySearchHeaderBar({
         normalizeSuggestionText(item).includes(normalizedKeyword),
       )
       .slice(0, 5);
-  }, [administrativeLocationTargets, deferredKeywordInput]);
+  }, [
+    administrativeLocationTargets,
+    deferredKeywordInput,
+    remoteKeywordSuggestions,
+    streetLocationTargets,
+  ]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -1282,11 +1754,25 @@ export function PropertySearchHeaderBar({
 
     setKeywordInput(nextState.keyword);
     emitSearchState(nextState);
-    setSearchHistory((current) =>
-      addStoredSearchHistoryItem(current, nextState.keyword),
+    setSearchHistory(
+      addStoredSearchHistoryItem(getStoredSearchHistory(), nextState.keyword),
     );
     setOpenPanel("");
     onSubmit?.(nextState);
+  }
+
+  function openKeywordPanel() {
+    setSearchHistory(getStoredSearchHistory());
+    setOpenPanel("keyword");
+  }
+
+  function handleKeywordInputKeyDown(event) {
+    if (event.key !== "Enter" || event.nativeEvent?.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    commitKeywordSearch();
   }
 
   function removeSearchHistoryItem(keyword) {
@@ -1377,7 +1863,8 @@ export function PropertySearchHeaderBar({
             placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
             type="search"
             value={keywordInput}
-            onFocus={() => setOpenPanel("keyword")}
+            onFocus={openKeywordPanel}
+            onKeyDown={handleKeywordInputKeyDown}
             onChange={(event) => {
               setKeywordInput(event.target.value);
               setOpenPanel("keyword");
@@ -1498,8 +1985,8 @@ export function PropertySearchHeaderBar({
             type="button"
             onClick={() => {
               setPriceDraft({
-                minPrice: searchState.minPrice,
-                maxPrice: searchState.maxPrice,
+                minPrice: formatIntegerInputValue(searchState.minPrice),
+                maxPrice: formatIntegerInputValue(searchState.maxPrice),
               });
               setOpenPanel((current) =>
                 current === "price" ? "" : "price",
@@ -1529,7 +2016,7 @@ export function PropertySearchHeaderBar({
                   onChange={(event) =>
                     setPriceDraft((current) => ({
                       ...current,
-                      minPrice: event.target.value,
+                      minPrice: formatIntegerInputValue(event.target.value),
                     }))
                   }
                 />
@@ -1541,7 +2028,7 @@ export function PropertySearchHeaderBar({
                   onChange={(event) =>
                     setPriceDraft((current) => ({
                       ...current,
-                      maxPrice: event.target.value,
+                      maxPrice: formatIntegerInputValue(event.target.value),
                     }))
                   }
                 />
@@ -1551,14 +2038,16 @@ export function PropertySearchHeaderBar({
                   <button
                     key={preset.label}
                     className={getPresetButtonClassName(
-                      priceDraft.minPrice === preset.minPrice &&
-                        priceDraft.maxPrice === preset.maxPrice,
+                      parseNumberValue(priceDraft.minPrice) ===
+                        parseNumberValue(preset.minPrice) &&
+                        parseNumberValue(priceDraft.maxPrice) ===
+                          parseNumberValue(preset.maxPrice),
                     )}
                     type="button"
                     onClick={() =>
                       setPriceDraft({
-                        minPrice: preset.minPrice,
-                        maxPrice: preset.maxPrice,
+                        minPrice: formatIntegerInputValue(preset.minPrice),
+                        maxPrice: formatIntegerInputValue(preset.maxPrice),
                       })
                     }
                   >
@@ -1801,8 +2290,8 @@ export function PropertySearchHeaderBar({
             type="button"
             onClick={() => {
               setAreaDraft({
-                minArea: searchState.minArea,
-                maxArea: searchState.maxArea,
+                minArea: formatIntegerInputValue(searchState.minArea),
+                maxArea: formatIntegerInputValue(searchState.maxArea),
               });
               setOpenPanel((current) => (current === "area" ? "" : "area"));
             }}
@@ -1830,7 +2319,7 @@ export function PropertySearchHeaderBar({
                   onChange={(event) =>
                     setAreaDraft((current) => ({
                       ...current,
-                      minArea: event.target.value,
+                      minArea: formatIntegerInputValue(event.target.value),
                     }))
                   }
                 />
@@ -1842,7 +2331,7 @@ export function PropertySearchHeaderBar({
                   onChange={(event) =>
                     setAreaDraft((current) => ({
                       ...current,
-                      maxArea: event.target.value,
+                      maxArea: formatIntegerInputValue(event.target.value),
                     }))
                   }
                 />
@@ -1852,14 +2341,16 @@ export function PropertySearchHeaderBar({
                   <button
                     key={preset.label}
                     className={getPresetButtonClassName(
-                      areaDraft.minArea === preset.minArea &&
-                        areaDraft.maxArea === preset.maxArea,
+                      parseNumberValue(areaDraft.minArea) ===
+                        parseNumberValue(preset.minArea) &&
+                        parseNumberValue(areaDraft.maxArea) ===
+                          parseNumberValue(preset.maxArea),
                     )}
                     type="button"
                     onClick={() =>
                       setAreaDraft({
-                        minArea: preset.minArea,
-                        maxArea: preset.maxArea,
+                        minArea: formatIntegerInputValue(preset.minArea),
+                        maxArea: formatIntegerInputValue(preset.maxArea),
                       })
                     }
                   >
@@ -1897,7 +2388,8 @@ export function PropertySearchHeaderBar({
             placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
             type="search"
             value={keywordInput}
-            onFocus={() => setOpenPanel("keyword")}
+            onFocus={openKeywordPanel}
+            onKeyDown={handleKeywordInputKeyDown}
             onChange={(event) => {
               setKeywordInput(event.target.value);
               setOpenPanel("keyword");
@@ -2114,12 +2606,18 @@ export function PropertySearchResultsPage({
   }
 
   function openFilterPanel(key) {
-    setFilterDraft(normalizePropertySearchState(searchState));
+    setFilterDraft(
+      formatSearchDraftNumberFields(normalizePropertySearchState(searchState)),
+    );
     setOpenFilter((current) => (current === key ? "" : key));
   }
 
   function updateFilterDraft(patch) {
-    setFilterDraft((current) => normalizePropertySearchState({ ...current, ...patch }));
+    setFilterDraft((current) =>
+      formatSearchDraftNumberFields(
+        normalizePropertySearchState({ ...current, ...patch }),
+      ),
+    );
   }
 
   function applyFilterDraft(nextDraft = filterDraft) {
@@ -2306,7 +2804,11 @@ export function PropertySearchResultsPage({
             icon={Building2}
             isOpen={openFilter === "propertyType"}
             onToggle={() => openFilterPanel("propertyType")}
-            summary={searchState.propertyType || "Tất cả loại hình"}
+            summary={
+              searchState.propertyType
+                ? getPropertyTypeLabel(searchState.propertyType)
+                : "Tất cả loại hình"
+            }
             title="Loại bất động sản"
           >
             <div className="max-h-[280px] space-y-1 overflow-y-auto pr-1">
@@ -2381,8 +2883,10 @@ export function PropertySearchResultsPage({
             <div className="mt-3 grid grid-cols-2 gap-2">
               {pricePresetOptions.map((preset) => {
                 const isActive =
-                  filterDraft.minPrice === preset.minPrice &&
-                  filterDraft.maxPrice === preset.maxPrice;
+                  parseNumberValue(filterDraft.minPrice) ===
+                    parseNumberValue(preset.minPrice) &&
+                  parseNumberValue(filterDraft.maxPrice) ===
+                    parseNumberValue(preset.maxPrice);
 
                 return (
                   <button
@@ -2447,8 +2951,10 @@ export function PropertySearchResultsPage({
             <div className="mt-3 grid grid-cols-2 gap-2">
               {areaPresetOptions.map((preset) => {
                 const isActive =
-                  filterDraft.minArea === preset.minArea &&
-                  filterDraft.maxArea === preset.maxArea;
+                  parseNumberValue(filterDraft.minArea) ===
+                    parseNumberValue(preset.minArea) &&
+                  parseNumberValue(filterDraft.maxArea) ===
+                    parseNumberValue(preset.maxArea);
 
                 return (
                   <button

@@ -51,15 +51,33 @@ function AppHeader({
   const userMenuRef = useRef(null);
 
   const isAdmin = currentUser?.roles?.includes("admin");
+  const kycAccountStatusMap = {
+    verified: {
+      badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
+      label: "Đã xác thực",
+    },
+    pending: {
+      badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
+      label: "Hồ sơ đang chờ duyệt",
+    },
+    need_more_info: {
+      badgeClassName: "border-[#CFE0FF] bg-[#F3F7FF] text-[#2457C5]",
+      label: "Cần bổ sung thông tin",
+    },
+    rejected: {
+      badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
+      label: "Hồ sơ bị từ chối",
+    },
+  };
   const accountStatus =
     currentUser?.isActive === false
       ? {
           badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
           label: "Tài khoản tạm khóa",
         }
-      : {
-          badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
-          label: "Tài khoản đang hoạt động",
+      : kycAccountStatusMap[currentUser?.kycStatus] ?? {
+          badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
+          label: "Chưa xác thực",
         };
 
   const userMenuItems = [

@@ -20,6 +20,70 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+.werent-reflection-sweep {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.werent-reflection-sweep > * {
+  position: relative;
+  z-index: 1;
+}
+
+.werent-reflection-sweep::before,
+.werent-reflection-sweep::after {
+  position: absolute;
+  left: 0;
+  z-index: 0;
+  width: 46px;
+  height: 10px;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.42) 38%, transparent 72%),
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.62) 50%, transparent 100%);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.34);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: werent-reflection-sweep 1.7s linear 3;
+}
+
+.werent-reflection-sweep::before {
+  top: 0;
+  --werent-reflection-y: -50%;
+}
+
+.werent-reflection-sweep::after {
+  bottom: 0;
+  --werent-reflection-y: 50%;
+}
+
+@keyframes werent-reflection-sweep {
+  0% {
+    left: 0;
+    opacity: 0;
+    transform: translate3d(-85%, var(--werent-reflection-y), 0) scaleX(0.86);
+  }
+
+  8% {
+    opacity: 1;
+  }
+
+  70.588% {
+    left: 100%;
+    opacity: 1;
+    transform: translate3d(-15%, var(--werent-reflection-y), 0) scaleX(1);
+  }
+
+  76%,
+  100% {
+    left: 100%;
+    opacity: 0;
+    transform: translate3d(20%, var(--werent-reflection-y), 0) scaleX(0.86);
+  }
+}
+
 .leaflet-container {
   font-family: "Inter", "Geist Variable", sans-serif;
 }
