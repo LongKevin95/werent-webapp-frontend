@@ -35,10 +35,15 @@ import {
   uploadAvatar as uploadAvatarRequest,
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
-import { createTopUpCheckout, getWalletOverview } from "./lib/payment-client";
+import {
+  createTopUpCheckout,
+  getTopUpPromotions,
+  getWalletOverview,
+} from "./lib/payment-client";
 import {
   createPropertyListing,
   deletePropertyListing,
+  getListingVerification,
   listAdministrativeDivisions,
   listMyProperties,
   listProperties,
@@ -105,6 +110,10 @@ import {
 } from "lucide-react";
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
+const ACCOUNT_KYC_SUBMITTED_MESSAGE =
+  "Yêu cầu xác thực của bạn đã đươc gửi đi. Vui lòng chờ đợi quá trình phê duyệt!";
+const LOGIN_REQUIRED_MESSAGE =
+  "Vui lòng đăng nhập để sử dụng tính năng này.";
 const FRONTEND_ROUTES = Object.freeze({
   adminDashboard: "/admin",
   home: "/",
@@ -213,6 +222,64 @@ function canUserPostListing(user) {
   );
 }
 
+function getListingVerificationBadgeLabel(status) {
+  if (status === "verified_owner") {
+    return "Chính chủ";
+  }
+
+  if (status === "verified_authorized") {
+    return "Xác thực";
+  }
+
+  return "Xác thực";
+}
+
+function createNoticeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getKycStatusDisplay(status) {
+  const statusMap = {
+    verified: {
+      badgeClassName: "bg-green-50 text-green-700",
+      iconClassName: "bg-green-50 text-green-600",
+      label: "Đã xác thực",
+      description: "Bạn đã có quyền đăng tin trên WeRent.",
+    },
+    pending: {
+      badgeClassName: "bg-[#FFF7E7] text-[#A26A11]",
+      iconClassName: "bg-[#FFF5DF] text-[#B67817]",
+      label: "Hồ sơ đang chờ duyệt",
+      description:
+        "Yêu cầu xác thực của bạn đang được phê duyệt. Vui lòng chờ kết quả.",
+    },
+    need_more_info: {
+      badgeClassName: "bg-blue-50 text-blue-700",
+      iconClassName: "bg-blue-50 text-blue-600",
+      label: "Cần bổ sung thông tin",
+      description:
+        "Vui lòng bổ sung hồ sơ theo phản hồi để tiếp tục xác thực.",
+    },
+    rejected: {
+      badgeClassName: "bg-red-50 text-red-700",
+      iconClassName: "bg-red-50 text-red-600",
+      label: "Hồ sơ bị từ chối",
+      description:
+        "Hồ sơ xác thực chưa được duyệt. Bạn có thể nộp lại thông tin.",
+    },
+  };
+
+  return (
+    statusMap[status] ?? {
+      badgeClassName: "bg-[#FFF7E7] text-[#A26A11]",
+      iconClassName: "bg-[#FFF5DF] text-[#B67817]",
+      label: "Chưa xác thực",
+      description:
+        "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin.",
+    }
+  );
+}
+
 function createPlaceholderImage(title, primary, secondary) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" fill="none">
@@ -262,7 +329,7 @@ const authenticatedHeaderNavItems = [
 const categories = [
   { icon: House, title: "Phòng trọ", count: "1.520 tin" },
   { icon: Building2, title: "Chung cư", count: "680 tin" },
-  { icon: Home, title: "Nhà nguyên căn", count: "230 tin" },
+  { icon: Home, title: "Nhà riêng", count: "230 tin" },
   { icon: BedDouble, title: "Ký túc xá", count: "120 tin" },
   { icon: Landmark, title: "Văn phòng", count: "98 tin" },
   { icon: Store, title: "Mặt bằng", count: "76 tin" },
@@ -299,7 +366,7 @@ const featuredListings = [
   {
     image: createPlaceholderImage("Nhà thuê 04", "#dce3d7", "#f0f4ed"),
     price: "6.000.000đ",
-    title: "Nhà nguyên căn yên tĩnh, gần chợ và trục đường chính",
+    title: "Nhà riêng yên tĩnh, gần chợ và trục đường chính",
     location: "Quận 3, TP. Hồ Chí Minh",
     area: "42m²",
     specs: ["1 WC", "Nội thất cơ bản"],
@@ -458,8 +525,8 @@ const ownerListingRecords = [
   },
   {
     id: "LIST-003",
-    image: createPlaceholderImage("Nhà nguyên căn", "#ddd3c6", "#f3ede5"),
-    title: "Nhà nguyên căn 1 trệt 2 lầu, phù hợp nhóm bạn hoặc gia đình",
+    image: createPlaceholderImage("Nhà riêng", "#ddd3c6", "#f3ede5"),
+    title: "Nhà riêng 1 trệt 2 lầu, phù hợp nhóm bạn hoặc gia đình",
     location: "Quận 7, TP. Hồ Chí Minh",
     price: "18.500.000đ/tháng",
     packageLabel: "VIP Vàng • 10 ngày",
@@ -468,7 +535,7 @@ const ownerListingRecords = [
     updatedAt: "01/08/2026",
     metrics: ["842 lượt xem", "18 lượt liên hệ", "Hết hạn sau 2 ngày"],
     draft: {
-      propertyType: "Nhà nguyên căn",
+      propertyType: "Nhà riêng",
       area: "110",
       bedrooms: "4",
       bathrooms: "3",
@@ -490,7 +557,7 @@ const ownerListingRecords = [
       addressLine: "Số 48/7",
       projectName: "Khu dân cư nội bộ",
       description:
-        "Nhà nguyên căn rộng rãi, có sân trước để xe, phù hợp gia đình hoặc nhóm bạn cần không gian riêng tư.",
+        "Nhà riêng rộng rãi, có sân trước để xe, phù hợp gia đình hoặc nhóm bạn cần không gian riêng tư.",
       locationNote:
         "Nằm trong hẻm xe hơi, gần trường học, chợ và công viên khu dân cư.",
       videoLink: "https://www.youtube.com/watch?v=werent003",
@@ -521,7 +588,7 @@ const ownerListingRecords = [
       "Lưu gần nhất 10 phút trước",
     ],
     draft: {
-      propertyType: "Chung cư mini",
+      propertyType: "Căn hộ dịch vụ",
       area: "28",
       bedrooms: "1",
       bathrooms: "1",
@@ -815,7 +882,8 @@ function PropertyCard({ listing, onViewListing }) {
         </span>
         {listing.isVerified ? (
           <span className="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#159848] shadow">
-            <ShieldCheck className="size-3" /> Xác thực
+            <ShieldCheck className="size-3" />{" "}
+            {getListingVerificationBadgeLabel(listing.verificationStatus)}
           </span>
         ) : null}
       </div>
@@ -895,7 +963,7 @@ function MiniPropertyCard({ listing, onViewListing }) {
         {listing.isVerified ? (
           <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700">
             <ShieldCheck className="size-3" />
-            Xác thực
+            {getListingVerificationBadgeLabel(listing.verificationStatus)}
           </span>
         ) : null}
         <h3 className="line-clamp-2 min-h-[46px] break-words text-[14px] font-bold leading-[23px] text-[#242933]">
@@ -1525,8 +1593,15 @@ const PROPERTY_IMAGE_ACCEPT = Array.from(ALLOWED_PROPERTY_IMAGE_TYPES).join(
 
 const walletSummaryCards = [
   {
-    key: "available",
+    key: "totalBalance",
     icon: Wallet,
+    label: "Tổng số dư",
+    value: 1250000,
+    tone: "blue",
+  },
+  {
+    key: "available",
+    icon: Download,
     label: "Số dư khả dụng",
     value: 1100000,
     tone: "green",
@@ -1539,13 +1614,6 @@ const walletSummaryCards = [
     tone: "mint",
   },
   {
-    key: "deposited",
-    icon: Download,
-    label: "Tổng đã nạp",
-    value: 3250000,
-    tone: "blue",
-  },
-  {
     key: "spent",
     icon: ArrowUp,
     label: "Tổng đã chi",
@@ -1555,13 +1623,16 @@ const walletSummaryCards = [
 ];
 
 const topUpQuickAmounts = [
-  { amount: 500000, bonus: 50000 },
-  { amount: 1000000, bonus: 100000 },
-  { amount: 2000000, bonus: 200000 },
-  { amount: 3000000, bonus: 300000 },
-  { amount: 5000000, bonus: 500000 },
-  { amount: 10000000, bonus: 1000000 },
+  { amount: 500000 },
+  { amount: 1000000 },
+  { amount: 2000000 },
+  { amount: 3000000 },
+  { amount: 5000000 },
+  { amount: 10000000 },
 ];
+
+const TOP_UP_PROMOTION_SELECTION_LIMIT = 3;
+const TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT = 100;
 
 const topUpPaymentMethods = [
   {
@@ -1689,6 +1760,16 @@ const defaultListingDraft = {
   selectedDuration: "custom",
   selectedAmenities: [],
 };
+const listingNumberInputFields = {
+  accessRoad: { allowDecimal: true },
+  area: { allowDecimal: true },
+  bathrooms: {},
+  bedrooms: {},
+  frontage: { allowDecimal: true },
+  moveInDays: {},
+  rentPrice: {},
+  totalFloors: {},
+};
 const draftRequiredFieldSteps = {
   area: 0,
   bathrooms: 0,
@@ -1706,11 +1787,47 @@ const draftValidationToastMessage =
 
 const propertyTypeOptions = [
   "Phòng trọ",
-  "Chung cư mini",
   "Căn hộ dịch vụ",
-  "Nhà nguyên căn",
+  "Nhà riêng",
+  "Nhà mặt phố",
   "Mặt bằng kinh doanh",
 ];
+
+function getCanonicalPropertyType(value = "") {
+  if (["Chung cư mini", "Studio"].includes(value)) {
+    return "Căn hộ dịch vụ";
+  }
+
+  if (value === "Nhà nguyên căn") {
+    return "Nhà riêng";
+  }
+
+  if (["Nhà phố", "Nhà mặt tiền"].includes(value)) {
+    return "Nhà mặt phố";
+  }
+
+  return value;
+}
+
+function formatListingDraftNumberValue(field, value) {
+  const options = listingNumberInputFields[field];
+
+  if (!options) {
+    return value;
+  }
+
+  return formatNumberInputValue(value, options);
+}
+
+function formatListingDraftNumberValues(draft = {}) {
+  return Object.entries(listingNumberInputFields).reduce(
+    (nextDraft, [field, options]) => ({
+      ...nextDraft,
+      [field]: formatNumberInputValue(nextDraft[field], options),
+    }),
+    { ...draft },
+  );
+}
 
 function getDraftRequiredFieldErrors({
   listingDescription,
@@ -2123,31 +2240,101 @@ function parseListingMoneyInput(value) {
     return Number.isFinite(value) ? value : 0;
   }
 
-  return Number(String(value ?? "").replace(/[^\d]/g, "")) || 0;
+  return parseFormattedNumberInput(value);
 }
 
-function parseListingNumericInput(value) {
+const numberInputFormatter = new Intl.NumberFormat("vi-VN");
+
+function getNumberInputDigits(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function splitDecimalNumberInput(value) {
+  const cleanedValue = String(value ?? "")
+    .trim()
+    .replace(/[^\d,.]/g, "");
+
+  if (!cleanedValue) {
+    return { decimalDigits: "", hasDecimal: false, integerDigits: "" };
+  }
+
+  const commaIndex = cleanedValue.indexOf(",");
+
+  if (commaIndex >= 0) {
+    return {
+      decimalDigits: cleanedValue.slice(commaIndex + 1).replace(/\D/g, ""),
+      hasDecimal: true,
+      integerDigits: cleanedValue.slice(0, commaIndex).replace(/\D/g, ""),
+    };
+  }
+
+  const dotParts = cleanedValue.split(".");
+
+  if (dotParts.length > 1) {
+    const digitParts = dotParts.map((part) => part.replace(/\D/g, ""));
+    const looksLikeThousands = digitParts
+      .slice(1)
+      .every((part) => part.length === 3);
+
+    if (!looksLikeThousands) {
+      return {
+        decimalDigits: digitParts.at(-1) ?? "",
+        hasDecimal: true,
+        integerDigits: digitParts.slice(0, -1).join(""),
+      };
+    }
+  }
+
+  return {
+    decimalDigits: "",
+    hasDecimal: false,
+    integerDigits: cleanedValue.replace(/\D/g, ""),
+  };
+}
+
+function formatNumberInputValue(value, options = {}) {
+  const { allowDecimal = false } = options;
+
+  if (!allowDecimal) {
+    const digits = getNumberInputDigits(value);
+    return digits ? numberInputFormatter.format(Number(digits)) : "";
+  }
+
+  const { decimalDigits, hasDecimal, integerDigits } =
+    splitDecimalNumberInput(value);
+  const formattedInteger = integerDigits
+    ? numberInputFormatter.format(Number(integerDigits))
+    : "";
+
+  if (hasDecimal) {
+    return `${formattedInteger || "0"},${decimalDigits}`;
+  }
+
+  return formattedInteger;
+}
+
+function parseFormattedNumberInput(value, options = {}) {
+  const { allowDecimal = false } = options;
+
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
   }
 
-  const normalizedValue = String(value ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .replace(/,/g, ".")
-    .replace(/[^\d.]/g, "");
-
-  if (!normalizedValue) {
-    return 0;
+  if (!allowDecimal) {
+    return Number(getNumberInputDigits(value)) || 0;
   }
 
-  const parts = normalizedValue.split(".");
-
-  if (parts.length > 2) {
-    return Number(parts.join("")) || 0;
-  }
+  const { decimalDigits, hasDecimal, integerDigits } =
+    splitDecimalNumberInput(value);
+  const normalizedValue = hasDecimal
+    ? `${integerDigits || "0"}.${decimalDigits}`
+    : integerDigits;
 
   return Number(normalizedValue) || 0;
+}
+
+function parseListingNumericInput(value) {
+  return parseFormattedNumberInput(value, { allowDecimal: true });
 }
 
 function formatListingDateForApi(value) {
@@ -2930,7 +3117,7 @@ function buildMarketingListingRecord(listing, source, index) {
     },
     draft: {
       propertyType:
-        source === "featured" ? "Căn hộ / Studio" : "Phòng trọ / Căn hộ mini",
+        source === "featured" ? "Căn hộ chung cư" : "Phòng trọ",
       area: areaValue,
       bedrooms: "1",
       bathrooms: bathroomsValue,
@@ -2993,6 +3180,7 @@ function getPropertyStatusLabel(status) {
 
 function mapApiPropertyToListingRecord(property, index = 0) {
   const listingId = property.id ?? property._id ?? `api-property-${index + 1}`;
+  const propertyType = getCanonicalPropertyType(property.propertyType);
   const propertyImages = (property.images ?? [])
     .map((image) => ({
       publicId: image?.publicId ?? null,
@@ -3005,7 +3193,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
   const primaryImage =
     imageUrls[0] ??
     createPlaceholderImage(
-      property.propertyType || "WeRent",
+      propertyType || "WeRent",
       "#dce8d9",
       "#f4f7f4",
     );
@@ -3039,7 +3227,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     property.publishedAt ?? property.createdAt ?? property.updatedAt ?? null;
   const draft = {
     ...defaultListingDraft,
-    propertyType: property.propertyType || defaultListingDraft.propertyType,
+    propertyType: propertyType || defaultListingDraft.propertyType,
     area: property.area ? String(property.area) : "",
     bedrooms: property.bedrooms ? String(property.bedrooms) : "0",
     bathrooms: property.bathrooms ? String(property.bathrooms) : "0",
@@ -3495,8 +3683,105 @@ function formatWalletCurrency(value) {
   return `${new Intl.NumberFormat("vi-VN").format(value)} đ`;
 }
 
-function getTopUpBonus(amount) {
-  return Math.floor(Number(amount || 0) * 0.1);
+function formatTopUpPromotionEndDate(value) {
+  if (!value) {
+    return "Không giới hạn";
+  }
+
+  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
+}
+
+function getTopUpPromotionBonusAmount(promotion, amount) {
+  const rawBonus = Math.floor(
+    (Number(amount || 0) * Number(promotion.bonusPercent || 0)) / 100,
+  );
+
+  if (promotion.maximumBonus == null) {
+    return rawBonus;
+  }
+
+  return Math.min(rawBonus, Number(promotion.maximumBonus || 0));
+}
+
+function getTopUpBonus(amount, promotions = []) {
+  return promotions.reduce(
+    (totalBonus, promotion) =>
+      totalBonus + getTopUpPromotionBonusAmount(promotion, amount),
+    0,
+  );
+}
+
+function sortTopUpPromotionsByPriority(promotions, amount) {
+  return [...promotions].sort((a, b) => {
+    const priorityDelta = Number(b.priority || 0) - Number(a.priority || 0);
+
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const bonusDelta =
+      getTopUpPromotionBonusAmount(b, amount) -
+      getTopUpPromotionBonusAmount(a, amount);
+
+    if (bonusDelta !== 0) {
+      return bonusDelta;
+    }
+
+    return a.name.localeCompare(b.name, "vi");
+  });
+}
+
+function getEligibleTopUpPromotions(promotions, amount) {
+  if (!amount) {
+    return [];
+  }
+
+  return sortTopUpPromotionsByPriority(
+    promotions.filter(
+      (promotion) =>
+        amount >= Number(promotion.minimumAmount || 0) &&
+        Number(promotion.remainingUses ?? 1) > 0,
+    ),
+    amount,
+  );
+}
+
+function getTopUpPromotionsForDisplay(promotions, amount) {
+  return sortTopUpPromotionsByPriority(promotions, amount);
+}
+
+function isTopUpPromotionEligible(promotion, amount) {
+  return (
+    Boolean(amount) &&
+    amount >= Number(promotion.minimumAmount || 0) &&
+    Number(promotion.remainingUses ?? 1) > 0
+  );
+}
+
+function getDefaultTopUpPromotion(promotions, amount) {
+  return sortTopUpPromotionsByPriority(promotions, amount)[0] ?? null;
+}
+
+function getTopUpPromotionPercent(promotions) {
+  return promotions.reduce(
+    (totalPercent, promotion) =>
+      totalPercent + Number(promotion.bonusPercent || 0),
+    0,
+  );
+}
+
+function normalizeTopUpPromotion(promotion) {
+  return {
+    ...promotion,
+    id: promotion.id ?? promotion._id,
+    bonusPercent: Number(promotion.bonusPercent || 0),
+    minimumAmount: Number(promotion.minimumAmount || 0),
+    maximumBonus:
+      promotion.maximumBonus == null ? null : Number(promotion.maximumBonus),
+    priority: Number(promotion.priority || 0),
+    stackable: promotion.stackable ?? false,
+    autoApply: promotion.autoApply ?? false,
+  };
 }
 
 function AccountPageShell({
@@ -3651,18 +3936,21 @@ function WalletPage({
     totalSpent: 0,
   };
   const walletTransactions = walletData?.transactions ?? [];
+  const totalWalletBalance =
+    Number(walletSummary.availableBalance ?? 0) +
+    Number(walletSummary.promotionBalance ?? 0);
   const walletSummaryCardsWithValues = [
     {
       ...walletSummaryCards[0],
-      value: walletSummary.availableBalance,
+      value: totalWalletBalance,
     },
     {
       ...walletSummaryCards[1],
-      value: walletSummary.promotionBalance,
+      value: walletSummary.availableBalance,
     },
     {
       ...walletSummaryCards[2],
-      value: walletSummary.totalDeposited,
+      value: walletSummary.promotionBalance,
     },
     {
       ...walletSummaryCards[3],
@@ -3794,9 +4082,14 @@ function WalletPage({
                     );
                     const signedAmount =
                       getWalletTransactionAmount(transaction);
-                    const balanceAfter =
-                      Number(transaction.balanceAfter ?? 0) +
-                      Number(transaction.promotionBalanceAfter ?? 0);
+                    const availableBalanceAfter = Number(
+                      transaction.balanceAfter ?? 0,
+                    );
+                    const promotionBalanceAfter = Number(
+                      transaction.promotionBalanceAfter ?? 0,
+                    );
+                    const totalBalanceAfter =
+                      availableBalanceAfter + promotionBalanceAfter;
                     const detailParts = [
                       transaction.metadata?.orderCode
                         ? `Mã GD: ${transaction.metadata.orderCode}`
@@ -3842,10 +4135,17 @@ function WalletPage({
                           {signedAmount > 0 ? "+" : ""}
                           {formatWalletCurrency(signedAmount)}
                         </td>
-                        <td className="px-5 py-4 text-right font-semibold text-[#263149]">
-                          {balanceAfter
-                            ? formatWalletCurrency(balanceAfter)
-                            : "-"}
+                        <td className="px-5 py-4 text-right">
+                          <p className="font-semibold text-[#263149]">
+                            {Number.isFinite(totalBalanceAfter)
+                              ? formatWalletCurrency(totalBalanceAfter)
+                              : "-"}
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-[#66718A]">
+                            Khả dụng:{" "}
+                            {formatWalletCurrency(availableBalanceAfter)} · KM:{" "}
+                            {formatWalletCurrency(promotionBalanceAfter)}
+                          </p>
                         </td>
                       </tr>
                     );
@@ -3908,9 +4208,40 @@ function TopUpPaymentPage({
   const [acceptedTerms, setAcceptedTerms] = useState(true);
   const [notice, setNotice] = useState(null);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+  const [selectedPromotionIds, setSelectedPromotionIds] = useState([]);
+  const [topUpPromotionItems, setTopUpPromotionItems] = useState([]);
+  const [autoTopUpPromotionItems, setAutoTopUpPromotionItems] = useState([]);
+  const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
+  const [promotionLoadError, setPromotionLoadError] = useState("");
+  const [isPromotionSummaryOpen, setIsPromotionSummaryOpen] = useState(false);
 
   const amount = Number(amountValue || 0);
-  const bonus = getTopUpBonus(amount);
+  const autoPromotions = useMemo(
+    () => getEligibleTopUpPromotions(autoTopUpPromotionItems, amount),
+    [amount, autoTopUpPromotionItems],
+  );
+  const eligiblePromotions = useMemo(
+    () => getEligibleTopUpPromotions(topUpPromotionItems, amount),
+    [amount, topUpPromotionItems],
+  );
+  const displayPromotions = useMemo(
+    () => getTopUpPromotionsForDisplay(topUpPromotionItems, amount),
+    [amount, topUpPromotionItems],
+  );
+  const selectedPromotions = eligiblePromotions.filter((promotion) =>
+    selectedPromotionIds.includes(promotion.id),
+  );
+  const appliedPromotions = [...autoPromotions, ...selectedPromotions];
+  const selectedPromotionPercent = getTopUpPromotionPercent(appliedPromotions);
+  const autoBonus = getTopUpBonus(amount, autoPromotions);
+  const selectedBonus = getTopUpBonus(amount, selectedPromotions);
+  const bonus = autoBonus + selectedBonus;
+  const appliedPromotionDetails = appliedPromotions.map((promotion) => ({
+    ...promotion,
+    bonusAmount: getTopUpPromotionBonusAmount(promotion, amount),
+  }));
+  const shouldShowPromotionSummary =
+    isPromotionSummaryOpen && appliedPromotionDetails.length > 0;
   const total = amount + bonus;
   const selectedMethodDetail = topUpPaymentMethods.find(
     (method) => method.key === selectedMethod,
@@ -3918,9 +4249,135 @@ function TopUpPaymentPage({
   const canContinue =
     Boolean(selectedMethodDetail?.enabled) && amount >= 10000 && acceptedTerms;
 
+  useEffect(() => {
+    let ignore = false;
+
+    getTopUpPromotions(accessToken)
+      .then((response) => {
+        if (ignore) {
+          return;
+        }
+
+        const items = (response.data?.items ?? []).map(normalizeTopUpPromotion);
+        const autoItems = (response.data?.autoItems ?? []).map(
+          normalizeTopUpPromotion,
+        );
+        setTopUpPromotionItems(items);
+        setAutoTopUpPromotionItems(autoItems);
+        setPromotionLoadError("");
+      })
+      .catch((error) => {
+        if (ignore) {
+          return;
+        }
+
+        setTopUpPromotionItems([]);
+        setAutoTopUpPromotionItems([]);
+        setPromotionLoadError(
+          error.message ||
+            "Không thể tải danh sách khuyến mãi nạp tiền lúc này.",
+        );
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLoadingPromotions(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken]);
+
+  function selectDefaultPromotionForAmount(nextAmount) {
+    const nextAutoPromotions = getEligibleTopUpPromotions(
+      autoTopUpPromotionItems,
+      nextAmount,
+    );
+
+    if (nextAutoPromotions.some((promotion) => !promotion.stackable)) {
+      setSelectedPromotionIds([]);
+      return;
+    }
+
+    const defaultPromotion = getDefaultTopUpPromotion(
+      getEligibleTopUpPromotions(topUpPromotionItems, nextAmount),
+      nextAmount,
+    );
+
+    setSelectedPromotionIds(defaultPromotion ? [defaultPromotion.id] : []);
+  }
+
   function handleAmountChange(event) {
-    setAmountValue(event.target.value.replace(/\D/g, ""));
+    const nextAmountValue = event.target.value.replace(/\D/g, "");
+
+    setAmountValue(nextAmountValue);
+    selectDefaultPromotionForAmount(Number(nextAmountValue || 0));
+    setIsPromotionSummaryOpen(false);
     setNotice(null);
+  }
+
+  function handlePromotionToggle(promotion) {
+    const isSelected = selectedPromotionIds.includes(promotion.id);
+    setNotice(null);
+
+    if (!isTopUpPromotionEligible(promotion, amount)) {
+      setNotice({
+        type: "error",
+        message: `Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`,
+      });
+      return;
+    }
+
+    if (isSelected) {
+      setSelectedPromotionIds((currentIds) =>
+        currentIds.filter((promotionId) => promotionId !== promotion.id),
+      );
+      return;
+    }
+
+    if (!promotion.stackable) {
+      setSelectedPromotionIds([promotion.id]);
+      setNotice({
+        type: "success",
+        message: `${promotion.name} không áp dụng song song với chương trình khác.`,
+      });
+      return;
+    }
+
+    const hasExclusivePromotion = appliedPromotions.some(
+      (selectedPromotion) => !selectedPromotion.stackable,
+    );
+
+    if (hasExclusivePromotion) {
+      setNotice({
+        type: "error",
+        message:
+          "Khuyến mãi đang chọn không thể áp dụng song song. Vui lòng bỏ chọn trước khi thêm chương trình khác.",
+      });
+      return;
+    }
+
+    if (appliedPromotions.length >= TOP_UP_PROMOTION_SELECTION_LIMIT) {
+      setNotice({
+        type: "error",
+        message: `Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`,
+      });
+      return;
+    }
+
+    if (
+      selectedPromotionPercent + Number(promotion.bonusPercent || 0) >
+      TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT
+    ) {
+      setNotice({
+        type: "error",
+        message: `Tổng % khuyến mãi áp dụng song song không được vượt quá ${TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT}%.`,
+      });
+      return;
+    }
+
+    setSelectedPromotionIds((currentIds) => [...currentIds, promotion.id]);
   }
 
   async function handleContinue() {
@@ -3936,6 +4393,8 @@ function TopUpPaymentPage({
         amount,
         note,
         paymentMethod: selectedMethod,
+        promotionIds: selectedPromotions.map((promotion) => promotion.id),
+        expectedBonusAmount: bonus,
       });
       const checkout = response.data?.checkout;
 
@@ -4005,10 +4464,6 @@ function TopUpPaymentPage({
               <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
                 Thanh toán nạp tiền
               </h1>
-              <p className="mt-2 text-sm leading-6 text-[#536179]">
-                Chọn phương thức nạp tiền phù hợp với bạn và nhập số tiền muốn
-                nạp.
-              </p>
             </section>
 
             <section>
@@ -4058,9 +4513,6 @@ function TopUpPaymentPage({
                       <span className="mt-4 block font-bold text-[#182238]">
                         {method.label}
                       </span>
-                      <span className="mt-2 block text-sm leading-6 text-[#64708A]">
-                        {method.description}
-                      </span>
                     </button>
                   );
                 })}
@@ -4102,6 +4554,22 @@ function TopUpPaymentPage({
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {topUpQuickAmounts.map((option) => {
                     const isSelected = amount === option.amount;
+                    const quickDefaultPromotion = getDefaultTopUpPromotion(
+                      getEligibleTopUpPromotions(
+                        topUpPromotionItems,
+                        option.amount,
+                      ),
+                      option.amount,
+                    );
+                    const quickAutoPromotions = getEligibleTopUpPromotions(
+                      autoTopUpPromotionItems,
+                      option.amount,
+                    );
+                    const quickPromotions = [
+                      ...quickAutoPromotions,
+                      ...(quickDefaultPromotion ? [quickDefaultPromotion] : []),
+                    ];
+                    const quickBonus = getTopUpBonus(option.amount, quickPromotions);
 
                     return (
                       <button
@@ -4114,17 +4582,18 @@ function TopUpPaymentPage({
                         type="button"
                         onClick={() => {
                           setAmountValue(String(option.amount));
+                          selectDefaultPromotionForAmount(option.amount);
                           setNotice(null);
                         }}
                       >
                         <span className="block text-lg font-bold text-[#11182A]">
                           {formatWalletCurrency(option.amount)}
                         </span>
-                        {option.bonus ? (
+                        {quickBonus ? (
                           <span className="mt-2 block text-sm text-[#273149]">
                             Tặng:{" "}
                             <span className="font-bold text-[#07943F]">
-                              {formatWalletCurrency(option.bonus)}
+                              {formatWalletCurrency(quickBonus)}
                             </span>
                           </span>
                         ) : null}
@@ -4133,6 +4602,147 @@ function TopUpPaymentPage({
                   })}
                 </div>
               </div>
+
+              <section className="rounded-[20px] border border-[#E1E7E3] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-[#172033]">
+                      Chương trình khuyến mãi
+                    </h2>
+                    <p className="mt-1 whitespace-nowrap text-[11px] font-semibold leading-5 text-[#D05252]">
+                      (*) Không được áp dụng song song.
+                    </p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#FFF5E5] text-[#D98713]">
+                    <Gift className="size-5" />
+                  </span>
+                </div>
+
+                {autoPromotions.length ? (
+                  <div className="mt-5 rounded-2xl border border-[#D6EFD7] bg-[#F4FBF5] px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-[#172033]">
+                        Khuyến mãi tự động
+                      </span>
+                      <span className="font-bold text-[#07943F]">
+                        {formatWalletCurrency(autoBonus)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-[#63708A]">
+                      {autoPromotions.map((promotion) => promotion.name).join(", ")}
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className={`${autoPromotions.length ? "mt-3" : "mt-5"} space-y-3`}>
+                  {isLoadingPromotions ? (
+                    <div className="rounded-2xl border border-dashed border-[#DDE4DF] px-4 py-5 text-sm leading-6 text-[#63708A]">
+                      Đang tải chương trình khuyến mãi...
+                    </div>
+                  ) : promotionLoadError ? (
+                    <div className="rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-5 text-sm leading-6 text-[#B73A3A]">
+                      {promotionLoadError}
+                    </div>
+                  ) : displayPromotions.length ? (
+                    displayPromotions.map((promotion) => {
+                      const isSelected = selectedPromotionIds.includes(
+                        promotion.id,
+                      );
+                      const isBelowMinimumAmount = !isTopUpPromotionEligible(
+                        promotion,
+                        amount,
+                      );
+                      const isBlockedByExclusiveSelection =
+                        appliedPromotions.some(
+                          (selectedPromotion) =>
+                            !selectedPromotion.stackable &&
+                            selectedPromotion.id !== promotion.id,
+                        );
+                      const isExclusiveBlockedByOtherSelection =
+                        !promotion.stackable &&
+                        appliedPromotions.some(
+                          (selectedPromotion) =>
+                            selectedPromotion.id !== promotion.id,
+                        );
+                      const isPromotionDisabled =
+                        isBelowMinimumAmount ||
+                        isBlockedByExclusiveSelection ||
+                        isExclusiveBlockedByOtherSelection;
+
+                      return (
+                        <label
+                          className={`flex gap-3 rounded-2xl border px-3 py-3 transition ${
+                            isSelected
+                              ? "border-[#10964A] bg-[#F4FBF5]"
+                              : "border-[#E5EAE6] bg-white hover:border-[#BFDCC7]"
+                          } ${
+                            isPromotionDisabled
+                              ? "cursor-not-allowed opacity-55"
+                              : "cursor-pointer"
+                          }`}
+                          key={promotion.id}
+                        >
+                          <input
+                            checked={isSelected}
+                            className="mt-1 size-4 accent-[#10964A]"
+                            disabled={isPromotionDisabled}
+                            type="checkbox"
+                            onChange={() => handlePromotionToggle(promotion)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-start justify-between gap-3">
+                              <span className="min-w-0">
+                                <span className="block text-sm font-bold text-[#172033]">
+                                  {promotion.name}
+                                  {!promotion.stackable ? (
+                                    <span className="text-[#D05252]">
+                                      {" "}
+                                      (*)
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span className="block text-sm font-bold text-[#07943F]">
+                                  +{promotion.bonusPercent}%
+                                </span>
+                              </span>
+                            </span>
+                            <span className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-medium text-[#63708A]">
+                              <span>
+                                Tối thiểu từ{" "}
+                                {formatWalletCurrency(promotion.minimumAmount)}
+                              </span>
+                              <span className="text-[#CAD2CC]">•</span>
+                              <span>
+                                Hết hạn{" "}
+                                {formatTopUpPromotionEndDate(promotion.endsAt)}
+                              </span>
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-[#DDE4DF] px-4 py-5 text-sm leading-6 text-[#63708A]">
+                      Chưa có chương trình khuyến mãi nạp tiền đang hoạt động.
+                    </div>
+                  )}
+                </div>
+
+                {appliedPromotions.length ? (
+                  <div className="mt-4 rounded-xl bg-[#EEF7EF] px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-[#172033]">
+                        Tổng tiền khuyến mãi
+                      </span>
+                      <span className="font-bold text-[#07943F]">
+                        {formatWalletCurrency(bonus)}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
 
               <div className="space-y-3">
                 <h2 className="text-base font-bold text-[#172033]">
@@ -4198,6 +4808,48 @@ function TopUpPaymentPage({
                   <dd className="font-bold text-[#172033]">
                     {amount ? formatWalletCurrency(amount) : "-"}
                   </dd>
+                </div>
+                <div className="border-b border-dashed border-[#DDE4DF] pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-[#526071]">Chương trình áp dụng</dt>
+                    <dd className="max-w-[190px] text-right">
+                      {appliedPromotions.length ? (
+                        <button
+                          className="inline-flex items-center justify-end gap-1.5 text-right font-bold text-[#172033] transition hover:text-[#078C3F]"
+                          type="button"
+                          onClick={() =>
+                            setIsPromotionSummaryOpen((current) => !current)
+                          }
+                        >
+                          <span>{appliedPromotions.length} chương trình</span>
+                          <ChevronDown
+                            className={`size-4 shrink-0 transition ${
+                              isPromotionSummaryOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      ) : (
+                        <span className="font-bold text-[#172033]">-</span>
+                      )}
+                    </dd>
+                  </div>
+                  {shouldShowPromotionSummary ? (
+                    <div className="mt-3 space-y-2 rounded-xl bg-[#F8FAF8] px-3 py-3">
+                      {appliedPromotionDetails.map((promotion) => (
+                        <div
+                          className="flex items-center justify-between gap-3 text-xs"
+                          key={promotion.id}
+                        >
+                          <p className="min-w-0 truncate text-left font-semibold text-[#172033]">
+                            {promotion.name}(+{promotion.bonusPercent}%)
+                          </p>
+                          <span className="shrink-0 font-bold text-[#07943F]">
+                            {formatWalletCurrency(promotion.bonusAmount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#DDE4DF] pb-4">
                   <dt className="text-[#526071]">Khuyến mãi dự kiến</dt>
@@ -4302,6 +4954,7 @@ function ListingInput({
   readOnly = false,
   required = false,
   error = "",
+  inputMode,
   suffix,
   type = "text",
   value,
@@ -4324,6 +4977,7 @@ function ListingInput({
           placeholder={placeholder}
           readOnly={readOnly}
           type={type}
+          inputMode={inputMode}
           {...inputValueProps}
         />
         {suffix ? (
@@ -4674,6 +5328,11 @@ function PostListingBasicInfoStep({
   validationErrors = {},
 }) {
   const getFieldProps = (field) => ({
+    inputMode: listingNumberInputFields[field]?.allowDecimal
+      ? "decimal"
+      : listingNumberInputFields[field]
+        ? "numeric"
+        : undefined,
     value: draftValues[field] ?? "",
     onChange: (event) => onDraftValueChange(field, event.target.value),
   });
@@ -6855,9 +7514,10 @@ function PostListingViewportNotice({ notice, onClose }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
       <div
+        key={notice.id ?? notice.message}
         className={`flex max-w-[720px] items-center gap-3 rounded-2xl border px-5 py-3 text-sm font-semibold shadow-[0_18px_45px_rgba(40,120,70,0.14)] transition duration-300 ease-out ${
           isSuccess
-            ? "border-[#CBE7D0] bg-[#F3FBF5] text-[#217A3B]"
+            ? "werent-reflection-sweep border-[#35A554] bg-[#35A554] text-white"
             : "border-[#F0CACA] bg-[#FFF7F7] text-[#B73A3A] shadow-[0_18px_45px_rgba(160,60,60,0.16)]"
         } ${
           isVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
@@ -6901,6 +7561,29 @@ function AccountVerificationRequiredModal({ onBack, onVerifyNow }) {
   );
 }
 
+function AccountKycSubmittedModal({ onClose }) {
+  return (
+    <Modal
+      footer={
+        <Button className="px-5" variant="primary" onClick={onClose}>
+          Đã hiểu
+        </Button>
+      }
+      footerClassName="pb-5 pt-5"
+      size="sm"
+      title="Đã gửi yêu cầu xác thực"
+      onClose={onClose}
+    >
+      <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#ECF8EE] text-[#31A252]">
+        <Check className="size-7" />
+      </span>
+      <p className="text-center text-base font-semibold leading-7 text-[#39414A]">
+        {ACCOUNT_KYC_SUBMITTED_MESSAGE}
+      </p>
+    </Modal>
+  );
+}
+
 function PostListingPage({
   accessToken,
   editingListing,
@@ -6924,20 +7607,22 @@ function PostListingPage({
   const [currentPostListingStep, setCurrentPostListingStep] = useState(
     defaultPostListingStep,
   );
-  const [listingDraft, setListingDraft] = useState(() => ({
-    ...defaultListingDraft,
-    ...draftValues,
-    electricityPrice: getSelectOptionValue(
-      draftValues.electricityPrice,
-      electricityPriceOptions,
-    ),
-    internetPrice: getSelectOptionValue(
-      draftValues.internetPrice,
-      internetPriceOptions,
-    ),
-    propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
-    waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
-  }));
+  const [listingDraft, setListingDraft] = useState(() =>
+    formatListingDraftNumberValues({
+      ...defaultListingDraft,
+      ...draftValues,
+      electricityPrice: getSelectOptionValue(
+        draftValues.electricityPrice,
+        electricityPriceOptions,
+      ),
+      internetPrice: getSelectOptionValue(
+        draftValues.internetPrice,
+        internetPriceOptions,
+      ),
+      propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
+      waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
+    }),
+  );
   const [listingTitle, setListingTitle] = useState(editingListing?.title ?? "");
   const [listingDescription, setListingDescription] = useState(
     draftValues.description,
@@ -6976,6 +7661,10 @@ function PostListingPage({
     useState(false);
   const [listingVerificationNotice, setListingVerificationNotice] =
     useState("");
+  const [
+    submittedListingVerificationRequest,
+    setSubmittedListingVerificationRequest,
+  ] = useState(null);
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
@@ -7019,6 +7708,16 @@ function PostListingPage({
   const administrativeDivisionsNotice = isAdministrativeDivisionsLoading
     ? "Đang tải dữ liệu tỉnh/thành, quận/huyện, phường/xã..."
     : administrativeDivisionsError;
+  const editingListingVerificationStatus =
+    submittedListingVerificationRequest?.status ??
+    editingListing?.verificationStatus;
+  const isEditingListingVerified =
+    editingListing?.isVerified ||
+    ["verified_owner", "verified_authorized"].includes(
+      editingListingVerificationStatus,
+    );
+  const isEditingListingVerificationPending =
+    editingListingVerificationStatus === "pending";
   const hasUnsavedNewListingInput = useMemo(
     () =>
       !isEditingListing &&
@@ -7167,10 +7866,12 @@ function PostListingPage({
   }
 
   function handleDraftValueChange(field, value) {
+    const nextValue = formatListingDraftNumberValue(field, value);
+
     setListingDraft((current) => {
       const nextDraft = {
         ...current,
-        [field]: value,
+        [field]: nextValue,
       };
 
       if (field === "city") {
@@ -7185,7 +7886,7 @@ function PostListingPage({
       return nextDraft;
     });
 
-    if (hasListingInputValue(value)) {
+    if (hasListingInputValue(nextValue)) {
       clearDraftValidationError(field);
     }
   }
@@ -7434,7 +8135,7 @@ function PostListingPage({
         getFirstDraftValidationStep(nextValidationErrors),
       );
       setViewportNotice({
-        id: Date.now(),
+        id: createNoticeId(),
         message: draftValidationToastMessage,
       });
       return;
@@ -7453,7 +8154,7 @@ function PostListingPage({
     if (videoLinkError) {
       setCurrentPostListingStep(2);
       setViewportNotice({
-        id: Date.now(),
+        id: createNoticeId(),
         message: videoLinkError,
       });
       return;
@@ -7657,9 +8358,10 @@ function PostListingPage({
           accessToken={accessToken}
           listing={editingListing}
           onClose={() => setShowListingVerificationModal(false)}
-          onSuccess={(message) => {
+          onSuccess={(response) => {
             setShowListingVerificationModal(false);
-            setListingVerificationNotice(message);
+            setSubmittedListingVerificationRequest(response.data?.item ?? null);
+            setListingVerificationNotice(response.message);
           }}
         />
       ) : null}
@@ -7721,23 +8423,29 @@ function PostListingPage({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-                  <Button
-                    disabled={!isEditingListing || editingListing?.isVerified}
-                    title={
-                      !isEditingListing
-                        ? "Hãy lưu tin trước, sau đó mở chỉnh sửa để tải giấy tờ xác thực."
-                        : editingListing?.isVerified
-                          ? "Bất động sản đã được xác thực."
-                          : "Tải giấy tờ chứng minh quyền sở hữu hoặc quyền cho thuê."
-                    }
-                    variant="outline"
-                    onClick={() => setShowListingVerificationModal(true)}
-                  >
-                    <ShieldCheck className="size-4" />
-                    {editingListing?.isVerified
-                      ? "Đã xác thực BĐS"
-                      : "Xác thực BĐS"}
-                  </Button>
+                  {isEditingListingVerificationPending ? (
+                    <span className="inline-flex h-11 items-center rounded-xl border border-[#CFE8D4] bg-[#F4FBF5] px-4 text-sm font-bold text-[#278B45]">
+                      Đã gửi yêu cầu xác thực BĐS
+                    </span>
+                  ) : (
+                    <Button
+                      disabled={!isEditingListing || isEditingListingVerified}
+                      title={
+                        !isEditingListing
+                          ? "Hãy lưu tin trước, sau đó mở chỉnh sửa để tải giấy tờ xác thực."
+                          : isEditingListingVerified
+                            ? "Bất động sản đã được xác thực."
+                            : "Tải giấy tờ chứng minh quyền sở hữu hoặc quyền cho thuê."
+                      }
+                      variant="outline"
+                      onClick={() => setShowListingVerificationModal(true)}
+                    >
+                      <ShieldCheck className="size-4" />
+                      {isEditingListingVerified
+                        ? "Đã xác thực BĐS"
+                        : "Xác thực BĐS"}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -7787,25 +8495,317 @@ function PostListingPage({
   );
 }
 
-function ListingDetailHeroImage({ alt, src }) {
+function ListingDetailHeroImage({ alt, onClick, src }) {
   const [portraitImageSrc, setPortraitImageSrc] = useState("");
   const isPortraitImage = portraitImageSrc === src;
 
   return (
-    <img
-      alt={alt}
-      className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
-        isPortraitImage ? "bg-black object-contain" : "object-cover"
-      }`}
-      src={src}
-      onLoad={(event) => {
-        const image = event.currentTarget;
+    <button
+      aria-label="Mở chế độ xem ảnh lớn"
+      className="block w-full cursor-zoom-in text-left"
+      type="button"
+      onClick={onClick}
+    >
+      <img
+        alt={alt}
+        className={`h-[260px] w-full sm:h-[350px] xl:h-[460px] ${
+          isPortraitImage ? "bg-black object-contain" : "object-cover"
+        }`}
+        src={src}
+        onLoad={(event) => {
+          const image = event.currentTarget;
 
-        setPortraitImageSrc(
-          image.naturalHeight > image.naturalWidth ? src : "",
-        );
-      }}
-    />
+          setPortraitImageSrc(
+            image.naturalHeight > image.naturalWidth ? src : "",
+          );
+        }}
+      />
+    </button>
+  );
+}
+
+function ListingDetailMediaViewer({
+  activeIndex,
+  listingTitle,
+  mediaItems,
+  onClose,
+  onNext,
+  onPrevious,
+  onSelect,
+}) {
+  const activeMedia = mediaItems[activeIndex] ?? mediaItems[0];
+  const didDragImageRef = useRef(false);
+  const imageAnimationFrameRef = useRef(0);
+  const imageDragStateRef = useRef(null);
+  const imageElementRef = useRef(null);
+  const imagePanRef = useRef({ x: 0, y: 0 });
+  const [isImageZoomed, setIsImageZoomed] = useState(false);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+
+  useEffect(() => {
+    imageDragStateRef.current = null;
+    imagePanRef.current = { x: 0, y: 0 };
+    didDragImageRef.current = false;
+    setIsImageZoomed(false);
+    setIsDraggingImage(false);
+  }, [activeMedia?.key]);
+
+  useEffect(
+    () => () => {
+      if (imageAnimationFrameRef.current) {
+        window.cancelAnimationFrame(imageAnimationFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  function applyImagePanTransform() {
+    const imageElement = imageElementRef.current;
+
+    if (!imageElement) {
+      return;
+    }
+
+    const { x, y } = imagePanRef.current;
+    imageElement.style.transform = isImageZoomed
+      ? `translate3d(${x}px, ${y}px, 0) scale(1.5)`
+      : "translate3d(0, 0, 0) scale(1)";
+  }
+
+  function scheduleImagePanTransform() {
+    if (imageAnimationFrameRef.current) {
+      return;
+    }
+
+    imageAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      imageAnimationFrameRef.current = 0;
+      applyImagePanTransform();
+    });
+  }
+
+  function handleImageDragMove(event) {
+    const dragState = imageDragStateRef.current;
+
+    if (!dragState) {
+      return;
+    }
+
+    const movementX = event.clientX - dragState.originX;
+    const movementY = event.clientY - dragState.originY;
+
+    if (Math.abs(movementX) > 3 || Math.abs(movementY) > 3) {
+      didDragImageRef.current = true;
+    }
+
+    imagePanRef.current = {
+      x: dragState.originPanX + movementX,
+      y: dragState.originPanY + movementY,
+    };
+    scheduleImagePanTransform();
+  }
+
+  function handleImageDragEnd() {
+    imageDragStateRef.current = null;
+    if (imageElementRef.current) {
+      imageElementRef.current.style.transition = "transform 180ms ease";
+    }
+    setIsDraggingImage(false);
+    window.removeEventListener("mousemove", handleImageDragMove);
+    window.removeEventListener("mouseup", handleImageDragEnd);
+  }
+
+  function toggleImageZoom() {
+    if (didDragImageRef.current) {
+      didDragImageRef.current = false;
+      return;
+    }
+
+    setIsImageZoomed((current) => {
+      if (current) {
+        imagePanRef.current = { x: 0, y: 0 };
+      }
+
+      return !current;
+    });
+  }
+
+  function startImageDrag(event) {
+    if (!isImageZoomed) {
+      return;
+    }
+
+    event.preventDefault();
+    didDragImageRef.current = false;
+    if (imageElementRef.current) {
+      imageElementRef.current.style.transition = "none";
+    }
+    imageDragStateRef.current = {
+      originPanX: imagePanRef.current.x,
+      originPanY: imagePanRef.current.y,
+      originX: event.clientX,
+      originY: event.clientY,
+    };
+    setIsDraggingImage(true);
+    window.addEventListener("mousemove", handleImageDragMove);
+    window.addEventListener("mouseup", handleImageDragEnd);
+  }
+
+  if (!activeMedia) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[1400] flex flex-col bg-[#080C10]/95 text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Xem ảnh và video tin đăng"
+      onMouseDown={onClose}
+    >
+      <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 sm:px-6">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{listingTitle}</p>
+          <p className="mt-0.5 text-xs text-white/62">
+            {activeIndex + 1}/{mediaItems.length} · {activeMedia.title}
+          </p>
+        </div>
+        <button
+          aria-label="Đóng trình xem media"
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/18"
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-4 sm:px-6"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        {activeMedia.type === "video" ? (
+          activeMedia.embedUrl ? (
+            <iframe
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="aspect-video max-h-full w-full max-w-[1180px] rounded-2xl bg-black shadow-[0_26px_80px_rgba(0,0,0,0.42)]"
+              referrerPolicy="strict-origin-when-cross-origin"
+              src={activeMedia.embedUrl}
+              title={`${listingTitle} video`}
+            />
+          ) : (
+            <div className="flex w-full max-w-[620px] flex-col items-center justify-center rounded-[24px] border border-white/12 bg-white/8 p-8 text-center shadow-[0_26px_80px_rgba(0,0,0,0.32)]">
+              <span className="flex size-16 items-center justify-center rounded-full bg-white/12 text-white">
+                <Video className="size-7" />
+              </span>
+              <p className="mt-5 text-xl font-bold">Video tham quan thực tế</p>
+              <p className="mt-2 text-sm leading-6 text-white/68">
+                Liên kết video hiện chưa hỗ trợ nhúng trực tiếp. Bạn có thể mở
+                video ở tab mới để xem đầy đủ.
+              </p>
+              <a
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#111827] transition hover:bg-white/90"
+                href={activeMedia.src}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Link2 className="size-4" />
+                Mở video
+              </a>
+            </div>
+          )
+        ) : (
+          <button
+            aria-label={
+              isImageZoomed ? "Thu nhỏ ảnh" : "Phóng lớn ảnh"
+            }
+            className={`mx-auto flex min-h-full min-w-full select-none items-center justify-center ${
+              isImageZoomed
+                ? isDraggingImage
+                  ? "cursor-grabbing"
+                  : "cursor-grab"
+                : "cursor-zoom-in"
+            }`}
+            type="button"
+            onClick={toggleImageZoom}
+            onMouseDown={startImageDrag}
+          >
+            <img
+              alt={`${listingTitle} - ${activeMedia.title}`}
+              className="max-h-full max-w-full rounded-2xl object-contain shadow-[0_26px_80px_rgba(0,0,0,0.42)]"
+              draggable={false}
+              ref={imageElementRef}
+              src={activeMedia.src}
+              style={{
+                transform: isImageZoomed
+                  ? `translate3d(${imagePanRef.current.x}px, ${imagePanRef.current.y}px, 0) scale(1.5)`
+                  : "translate3d(0, 0, 0) scale(1)",
+                transition: isDraggingImage ? "none" : "transform 180ms ease",
+                transformOrigin: "center center",
+                willChange: "transform",
+              }}
+            />
+          </button>
+        )}
+
+        {mediaItems.length > 1 ? (
+          <>
+            <button
+              aria-label="Xem media trước"
+              className="absolute left-3 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-2xl bg-white/12 text-white shadow-[0_14px_38px_rgba(0,0,0,0.28)] transition hover:bg-white/22 sm:left-6 sm:size-12"
+              type="button"
+              onClick={onPrevious}
+            >
+              <ArrowRight className="size-5 rotate-180" />
+            </button>
+            <button
+              aria-label="Xem media tiếp theo"
+              className="absolute right-3 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-2xl bg-white/12 text-white shadow-[0_14px_38px_rgba(0,0,0,0.28)] transition hover:bg-white/22 sm:right-6 sm:size-12"
+              type="button"
+              onClick={onNext}
+            >
+              <ArrowRight className="size-5" />
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      <div
+        className="shrink-0 border-t border-white/10 px-4 py-3 sm:px-6"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto flex max-w-[1180px] gap-2 overflow-x-auto pb-1">
+          {mediaItems.map((item, index) => {
+            const isActive = index === activeIndex;
+
+            return (
+              <button
+                key={item.key}
+                aria-label={item.title}
+                className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-xl border transition sm:h-20 sm:w-28 ${
+                  isActive
+                    ? "border-white ring-2 ring-white/30"
+                    : "border-white/16 opacity-68 hover:opacity-100"
+                }`}
+                type="button"
+                onClick={() => onSelect(index)}
+              >
+                <img
+                  alt={item.title}
+                  className="h-full w-full object-cover"
+                  src={item.thumb}
+                />
+                {item.type === "video" ? (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/38 text-white">
+                    <Video className="size-5" />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -7828,8 +8828,14 @@ function ListingDetailPage({
     : guestHeaderNavItems;
   const mediaItems = buildListingMediaItems(listing, detail, draft);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [mediaViewerIndex, setMediaViewerIndex] = useState(null);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [verificationNotice, setVerificationNotice] = useState("");
+  const [listingVerificationRequest, setListingVerificationRequest] =
+    useState(null);
+  const [isLoadingListingVerification, setIsLoadingListingVerification] =
+    useState(false);
+  const [listingVerificationError, setListingVerificationError] =
+    useState("");
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
   const fullAddress =
     draft.formattedAddress ||
@@ -7843,6 +8849,20 @@ function ListingDetailPage({
   const isAdminViewer = currentUser?.roles?.includes("admin");
   const isOwnerViewer =
     Boolean(currentUser) && backView === "myListings" && !isAdminViewer;
+  const listingVerificationStatus =
+    listingVerificationRequest?.status ?? listing.verificationStatus;
+  const isListingVerified =
+    listing.isVerified ||
+    ["verified_owner", "verified_authorized"].includes(
+      listingVerificationStatus,
+    );
+  const listingVerificationBadgeLabel = getListingVerificationBadgeLabel(
+    listingVerificationStatus,
+  );
+  const isListingVerificationPending = listingVerificationStatus === "pending";
+  const isListingVerificationRejected = listingVerificationStatus === "rejected";
+  const isListingVerificationNeedMoreInfo =
+    listingVerificationStatus === "need_more_info";
   const previewMessage = {
     pending:
       "Tin này đang chờ kiểm duyệt. Đây là bản xem trước giao diện hiển thị cho khách thuê.",
@@ -7904,17 +8924,129 @@ function ListingDetailPage({
     );
   }
 
+  function showPreviousViewerMedia() {
+    setMediaViewerIndex((current) =>
+      current === null || current === 0 ? mediaItems.length - 1 : current - 1,
+    );
+  }
+
+  function showNextViewerMedia() {
+    setMediaViewerIndex((current) =>
+      current === null || current === mediaItems.length - 1 ? 0 : current + 1,
+    );
+  }
+
+  useEffect(() => {
+    if (mediaViewerIndex === null) {
+      return undefined;
+    }
+
+    function handleViewerKeyDown(event) {
+      if (event.key === "Escape") {
+        setMediaViewerIndex(null);
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        showPreviousViewerMedia();
+      }
+
+      if (event.key === "ArrowRight") {
+        showNextViewerMedia();
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleViewerKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleViewerKeyDown);
+    };
+  }, [mediaViewerIndex, mediaItems.length]);
+
+  useEffect(() => {
+    if (!accessToken || !isOwnerViewer) {
+      return undefined;
+    }
+
+    let isActive = true;
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingListingVerification(true);
+        setListingVerificationError("");
+        return getListingVerification(accessToken, listing.id);
+      })
+      .then((response) => {
+        if (!isActive || !response) {
+          return;
+        }
+
+        setListingVerificationRequest(response.data?.item ?? null);
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setListingVerificationError(
+          error.message || "Không thể tải trạng thái xác thực BĐS.",
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingListingVerification(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken, isOwnerViewer, listing.id]);
+
   return (
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
+      {mediaViewerIndex !== null ? (
+        <ListingDetailMediaViewer
+          activeIndex={mediaViewerIndex}
+          listingTitle={listing.title}
+          mediaItems={mediaItems}
+          onClose={() => setMediaViewerIndex(null)}
+          onNext={showNextViewerMedia}
+          onPrevious={showPreviousViewerMedia}
+          onSelect={setMediaViewerIndex}
+        />
+      ) : null}
+
       {showVerificationModal ? (
         <ListingVerificationModal
           accessToken={accessToken}
+          initialRequest={listingVerificationRequest}
           listing={listing}
           onClose={() => setShowVerificationModal(false)}
-          onSuccess={(message) => {
+          onSuccess={(response) => {
             setShowVerificationModal(false);
-            setVerificationNotice(message);
+            setListingVerificationRequest(response.data?.item ?? null);
+            setListingVerificationError("");
           }}
+          readOnly={isListingVerificationRejected}
+          submitLabel={
+            isListingVerificationNeedMoreInfo
+              ? "Duyệt lại"
+              : "Gửi hồ sơ xác thực"
+          }
+          title={
+            isListingVerificationRejected
+              ? "Chi tiết từ chối xác thực BĐS"
+              : isListingVerificationNeedMoreInfo
+              ? "Duyệt lại xác thực bất động sản"
+              : "Xác thực bất động sản"
+          }
         />
       ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
@@ -7945,16 +9077,36 @@ function ListingDetailPage({
                   <div className="relative overflow-hidden rounded-[22px] bg-black">
                     {activeMedia?.type === "video" ? (
                       activeMedia.embedUrl ? (
-                        <iframe
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                          className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
-                          referrerPolicy="strict-origin-when-cross-origin"
-                          src={activeMedia.embedUrl}
-                          title={`${listing.title} video`}
-                        />
+                        <div className="relative">
+                          <iframe
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                            className="h-[260px] w-full sm:h-[350px] xl:h-[460px]"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            src={activeMedia.embedUrl}
+                            title={`${listing.title} video`}
+                          />
+                          <button
+                            className="absolute right-4 top-4 rounded-xl bg-white/95 px-3 py-2 text-sm font-semibold text-[#1F252D] shadow-[0_10px_24px_rgba(31,37,45,0.16)] transition hover:bg-white"
+                            type="button"
+                            onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                          >
+                            Xem lớn
+                          </button>
+                        </div>
                       ) : (
-                        <div className="flex h-[260px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="flex h-[260px] w-full cursor-zoom-in flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[350px] xl:h-[460px]"
+                          onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setMediaViewerIndex(activeMediaIndex);
+                            }
+                          }}
+                        >
                           <span className="flex size-16 items-center justify-center rounded-full bg-white text-[#35A554] shadow-sm">
                             <Video className="size-7" />
                           </span>
@@ -7972,6 +9124,7 @@ function ListingDetailPage({
                             href={activeMedia.src}
                             rel="noreferrer"
                             target="_blank"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <Link2 className="size-4" />
                             Mở video
@@ -7982,6 +9135,7 @@ function ListingDetailPage({
                       <ListingDetailHeroImage
                         key={activeMedia?.src ?? listing.image}
                         alt={`${listing.title} - ${activeMedia?.title ?? "ảnh hiển thị"}`}
+                        onClick={() => setMediaViewerIndex(activeMediaIndex)}
                         src={activeMedia?.src ?? listing.image}
                       />
                     )}
@@ -8026,7 +9180,14 @@ function ListingDetailPage({
                               : "border-[#E4E9E5]"
                           }`}
                           type="button"
-                          onClick={() => setActiveMediaIndex(index)}
+                          onClick={() => {
+                            if (index === activeMediaIndex) {
+                              setMediaViewerIndex(index);
+                              return;
+                            }
+
+                            setActiveMediaIndex(index);
+                          }}
                         >
                           <img
                             alt={item.title}
@@ -8052,10 +9213,10 @@ function ListingDetailPage({
                     <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
                       {draft.projectName || draft.propertyType}
                     </p>
-                    {listing.isVerified ? (
+                    {isListingVerified ? (
                       <span className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700">
                         <ShieldCheck className="size-4" />
-                        Bất động sản đã xác thực
+                        {listingVerificationBadgeLabel}
                       </span>
                     ) : null}
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
@@ -8261,19 +9422,57 @@ function ListingDetailPage({
                         </p>
                       </div>
                     </div>
-                    {verificationNotice ? (
-                      <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
-                        {verificationNotice}
-                      </p>
-                    ) : null}
-                    {!listing.isVerified ? (
-                      <button
-                        className="mt-4 w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50"
-                        type="button"
-                        onClick={() => setShowVerificationModal(true)}
-                      >
-                        Xác thực BĐS
-                      </button>
+                    {!isListingVerified ? (
+                      <div className="mt-4">
+                        {isLoadingListingVerification ? (
+                          <p className="rounded-xl border border-[#E1E8E3] bg-[#F8FAF8] px-4 py-3 text-sm font-semibold text-[#60706A]">
+                            Đang kiểm tra trạng thái xác thực BĐS...
+                          </p>
+                        ) : isListingVerificationPending ? (
+                          <p className="rounded-xl border border-[#CFE8D4] bg-[#F4FBF5] px-4 py-3 text-sm font-bold text-[#278B45]">
+                            Đã gửi yêu cầu xác thực BĐS
+                          </p>
+                        ) : isListingVerificationRejected ? (
+                          <div className="rounded-xl border border-[#F1CCCC] bg-[#FFF6F6] px-4 py-3">
+                            <p className="text-sm font-bold text-[#C43D3D]">
+                              Yêu cầu xác thực bị từ chối
+                            </p>
+                            <button
+                              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-[#E7B8B8] px-3 text-sm font-semibold text-[#B83B3B] transition hover:bg-white"
+                              type="button"
+                              onClick={() => setShowVerificationModal(true)}
+                            >
+                              Xem chi tiết
+                            </button>
+                          </div>
+                        ) : isListingVerificationNeedMoreInfo ? (
+                          <div className="rounded-xl border border-[#F4D8A7] bg-[#FFF9ED] px-4 py-3">
+                            <p className="text-sm font-bold text-[#B97817]">
+                              Cần bổ sung hồ sơ xác thực BĐS
+                            </p>
+                            <button
+                              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-[#E8C98B] px-3 text-sm font-semibold text-[#9B6714] transition hover:bg-white"
+                              type="button"
+                              onClick={() => setShowVerificationModal(true)}
+                            >
+                              Xem chi tiết
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="w-full rounded-xl border border-green-300 py-3 text-sm font-bold text-green-700 hover:bg-green-50"
+                            type="button"
+                            onClick={() => setShowVerificationModal(true)}
+                          >
+                            Xác thực bất động sản
+                          </button>
+                        )}
+                        {listingVerificationError ? (
+                          <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-600">
+                            {listingVerificationError}
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
                   </section>
                 ) : null}
@@ -9029,6 +10228,7 @@ function ProfilePage({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showKycModal, setShowKycModal] = useState(false);
+  const [showKycSubmittedModal, setShowKycSubmittedModal] = useState(false);
   const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
@@ -9044,6 +10244,7 @@ function ProfilePage({
   const memberSince = user.createdAt
     ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
     : "Chưa có dữ liệu";
+  const kycStatusDisplay = getKycStatusDisplay(user.kycStatus);
   const formatProfileDate = (value) =>
     value ? new Intl.DateTimeFormat("vi-VN").format(new Date(value)) : "";
   const profileInfoRows = [
@@ -9209,15 +10410,21 @@ function ProfilePage({
           accessToken={accessToken}
           user={user}
           onClose={() => setShowKycModal(false)}
-          onSuccess={(message) => {
+          onSuccess={() => {
             setShowKycModal(false);
             onUserChange({
               ...user,
               kycStatus: "pending",
               canPostListing: false,
             });
-            setNotice({ type: "success", message });
+            setNotice(null);
+            setShowKycSubmittedModal(true);
           }}
+        />
+      ) : null}
+      {showKycSubmittedModal ? (
+        <AccountKycSubmittedModal
+          onClose={() => setShowKycSubmittedModal(false)}
         />
       ) : null}
 
@@ -9283,8 +10490,10 @@ function ProfilePage({
                       <h1 className="text-[30px] font-bold tracking-[-0.03em] text-[#1E242C]">
                         {user.fullName}
                       </h1>
-                      <span className="rounded-full bg-[#FFF7E7] px-3 py-1 text-xs font-semibold text-[#A26A11]">
-                        Chưa xác thực
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${kycStatusDisplay.badgeClassName}`}
+                      >
+                        {kycStatusDisplay.label}
                       </span>
                     </div>
                     <div className="mt-0.5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm text-[#68717B] sm:justify-start">
@@ -9468,26 +10677,16 @@ function ProfilePage({
                     </h2>
                     <div className="mt-4 flex gap-3">
                       <span
-                        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${user.kycStatus === "verified" ? "bg-green-50 text-green-600" : "bg-[#FFF5DF] text-[#B67817]"}`}
+                        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${kycStatusDisplay.iconClassName}`}
                       >
                         <ShieldCheck className="size-5" />
                       </span>
                       <div>
                         <p className="text-sm font-semibold text-[#414A53]">
-                          {user.kycStatus === "verified"
-                            ? "Đã xác thực"
-                            : user.kycStatus === "pending"
-                              ? "Hồ sơ đang chờ duyệt"
-                              : user.kycStatus === "need_more_info"
-                                ? "Cần bổ sung thông tin"
-                                : user.kycStatus === "rejected"
-                                  ? "Hồ sơ bị từ chối"
-                                  : "Chưa xác thực"}
+                          {kycStatusDisplay.label}
                         </p>
                         <p className="mt-1 text-xs leading-5 text-[#7D858F]">
-                          {user.kycStatus === "verified"
-                            ? "Bạn đã có quyền đăng tin trên WeRent."
-                            : "Hoàn thiện thông tin và tải CCCD, selfie để được cấp quyền đăng tin."}
+                          {kycStatusDisplay.description}
                         </p>
                       </div>
                     </div>
@@ -9530,6 +10729,8 @@ function HomePage() {
     setIsPostListingVerificationModalOpen,
   ] = useState(false);
   const [isAccountKycModalOpen, setIsAccountKycModalOpen] = useState(false);
+  const [isAccountKycSubmittedModalOpen, setIsAccountKycSubmittedModalOpen] =
+    useState(false);
   const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
@@ -9547,6 +10748,17 @@ function HomePage() {
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
   const [searchAdministrativeDivisions, setSearchAdministrativeDivisions] =
     useState(() => readCachedAdministrativeDivisions());
+  const closeViewportNotice = useCallback(() => {
+    setViewportNotice(null);
+  }, []);
+  const showLoginRequiredNotice = useCallback(() => {
+    setAuthNotice(null);
+    setViewportNotice({
+      id: createNoticeId(),
+      type: "success",
+      message: LOGIN_REQUIRED_MESSAGE,
+    });
+  }, []);
 
   useEffect(() => {
     function handleRouteChange() {
@@ -9691,6 +10903,49 @@ function HomePage() {
   }, [accessToken, currentUser]);
 
   useEffect(() => {
+    if (!accessToken || currentView !== "profile") {
+      return undefined;
+    }
+
+    let isActive = true;
+    let isRefreshing = false;
+
+    function refreshCurrentUser() {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      fetchCurrentUser(accessToken)
+        .then((response) => {
+          if (isActive) {
+            setCurrentUser(response.data.user);
+          }
+        })
+        .catch(() => null)
+        .finally(() => {
+          isRefreshing = false;
+        });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshCurrentUser();
+      }
+    }
+
+    refreshCurrentUser();
+    window.addEventListener("focus", refreshCurrentUser);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      window.removeEventListener("focus", refreshCurrentUser);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [accessToken, currentView]);
+
+  useEffect(() => {
     const routeProtectedViews = [
       "profile",
       "postListing",
@@ -9710,17 +10965,14 @@ function HomePage() {
         return;
       }
 
-      setAuthNotice({
-        type: "error",
-        message: "Vui lòng đăng nhập để sử dụng tính năng này.",
-      });
+      showLoginRequiredNotice();
       setAuthModal("login");
     });
 
     return () => {
       isActive = false;
     };
-  }, [currentUser, currentView]);
+  }, [currentUser, currentView, showLoginRequiredNotice]);
 
   useEffect(() => {
     if (
@@ -9841,10 +11093,7 @@ function HomePage() {
       if (!currentUser) {
         updateFrontendRoute(view);
         setCurrentView(view);
-        setAuthNotice({
-          type: "error",
-          message: "Vui lòng đăng nhập để sử dụng tính năng này.",
-        });
+        showLoginRequiredNotice();
         setAuthModal("login");
         return;
       }
@@ -9884,6 +11133,7 @@ function HomePage() {
 
     if (comingSoonViews.includes(view)) {
       setViewportNotice({
+        id: createNoticeId(),
         type: "success",
         message: "Tính năng này đang được phát triển.",
       });
@@ -9892,10 +11142,7 @@ function HomePage() {
 
   function openListingEditor(listing) {
     if (!currentUser) {
-      setAuthNotice({
-        type: "error",
-        message: "Vui lòng đăng nhập để sử dụng tính năng này.",
-      });
+      showLoginRequiredNotice();
       setAuthModal("login");
       return;
     }
@@ -10046,6 +11293,7 @@ function HomePage() {
       <PropertySearchHeaderBar
         key={`${keyPrefix}-${propertySearchDraft.keyword}`}
         administrativeDivisions={searchAdministrativeDivisions}
+        listings={propertySearchListings}
         searchState={propertySearchDraft}
         variant="basic"
         onSearchStateChange={handlePropertySearchDraftChange}
@@ -10058,6 +11306,7 @@ function HomePage() {
     <PropertySearchHeaderBar
       key={`banner-${propertySearchDraft.keyword}`}
       administrativeDivisions={searchAdministrativeDivisions}
+      listings={propertySearchListings}
       searchState={propertySearchDraft}
       onSearchStateChange={handlePropertySearchDraftChange}
       onSubmit={(nextSearchState) =>
@@ -10071,10 +11320,6 @@ function HomePage() {
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
     : latestListings;
-  const closeViewportNotice = useCallback(() => {
-    setViewportNotice(null);
-  }, []);
-
   function closePostListingVerificationModal() {
     setIsPostListingVerificationModalOpen(false);
   }
@@ -10086,18 +11331,15 @@ function HomePage() {
     setIsAccountKycModalOpen(true);
   }
 
-  function handleGlobalAccountKycSuccess(message) {
+  function handleGlobalAccountKycSuccess() {
     setIsAccountKycModalOpen(false);
     setCurrentUser((current) =>
       current
         ? { ...current, kycStatus: "pending", canPostListing: false }
         : current,
     );
-    setViewportNotice({
-      id: Date.now(),
-      type: "success",
-      message,
-    });
+    setViewportNotice(null);
+    setIsAccountKycSubmittedModalOpen(true);
   }
 
   function renderWithViewportNotice(content) {
@@ -10119,6 +11361,11 @@ function HomePage() {
             user={currentUser}
             onClose={() => setIsAccountKycModalOpen(false)}
             onSuccess={handleGlobalAccountKycSuccess}
+          />
+        ) : null}
+        {isAccountKycSubmittedModalOpen ? (
+          <AccountKycSubmittedModal
+            onClose={() => setIsAccountKycSubmittedModalOpen(false)}
           />
         ) : null}
         {content}

@@ -42,6 +42,13 @@ export function createTopUpCheckout(token, body) {
   });
 }
 
+export function getTopUpPromotions(token) {
+  return request("/api/payments/top-up/promotions", {
+    method: "GET",
+    token,
+  });
+}
+
 export function getWalletOverview(token) {
   return request("/api/payments/wallet", {
     method: "GET",

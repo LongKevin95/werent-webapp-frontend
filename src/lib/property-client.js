@@ -21,6 +21,7 @@ async function request(path, options = {}) {
         ? options.body
         : JSON.stringify(options.body)
       : undefined,
+    signal: options.signal,
   });
 
   const payload = await response.json().catch(() => null);
@@ -68,6 +69,13 @@ export function listAdministrativeDivisions() {
   return request("/api/administrative-divisions");
 }
 
+export function listSearchSuggestions(params = {}, options = {}) {
+  const suffix = createQueryString(params);
+  return request(`/api/search/suggestions${suffix}`, {
+    signal: options.signal,
+  });
+}
+
 export function createPropertyListing(token, body) {
   return request("/api/properties", {
     method: "POST",
@@ -93,6 +101,10 @@ export function deletePropertyListing(token, propertyId) {
     method: "DELETE",
     token,
   });
+}
+
+export function getListingVerification(token, propertyId) {
+  return request(`/api/kyc/listings/${propertyId}`, { token });
 }
 
 export function submitListingVerification(token, propertyId, documentType, files, note = "") {

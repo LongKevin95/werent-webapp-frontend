@@ -17,6 +17,7 @@ import {
   getAdminPromotions,
   getAdminTransactions,
   getAdminUsers,
+  updateAdminPromotion,
 } from "./lib/admin-client";
 
 const money = (value) => `${Number(value ?? 0).toLocaleString("vi-VN")} đ`;
@@ -51,7 +52,74 @@ function getTransactionTypeLabel(item) {
   return typeLabels[item?.transactionType] ?? item?.transactionType ?? "-";
 }
 
-function AdjustmentModal({ accessToken, transaction, onClose, onSuccess }) {
+const emptyPromotionForm = {
+  name: "",
+  code: "",
+  bonusPercent: "10",
+  minimumAmount: "0",
+  maximumBonus: "",
+  priority: "0",
+  perUserLimit: "1",
+  startsAt: "",
+  endsAt: "",
+  stackable: false,
+  autoApply: false,
+  isActive: true,
+};
+
+function formatDateTimeInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+const integerInputFormatter = new Intl.NumberFormat("vi-VN");
+
+function parseIntegerInputValue(value) {
+  return Number(String(value ?? "").replace(/\D/g, "")) || 0;
+}
+
+function formatIntegerInputValue(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits ? integerInputFormatter.format(Number(digits)) : "";
+}
+
+function getPromotionFormValues(promotion) {
+  return {
+    name: promotion?.name ?? "",
+    code: promotion?.code ?? "",
+    bonusPercent: formatIntegerInputValue(promotion?.bonusPercent ?? 10),
+    minimumAmount: formatIntegerInputValue(promotion?.minimumAmount ?? 0),
+    maximumBonus:
+      promotion?.maximumBonus == null
+        ? ""
+        : formatIntegerInputValue(promotion.maximumBonus),
+    priority: formatIntegerInputValue(promotion?.priority ?? 0),
+    perUserLimit: formatIntegerInputValue(promotion?.perUserLimit ?? 1),
+    startsAt: formatDateTimeInput(promotion?.startsAt),
+    endsAt: formatDateTimeInput(promotion?.endsAt),
+    stackable: promotion?.stackable ?? false,
+    autoApply: promotion?.autoApply ?? false,
+    isActive: promotion?.isActive ?? true,
+  };
+}
+
+function getPromotionPayload(form) {
+  return {
+    ...form,
+    bonusPercent: parseIntegerInputValue(form.bonusPercent),
+    minimumAmount: parseIntegerInputValue(form.minimumAmount),
+    maximumBonus: form.maximumBonus
+      ? parseIntegerInputValue(form.maximumBonus)
+      : null,
+    priority: parseIntegerInputValue(form.priority),
+    perUserLimit: parseIntegerInputValue(form.perUserLimit),
+  };
+}
+
+function AdjustmentModal({ accessToken, transaction, onClose, onNotify = () => {}, onSuccess }) {
   const user = transaction?.user;
   const [form, setForm] = useState({ direction: "credit", amount: "", reason: "" });
   const [error, setError] = useState("");
@@ -65,12 +133,13 @@ function AdjustmentModal({ accessToken, transaction, onClose, onSuccess }) {
     try {
       const response = await createAdminBalanceAdjustment(accessToken, {
         ...form,
-        amount: Number(form.amount),
+        amount: parseIntegerInputValue(form.amount),
         userId: getUserId(user),
       });
       onSuccess(response.message);
     } catch (requestError) {
       setError(requestError.message);
+      onNotify(requestError.message, "error");
     } finally {
       setSaving(false);
     }
@@ -99,11 +168,17 @@ function AdjustmentModal({ accessToken, transaction, onClose, onSuccess }) {
             Số tiền
             <input
               className="mt-1 h-11 w-full rounded-xl border px-3"
+              inputMode="numeric"
               min="1"
               required
-              type="number"
+              type="text"
               value={form.amount}
-              onChange={(event) => setForm({ ...form, amount: event.target.value })}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  amount: formatIntegerInputValue(event.target.value),
+                })
+              }
             />
           </label>
           <label className="text-sm">
@@ -117,7 +192,6 @@ function AdjustmentModal({ accessToken, transaction, onClose, onSuccess }) {
             />
           </label>
         </div>
-        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded-xl border px-4 py-2" type="button" onClick={onClose}>
             Hủy
@@ -134,7 +208,7 @@ function AdjustmentModal({ accessToken, transaction, onClose, onSuccess }) {
   );
 }
 
-function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
+function DemoTopUpModal({ accessToken, transaction, onClose, onNotify = () => {}, onSuccess }) {
   const user = transaction?.user;
   const [form, setForm] = useState({
     email: user?.email ?? "",
@@ -154,7 +228,7 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const amount = Number(form.amount || 0);
+  const amount = parseIntegerInputValue(form.amount);
   const normalizedEmail = form.email.trim().toLowerCase();
   const selectedEmail = user?.email?.toLowerCase() ?? "";
   const targetUser =
@@ -263,6 +337,7 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
       onSuccess(response.message);
     } catch (requestError) {
       setError(requestError.message);
+      onNotify(requestError.message, "error");
     } finally {
       setSaving(false);
     }
@@ -318,11 +393,17 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
             Tiền nạp
             <input
               className="mt-1 h-11 w-full rounded-xl border px-3"
+              inputMode="numeric"
               min="10000"
               required
-              type="number"
+              type="text"
               value={form.amount}
-              onChange={(event) => setForm({ ...form, amount: event.target.value })}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  amount: formatIntegerInputValue(event.target.value),
+                })
+              }
             />
           </label>
           <div className="rounded-xl bg-emerald-50 p-3 text-sm sm:col-span-2">
@@ -367,7 +448,6 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
         <div className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
           Tổng cộng cộng vào ví: <span className="font-bold">{money(totalCredit)}</span>
         </div>
-        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded-xl border px-4 py-2" type="button" onClick={onClose}>
             Hủy
@@ -390,21 +470,13 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onSuccess }) {
   );
 }
 
-function Promotions({ accessToken }) {
+function Promotions({ accessToken, onNotify = () => {} }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
+  const [editingPromotion, setEditingPromotion] = useState(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: "",
-    code: "",
-    bonusPercent: "10",
-    minimumAmount: "0",
-    maximumBonus: "",
-    perUserLimit: "1",
-    startsAt: "",
-    endsAt: "",
-    isActive: true,
-  });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(() => ({ ...emptyPromotionForm }));
 
   useEffect(() => {
     let active = true;
@@ -413,29 +485,57 @@ function Promotions({ accessToken }) {
         if (active) setItems(response.data.items);
       })
       .catch((requestError) => {
-        if (active) setError(requestError.message);
+        if (active) {
+          setError(requestError.message);
+          onNotify(requestError.message, "error");
+        }
       });
     return () => {
       active = false;
     };
   }, [accessToken]);
 
+  function openCreateForm() {
+    setEditingPromotion(null);
+    setForm({ ...emptyPromotionForm });
+    setError("");
+    setOpen(true);
+  }
+
+  function openEditForm(promotion) {
+    setEditingPromotion(promotion);
+    setForm(getPromotionFormValues(promotion));
+    setError("");
+    setOpen(false);
+  }
+
+  function closeForm() {
+    setOpen(false);
+    setEditingPromotion(null);
+    setForm({ ...emptyPromotionForm });
+  }
+
   async function submit(event) {
     event.preventDefault();
     setError("");
+    setSaving(true);
     try {
-      await createAdminPromotion(accessToken, {
-        ...form,
-        bonusPercent: Number(form.bonusPercent),
-        minimumAmount: Number(form.minimumAmount),
-        maximumBonus: form.maximumBonus ? Number(form.maximumBonus) : null,
-        perUserLimit: Number(form.perUserLimit),
-      });
-      setOpen(false);
+      const payload = getPromotionPayload(form);
+      if (editingPromotion) {
+        await updateAdminPromotion(accessToken, editingPromotion._id, payload);
+        onNotify("Cập nhật chương trình khuyến mãi thành công.");
+      } else {
+        await createAdminPromotion(accessToken, payload);
+        onNotify("Tạo chương trình khuyến mãi thành công.");
+      }
+      closeForm();
       const response = await getAdminPromotions(accessToken);
       setItems(response.data.items);
     } catch (requestError) {
       setError(requestError.message);
+      onNotify(requestError.message, "error");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -445,6 +545,7 @@ function Promotions({ accessToken }) {
     ["bonusPercent", "% thưởng", "number"],
     ["minimumAmount", "Nạp tối thiểu", "number"],
     ["maximumBonus", "Bonus tối đa", "number"],
+    ["priority", "Ưu tiên", "number"],
     ["perUserLimit", "Số lần/user", "number"],
     ["startsAt", "Bắt đầu", "datetime-local"],
     ["endsAt", "Kết thúc", "datetime-local"],
@@ -461,7 +562,8 @@ function Promotions({ accessToken }) {
         </div>
         <button
           className="flex items-center gap-2 rounded-xl bg-[#159848] px-4 py-2 text-sm font-semibold text-white"
-          onClick={() => setOpen(!open)}
+          type="button"
+          onClick={openCreateForm}
         >
           <Plus className="size-4" />
           Tạo khuyến mãi
@@ -469,36 +571,149 @@ function Promotions({ accessToken }) {
       </div>
       {open ? (
         <form className="mt-5 grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3" onSubmit={submit}>
+          <div className="md:col-span-3">
+            <h3 className="text-sm font-semibold">
+              {editingPromotion ? "Chỉnh sửa chương trình khuyến mãi" : "Tạo chương trình khuyến mãi"}
+            </h3>
+          </div>
           {fields.map(([key, label, type]) => (
             <label className="text-xs" key={key}>
               {label}
               <input
                 className="mt-1 h-10 w-full rounded-lg border bg-white px-3"
+                inputMode={type === "number" ? "numeric" : undefined}
                 required={key !== "maximumBonus"}
-                type={type}
+                type={type === "number" ? "text" : type}
                 value={form[key]}
-                onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    [key]:
+                      type === "number"
+                        ? formatIntegerInputValue(event.target.value)
+                        : event.target.value,
+                  })
+                }
               />
             </label>
           ))}
-          <div className="flex items-end">
-            <button className="h-10 rounded-lg bg-[#159848] px-5 text-sm font-semibold text-white">
-              Lưu
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input
+              checked={form.isActive}
+              type="checkbox"
+              onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
+            />
+            Đang bật
+          </label>
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input
+              checked={form.stackable}
+              type="checkbox"
+              onChange={(event) => setForm({ ...form, stackable: event.target.checked })}
+            />
+            Áp dụng song song
+          </label>
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input
+              checked={form.autoApply}
+              type="checkbox"
+              onChange={(event) => setForm({ ...form, autoApply: event.target.checked })}
+            />
+            Tự động áp dụng
+          </label>
+          <div className="flex items-end justify-end gap-2 md:col-span-3">
+            <button className="h-10 rounded-lg border px-5 text-sm" type="button" onClick={closeForm}>
+              Hủy
+            </button>
+            <button
+              className="h-10 rounded-lg bg-[#159848] px-5 text-sm font-semibold text-white disabled:opacity-60"
+              disabled={saving}
+            >
+              {saving ? "Đang lưu..." : editingPromotion ? "Cập nhật" : "Lưu"}
             </button>
           </div>
         </form>
       ) : null}
-      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {editingPromotion ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4">
+          <form className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl" onSubmit={submit}>
+            <h3 className="text-lg font-bold">Chỉnh sửa chương trình khuyến mãi</h3>
+            <p className="mt-1 text-sm text-slate-500">{editingPromotion.name}</p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {fields.map(([key, label, type]) => (
+                <label className="text-xs" key={key}>
+                  {label}
+                  <input
+                    className="mt-1 h-10 w-full rounded-lg border bg-white px-3"
+                    inputMode={type === "number" ? "numeric" : undefined}
+                    required={key !== "maximumBonus"}
+                    type={type === "number" ? "text" : type}
+                    value={form[key]}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        [key]:
+                          type === "number"
+                            ? formatIntegerInputValue(event.target.value)
+                            : event.target.value,
+                      })
+                    }
+                  />
+                </label>
+              ))}
+              <label className="flex items-center gap-2 self-end text-sm">
+                <input
+                  checked={form.isActive}
+                  type="checkbox"
+                  onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
+                />
+                Đang bật
+              </label>
+              <label className="flex items-center gap-2 self-end text-sm">
+                <input
+                  checked={form.stackable}
+                  type="checkbox"
+                  onChange={(event) => setForm({ ...form, stackable: event.target.checked })}
+                />
+                Áp dụng song song
+              </label>
+              <label className="flex items-center gap-2 self-end text-sm">
+                <input
+                  checked={form.autoApply}
+                  type="checkbox"
+                  onChange={(event) => setForm({ ...form, autoApply: event.target.checked })}
+                />
+                Tự động áp dụng
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button className="rounded-xl border px-4 py-2" type="button" onClick={closeForm}>
+                Hủy
+              </button>
+              <button
+                className="rounded-xl bg-[#159848] px-4 py-2 font-semibold text-white disabled:opacity-60"
+                disabled={saving}
+              >
+                {saving ? "Đang lưu..." : "Cập nhật"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[700px] text-left text-sm">
+        <table className="w-full min-w-[980px] text-left text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="p-3">Chương trình</th>
               <th>% thưởng</th>
               <th>Nạp tối thiểu</th>
               <th>Bonus tối đa</th>
+              <th>Ưu tiên</th>
+              <th>Song song</th>
+              <th>Tự động</th>
               <th>Thời gian</th>
               <th>Trạng thái</th>
+              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -513,11 +728,23 @@ function Promotions({ accessToken }) {
                 <td>{promotion.bonusPercent}%</td>
                 <td>{money(promotion.minimumAmount)}</td>
                 <td>{promotion.maximumBonus == null ? "Không giới hạn" : money(promotion.maximumBonus)}</td>
+                <td>{promotion.priority ?? 0}</td>
+                <td>{promotion.stackable ? "Có" : "Không"}</td>
+                <td>{promotion.autoApply ? "Có" : "Không"}</td>
                 <td>
                   {new Date(promotion.startsAt).toLocaleDateString("vi-VN")} -{" "}
                   {new Date(promotion.endsAt).toLocaleDateString("vi-VN")}
                 </td>
                 <td>{promotion.isActive ? "Đang bật" : "Đã tắt"}</td>
+                <td>
+                  <button
+                    className="rounded-lg border px-3 py-1.5 text-xs font-semibold text-[#159848] hover:bg-green-50"
+                    type="button"
+                    onClick={() => openEditForm(promotion)}
+                  >
+                    Chỉnh sửa
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -527,7 +754,7 @@ function Promotions({ accessToken }) {
   );
 }
 
-export default function AdminPaymentsPage({ accessToken }) {
+export default function AdminPaymentsPage({ accessToken, onNotify = () => {} }) {
   const [tab, setTab] = useState("transactions");
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({});
@@ -559,7 +786,10 @@ export default function AdminPaymentsPage({ accessToken }) {
         );
       })
       .catch((requestError) => {
-        if (requestError.name !== "AbortError") setError(requestError.message);
+        if (requestError.name !== "AbortError") {
+          setError(requestError.message);
+          onNotify(requestError.message, "error");
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -578,9 +808,12 @@ export default function AdminPaymentsPage({ accessToken }) {
     [summary],
   );
 
-  function refreshTransactions() {
+  function refreshTransactions(message) {
     setAdjusting(false);
     setDemoTopUpOpen(false);
+    if (message) {
+      onNotify(message);
+    }
     setRefresh((value) => value + 1);
   }
 
@@ -595,7 +828,7 @@ export default function AdminPaymentsPage({ accessToken }) {
             Khuyến mãi
           </button>
         </div>
-        <Promotions accessToken={accessToken} />
+        <Promotions accessToken={accessToken} onNotify={onNotify} />
       </div>
     );
   }
@@ -607,6 +840,7 @@ export default function AdminPaymentsPage({ accessToken }) {
           accessToken={accessToken}
           transaction={selected}
           onClose={() => setAdjusting(false)}
+          onNotify={onNotify}
           onSuccess={refreshTransactions}
         />
       ) : null}
@@ -615,6 +849,7 @@ export default function AdminPaymentsPage({ accessToken }) {
           accessToken={accessToken}
           transaction={selected}
           onClose={() => setDemoTopUpOpen(false)}
+          onNotify={onNotify}
           onSuccess={refreshTransactions}
         />
       ) : null}
@@ -666,7 +901,6 @@ export default function AdminPaymentsPage({ accessToken }) {
               ))}
             </select>
           </div>
-          {error ? <p className="p-4 text-red-600">{error}</p> : null}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
@@ -730,8 +964,8 @@ export default function AdminPaymentsPage({ accessToken }) {
                   ["SĐT", selected.user?.phone],
                   ["Email", selected.user?.email],
                   ["Số tiền", money(selected.baseAmount || selected.amount)],
-                  ["Khuyến mãi", selected.promotionName || selected.promotion?.name || "-"],
-                  ["Tiền thưởng", money(selected.bonusAmount)],
+                  ["CT khuyến mãi", selected.promotionName || selected.promotion?.name || "-"],
+                  ["Tiền khuyến mãi", money(selected.bonusAmount)],
                   ["Tổng cộng", money(selected.totalCredit || selected.amount)],
                   ["Số dư trước", nullableMoney(selected.balanceBefore)],
                   ["Số dư sau", nullableMoney(selected.balanceAfter)],

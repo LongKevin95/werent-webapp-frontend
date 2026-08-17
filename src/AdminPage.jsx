@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   Bell,
@@ -49,6 +49,7 @@ const emptyForm = {
   role: "user",
   isActive: true,
 };
+const ADMIN_TOAST_TIMEOUT_MS = 3500;
 
 function formatDate(value) {
   if (!value) return "—";
@@ -63,6 +64,38 @@ function getInitials(name = "") {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function AdminToast({ toast, onClose }) {
+  if (!toast) {
+    return null;
+  }
+
+  const isError = toast.type === "error";
+
+  return (
+    <div className="pointer-events-none fixed left-1/2 top-4 z-[1600] w-[calc(100%-32px)] max-w-[520px] -translate-x-1/2">
+      <div
+        className={`pointer-events-auto flex items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-[0_18px_48px_rgba(19,31,25,0.18)] ${
+          isError
+            ? "border-[#F1C5C9] bg-[#FFF5F6] text-[#B93643]"
+            : "border-[#BFE5CA] bg-[#EFFAF2] text-[#1F7E3A]"
+        }`}
+      >
+        <span className="min-w-0 leading-6">{toast.message}</span>
+        <button
+          aria-label="Đóng thông báo"
+          className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition ${
+            isError ? "hover:bg-[#F9E3E6]" : "hover:bg-[#DDF4E3]"
+          }`}
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function AdminSidebar({
@@ -412,7 +445,7 @@ function DashboardOverview({ summary }) {
   );
 }
 
-function UserFormModal({ user, onClose, onSubmit }) {
+function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
   const isEditing = Boolean(user);
   const [form, setForm] = useState(() =>
     user
@@ -486,7 +519,9 @@ function UserFormModal({ user, onClose, onSubmit }) {
       });
       onClose();
     } catch (submitError) {
-      setError(submitError.message || "Không thể lưu tài khoản.");
+      const message = submitError.message || "Không thể lưu tài khoản.";
+      setError(message);
+      onNotify(message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -632,7 +667,7 @@ function UserFormModal({ user, onClose, onSubmit }) {
   );
 }
 
-function DeleteConfirmModal({ user, onClose, onConfirm }) {
+function DeleteConfirmModal({ onNotify = () => {}, user, onClose, onConfirm }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
@@ -643,7 +678,9 @@ function DeleteConfirmModal({ user, onClose, onConfirm }) {
       await onConfirm();
       onClose();
     } catch (deleteError) {
-      setError(deleteError.message || "Không thể xóa tài khoản.");
+      const message = deleteError.message || "Không thể xóa tài khoản.";
+      setError(message);
+      onNotify(message, "error");
     } finally {
       setIsDeleting(false);
     }
@@ -699,11 +736,12 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [formUser, setFormUser] = useState(undefined);
   const [showForm, setShowForm] = useState(false);
   const [deleteUser, setDeleteUser] = useState(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [adminToast, setAdminToast] = useState(null);
+  const adminToastTimerRef = useRef(null);
   const formUserId = formUser?.id ?? formUser?._id ?? "";
   const deleteUserId = deleteUser?.id ?? deleteUser?._id ?? "";
 
@@ -757,40 +795,87 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
     return () => controller.abort();
   }, [accessToken, activeSection, debouncedSearch, page, refreshVersion, role, status]);
 
+  const closeAdminToast = useCallback(() => {
+    if (adminToastTimerRef.current) {
+      window.clearTimeout(adminToastTimerRef.current);
+      adminToastTimerRef.current = null;
+    }
+
+    setAdminToast(null);
+  }, []);
+
+  const showAdminToast = useCallback((message, type = "success") => {
+    if (!message) {
+      return;
+    }
+
+    if (adminToastTimerRef.current) {
+      window.clearTimeout(adminToastTimerRef.current);
+    }
+
+    setAdminToast({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      message,
+      type,
+    });
+    adminToastTimerRef.current = window.setTimeout(() => {
+      setAdminToast(null);
+      adminToastTimerRef.current = null;
+    }, ADMIN_TOAST_TIMEOUT_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (adminToastTimerRef.current) {
+        window.clearTimeout(adminToastTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (error) {
+      showAdminToast(error, "error");
+    }
+  }, [error, showAdminToast]);
+
   useEffect(() => {
     getAdminDashboard(accessToken)
       .then((response) => setSummary(response.data.summary))
       .catch(() => setSummary({}));
   }, [accessToken, refreshVersion]);
 
-  function refresh(message) {
-    setNotice(message);
+  function refresh() {
     setRefreshVersion((value) => value + 1);
-    window.setTimeout(() => setNotice(""), 3500);
   }
 
   async function handleFormSubmit(payload) {
     if (formUserId) {
       const response = await updateAdminUser(accessToken, formUserId, payload);
-      refresh(response.message);
+      showAdminToast(response.message || "Cáº­p nháº­t tÃ i khoáº£n thÃ nh cÃ´ng.");
+      refresh();
       return;
     }
 
     const response = await createAdminUser(accessToken, payload);
+    showAdminToast(response.message || "Táº¡o tÃ i khoáº£n thÃ nh cÃ´ng.");
     setPage(1);
-    refresh(response.message);
+    refresh();
   }
 
   async function handleDelete() {
     if (!deleteUserId) return;
 
     const response = await deleteAdminUser(accessToken, deleteUserId);
+    showAdminToast(response.message || "XÃ³a tÃ i khoáº£n thÃ nh cÃ´ng.");
     if (users.length === 1 && page > 1) setPage((value) => value - 1);
-    refresh(response.message);
+    refresh();
   }
 
   return (
     <div className="min-h-screen bg-[#F7F9F7] text-[#20262E]">
+      <AdminToast toast={adminToast} onClose={closeAdminToast} />
+
       <AdminSidebar
         activeSection={activeSection}
         currentUser={currentUser}
@@ -806,6 +891,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       {showForm ? (
         <UserFormModal
           user={formUser}
+          onNotify={showAdminToast}
           onClose={() => {
             setShowForm(false);
             setFormUser(undefined);
@@ -816,6 +902,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       {deleteUser ? (
         <DeleteConfirmModal
           user={deleteUser}
+          onNotify={showAdminToast}
           onClose={() => setDeleteUser(null)}
           onConfirm={handleDelete}
         />
@@ -893,21 +980,18 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
               accessToken={accessToken}
               status={propertyStatus}
               onCountsChange={setPropertyCounts}
+              onNotify={showAdminToast}
               onStatusChange={setPropertyStatus}
             />
           ) : activeSection === "kyc" ? (
-            <AdminKycPage accessToken={accessToken} />
+            <AdminKycPage accessToken={accessToken} onNotify={showAdminToast} />
           ) : activeSection === "payments" ? (
-            <AdminPaymentsPage accessToken={accessToken} />
+            <AdminPaymentsPage accessToken={accessToken} onNotify={showAdminToast} />
           ) : (
             <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
           </section>
-
-          {notice ? (
-            <div className="rounded-xl border border-[#CFE8D3] bg-[#F0F9F2] px-4 py-3 text-sm text-[#277C40]">{notice}</div>
-          ) : null}
 
           <section className="overflow-hidden rounded-2xl border border-[#E7EBE7] bg-white shadow-[0_10px_35px_rgba(40,61,46,0.045)]">
             <div className="border-b border-[#E9EDE9] p-4 sm:p-5">
@@ -951,10 +1035,6 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
                 </div>
               </div>
             </div>
-
-            {error ? (
-              <div className="m-5 rounded-xl border border-[#F0CECE] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B53E3E]">{error}</div>
-            ) : null}
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] border-collapse text-left">
