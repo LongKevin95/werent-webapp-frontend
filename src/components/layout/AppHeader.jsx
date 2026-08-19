@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
+import NotificationInbox from "../notifications/NotificationInbox";
 
 const DEFAULT_SEARCH_PLACEHOLDER = "Tìm theo địa chỉ, khu vực, trường học, ...";
 
@@ -51,6 +52,7 @@ function AppHeader({
   const userMenuRef = useRef(null);
 
   const isAdmin = currentUser?.roles?.includes("admin");
+  const notificationSubscriberId = currentUser?.id ?? currentUser?._id ?? "";
   const kycAccountStatusMap = {
     verified: {
       badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
@@ -61,8 +63,8 @@ function AppHeader({
       label: "Hồ sơ đang chờ duyệt",
     },
     need_more_info: {
-      badgeClassName: "border-[#CFE0FF] bg-[#F3F7FF] text-[#2457C5]",
-      label: "Cần bổ sung thông tin",
+      badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
+      label: "Hồ sơ bị từ chối",
     },
     rejected: {
       badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
@@ -75,10 +77,10 @@ function AppHeader({
           badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
           label: "Tài khoản tạm khóa",
         }
-      : kycAccountStatusMap[currentUser?.kycStatus] ?? {
+      : (kycAccountStatusMap[currentUser?.kycStatus] ?? {
           badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
           label: "Chưa xác thực",
-        };
+        });
 
   const userMenuItems = [
     ...(isAdmin
@@ -257,14 +259,7 @@ function AppHeader({
             ) : null}
 
             {showNotification ? (
-              <button
-                aria-label="Thông báo"
-                className="flex size-10 items-center justify-center rounded-full border border-[#E7EBE7] text-[#68717A] transition hover:border-[#D3E7D7] hover:bg-[#F5FAF6]"
-                type="button"
-                onClick={() => onNavigate?.("notifications")}
-              >
-                <Bell className="size-4" />
-              </button>
+              <NotificationInbox subscriberId={notificationSubscriberId} />
             ) : null}
 
             <div className="relative z-[60]" ref={userMenuRef}>
