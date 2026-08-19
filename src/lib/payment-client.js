@@ -55,3 +55,10 @@ export function getWalletOverview(token) {
     token,
   });
 }
+
+export function getPaymentHistory(token) {
+  return request("/api/payments/history", {
+    method: "GET",
+    token,
+  });
+}
