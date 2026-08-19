@@ -27,6 +27,7 @@ import KycAccountModal from "./components/KycAccountModal";
 import ListingVerificationModal from "./components/ListingVerificationModal";
 import {
   changePassword as changePasswordRequest,
+  getAccountKyc as getAccountKycRequest,
   getCurrentUser as fetchCurrentUser,
   getApiBaseUrl,
   login as loginRequest,
@@ -37,6 +38,7 @@ import {
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
   createTopUpCheckout,
+  getPaymentHistory,
   getTopUpPromotions,
   getWalletOverview,
 } from "./lib/payment-client";
@@ -112,8 +114,9 @@ import {
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
 const ACCOUNT_KYC_SUBMITTED_MESSAGE =
   "Yêu cầu xác thực của bạn đã đươc gửi đi. Vui lòng chờ đợi quá trình phê duyệt!";
-const LOGIN_REQUIRED_MESSAGE =
-  "Vui lòng đăng nhập để sử dụng tính năng này.";
+const ACCOUNT_KYC_REJECTED_MESSAGE =
+  "Vui lòng xem chi tiết và làm theo hướng dẫn bổ sung hồ sơ để được xét duyệt lại.";
+const LOGIN_REQUIRED_MESSAGE = "Vui lòng đăng nhập để sử dụng tính năng này.";
 const FRONTEND_ROUTES = Object.freeze({
   adminDashboard: "/admin",
   home: "/",
@@ -254,18 +257,16 @@ function getKycStatusDisplay(status) {
         "Yêu cầu xác thực của bạn đang được phê duyệt. Vui lòng chờ kết quả.",
     },
     need_more_info: {
-      badgeClassName: "bg-blue-50 text-blue-700",
-      iconClassName: "bg-blue-50 text-blue-600",
-      label: "Cần bổ sung thông tin",
-      description:
-        "Vui lòng bổ sung hồ sơ theo phản hồi để tiếp tục xác thực.",
+      badgeClassName: "bg-red-50 text-red-700",
+      iconClassName: "bg-red-50 text-red-600",
+      label: "Hồ sơ bị từ chối",
+      description: ACCOUNT_KYC_REJECTED_MESSAGE,
     },
     rejected: {
       badgeClassName: "bg-red-50 text-red-700",
       iconClassName: "bg-red-50 text-red-600",
       label: "Hồ sơ bị từ chối",
-      description:
-        "Hồ sơ xác thực chưa được duyệt. Bạn có thể nộp lại thông tin.",
+      description: ACCOUNT_KYC_REJECTED_MESSAGE,
     },
   };
 
@@ -1200,18 +1201,12 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
         </div>
 
-        <div
-          className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 [scrollbar-width:none] sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10 [&::-webkit-scrollbar]:hidden"
-        >
+        <div className="flex w-full flex-col overflow-y-auto bg-white px-5 py-6 [scrollbar-width:none] sm:px-8 sm:py-8 lg:w-[58%] lg:px-20 lg:py-10 [&::-webkit-scrollbar]:hidden">
           <div className="mb-6 pr-12">
-            <h2
-              className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]"
-            >
+            <h2 className="text-[30px] font-bold leading-tight tracking-[-0.03em] text-[#171B26] sm:text-[40px]">
               {isLogin ? "Đăng nhập" : "Đăng ký tài khoản"}
             </h2>
-            <p
-              className="mt-2 text-sm text-[#6C7380] sm:text-[15px]"
-            >
+            <p className="mt-2 text-sm text-[#6C7380] sm:text-[15px]">
               {isLogin
                 ? "Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục."
                 : "Tạo tài khoản để trải nghiệm đầy đủ tính năng."}
@@ -1219,9 +1214,7 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
 
           {submitError ? (
-            <div
-              className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]"
-            >
+            <div className="mb-4 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
               {submitError}
             </div>
           ) : null}
@@ -1229,11 +1222,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           <form className="space-y-4" onSubmit={handleSubmit}>
             {!isLogin ? (
               <label className="block">
-                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                <span
+                  className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}
+                >
                   Họ và tên
                 </span>
                 <div className="relative">
-                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                  <span
+                    className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                  >
                     <Home className="size-4" />
                   </span>
                   <input
@@ -1250,11 +1247,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
 
             {isLogin ? (
               <label className="block">
-                <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                <span
+                  className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}
+                >
                   Email hoặc số điện thoại
                 </span>
                 <div className="relative">
-                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                  <span
+                    className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                  >
                     <Mail className="size-4" />
                   </span>
                   <input
@@ -1270,11 +1271,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                  <span
+                    className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}
+                  >
                     Email
                   </span>
                   <div className="relative">
-                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <span
+                      className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                    >
                       <Mail className="size-4" />
                     </span>
                     <input
@@ -1288,11 +1293,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                   </div>
                 </label>
                 <label className="block">
-                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                  <span
+                    className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}
+                  >
                     Số điện thoại
                   </span>
                   <div className="relative">
-                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <span
+                      className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                    >
                       <Phone className="size-4" />
                     </span>
                     <input
@@ -1310,11 +1319,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
 
             {isLogin ? (
               <label className="block">
-                <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                <div
+                  className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}
+                >
                   <span>Mật khẩu</span>
                 </div>
                 <div className="relative">
-                  <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                  <span
+                    className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                  >
                     <Lock className="size-4" />
                   </span>
                   <input
@@ -1342,14 +1355,18 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <div className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}>
+                  <div
+                    className={`${labelMarginClassName} flex items-center gap-2 text-sm font-semibold text-[#2A3140]`}
+                  >
                     <span>Mật khẩu</span>
                     <span className="text-xs font-normal text-[#8C93A1]">
                       *Tối thiểu 8 ký tự
                     </span>
                   </div>
                   <div className="relative">
-                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <span
+                      className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                    >
                       <Lock className="size-4" />
                     </span>
                     <input
@@ -1361,7 +1378,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                       onChange={handleFieldChange}
                     />
                     <button
-                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      aria-label={
+                        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
@@ -1375,11 +1394,15 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                   </div>
                 </label>
                 <label className="block">
-                  <span className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}>
+                  <span
+                    className={`${labelMarginClassName} block text-sm font-semibold text-[#2A3140]`}
+                  >
                     Xác nhận mật khẩu
                   </span>
                   <div className="relative">
-                    <span className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}>
+                    <span
+                      className={`pointer-events-none absolute ${iconLeftClassName} top-1/2 -translate-y-1/2 text-[#96A0AE]`}
+                    >
                       <Lock className="size-4" />
                     </span>
                     <input
@@ -1391,7 +1414,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                       onChange={handleFieldChange}
                     />
                     <button
-                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      aria-label={
+                        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8E96A4] transition hover:text-[#4A5260]"
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
@@ -3116,8 +3141,7 @@ function buildMarketingListingRecord(listing, source, index) {
       houseRules: ["Trao đổi trực tiếp khi xem nhà"],
     },
     draft: {
-      propertyType:
-        source === "featured" ? "Căn hộ chung cư" : "Phòng trọ",
+      propertyType: source === "featured" ? "Căn hộ chung cư" : "Phòng trọ",
       area: areaValue,
       bedrooms: "1",
       bathrooms: bathroomsValue,
@@ -3192,11 +3216,7 @@ function mapApiPropertyToListingRecord(property, index = 0) {
     .filter(Boolean);
   const primaryImage =
     imageUrls[0] ??
-    createPlaceholderImage(
-      propertyType || "WeRent",
-      "#dce8d9",
-      "#f4f7f4",
-    );
+    createPlaceholderImage(propertyType || "WeRent", "#dce8d9", "#f4f7f4");
   const ownerName =
     property.contactName ||
     property.owner?.fullName ||
@@ -3919,6 +3939,142 @@ function formatWalletTransactionDate(value) {
   };
 }
 
+function normalizePaymentOrder(order) {
+  return {
+    ...order,
+    id: order.id ?? order._id,
+    amount: Number(order.amount || 0),
+    totalCredit: Number(order.totalCredit || 0),
+    bonusAmount: Number(order.bonusAmount || 0),
+    status: order.status || "pending",
+  };
+}
+
+function getTopUpOrderMethod(order) {
+  if (order.provider === "admin_demo") {
+    return "Admin demo";
+  }
+
+  return "SePay";
+}
+
+function getTopUpOrderStatusMeta(status) {
+  if (status === "paid") {
+    return {
+      label: "Thành công",
+      className: "border-[#CAEAD4] bg-[#EEF9F1] text-[#0F8B41]",
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      label: "Thất bại",
+      className: "border-[#F2CACA] bg-[#FFF5F5] text-[#D63E3E]",
+    };
+  }
+
+  if (status === "canceled") {
+    return {
+      label: "Đã hủy",
+      className: "border-[#E2E7ED] bg-[#F6F8FB] text-[#5D6A7C]",
+    };
+  }
+
+  return {
+    label: "Đang chờ",
+    className: "border-[#F5E2B8] bg-[#FFF8E8] text-[#A46A00]",
+  };
+}
+
+function createWalletReturnNotice(type, orderCode = "") {
+  if (type === "success") {
+    return {
+      type: "success",
+      orderCode,
+      title: "Nạp tiền thành công",
+      message:
+        "WeRent đã ghi nhận giao dịch nạp tiền của bạn. Số dư ví đã được cập nhật để bạn tiếp tục sử dụng dịch vụ.",
+    };
+  }
+
+  if (type === "warning") {
+    return {
+      type: "warning",
+      orderCode,
+      title: "Bạn đã hủy giao dịch nạp tiền",
+      message:
+        "Yêu cầu nạp tiền chưa được hoàn tất. Bạn có thể tạo lại giao dịch mới bất cứ lúc nào.",
+    };
+  }
+
+  if (type === "error") {
+    return {
+      type: "error",
+      orderCode,
+      title: "Nạp tiền chưa thành công",
+      message:
+        "WeRent chưa ghi nhận giao dịch nạp tiền thành công. Vui lòng thử lại hoặc kiểm tra với ngân hàng/cổng thanh toán nếu cần.",
+    };
+  }
+
+  return null;
+}
+
+function getWalletReturnNoticeFromOrderStatus(status, orderCode = "") {
+  if (status === "paid") {
+    return createWalletReturnNotice("success", orderCode);
+  }
+
+  if (status === "canceled") {
+    return createWalletReturnNotice("warning", orderCode);
+  }
+
+  if (status === "failed") {
+    return createWalletReturnNotice("error", orderCode);
+  }
+
+  return null;
+}
+
+function getWalletReturnNoticeFromSearch() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const payment = String(params.get("payment") || "").toLowerCase();
+  const orderCode = params.get("orderCode")?.trim() || "";
+
+  if (payment === "success") {
+    return createWalletReturnNotice("success", orderCode);
+  }
+
+  if (payment === "cancel") {
+    return createWalletReturnNotice("warning", orderCode);
+  }
+
+  if (payment === "error") {
+    return createWalletReturnNotice("error", orderCode);
+  }
+
+  return null;
+}
+
+function clearWalletReturnSearchParams() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("payment");
+  url.searchParams.delete("orderCode");
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
 function WalletPage({
   accessToken,
   headerSearchContent,
@@ -3929,6 +4085,12 @@ function WalletPage({
   const [walletData, setWalletData] = useState(null);
   const [isLoadingWallet, setIsLoadingWallet] = useState(true);
   const [walletError, setWalletError] = useState("");
+  const [walletReturnNotice, setWalletReturnNotice] = useState(() =>
+    getWalletReturnNoticeFromSearch(),
+  );
+  const [paymentOrders, setPaymentOrders] = useState([]);
+  const [isLoadingPaymentOrders, setIsLoadingPaymentOrders] = useState(true);
+  const [paymentOrderError, setPaymentOrderError] = useState("");
   const walletSummary = walletData?.summary ?? {
     availableBalance: 0,
     promotionBalance: 0,
@@ -3957,6 +4119,42 @@ function WalletPage({
       value: walletSummary.totalSpent,
     },
   ];
+  const walletTopUpOrders = useMemo(
+    () =>
+      paymentOrders
+        .filter(
+          (order) =>
+            order.orderType === "wallet_top_up" ||
+            order.transactionType === "topup",
+        )
+        .slice(0, 5),
+    [paymentOrders],
+  );
+  const highlightedTopUpOrder = useMemo(() => {
+    if (!walletReturnNotice?.orderCode) {
+      return null;
+    }
+
+    return (
+      paymentOrders.find(
+        (order) => order.orderCode === walletReturnNotice.orderCode,
+      ) ?? null
+    );
+  }, [paymentOrders, walletReturnNotice]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const hasWalletReturnParams =
+      window.location.search.includes("payment=") ||
+      window.location.search.includes("orderCode=");
+
+    if (hasWalletReturnParams) {
+      clearWalletReturnSearchParams();
+    }
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -3995,6 +4193,136 @@ function WalletPage({
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingPaymentOrders(true);
+        setPaymentOrderError("");
+        return getPaymentHistory(accessToken);
+      })
+      .then((response) => {
+        if (isActive && response) {
+          setPaymentOrders(
+            (response.data?.items ?? []).map(normalizePaymentOrder),
+          );
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setPaymentOrders([]);
+          setPaymentOrderError(
+            error.message || "Không thể tải lịch sử nạp tiền lúc này.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingPaymentOrders(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken]);
+
+  const highlightedTopUpOrderStatus = highlightedTopUpOrder
+    ? getTopUpOrderStatusMeta(highlightedTopUpOrder.status)
+    : null;
+  const highlightedTopUpOrderTime = highlightedTopUpOrder
+    ? formatWalletTransactionDate(highlightedTopUpOrder.createdAt)
+    : null;
+  const highlightedTopUpCreditedAmount = highlightedTopUpOrder
+    ? Number(
+        highlightedTopUpOrder.totalCredit || highlightedTopUpOrder.amount || 0,
+      )
+    : 0;
+  const isHighlightedTopUpPending =
+    !highlightedTopUpOrder || highlightedTopUpOrder.status === "pending";
+
+  useEffect(() => {
+    if (!walletReturnNotice?.orderCode || !isHighlightedTopUpPending) {
+      return undefined;
+    }
+
+    let isActive = true;
+    let attemptCount = 0;
+    let timeoutId = null;
+    const maxAttempts = 8;
+    const pollDelay = 2000;
+
+    async function syncTopUpStatus() {
+      attemptCount += 1;
+
+      try {
+        const [walletResponse, paymentHistoryResponse] = await Promise.all([
+          getWalletOverview(accessToken),
+          getPaymentHistory(accessToken),
+        ]);
+
+        if (!isActive) {
+          return;
+        }
+
+        setWalletData(walletResponse.data);
+        const nextOrders = (paymentHistoryResponse.data?.items ?? []).map(
+          normalizePaymentOrder,
+        );
+        setPaymentOrders(nextOrders);
+        setPaymentOrderError("");
+
+        const matchedOrder =
+          nextOrders.find(
+            (order) => order.orderCode === walletReturnNotice.orderCode,
+          ) ?? null;
+
+        if (!matchedOrder || matchedOrder.status === "pending") {
+          if (attemptCount < maxAttempts) {
+            timeoutId = window.setTimeout(syncTopUpStatus, pollDelay);
+          }
+          return;
+        }
+
+        const resolvedNotice = getWalletReturnNoticeFromOrderStatus(
+          matchedOrder.status,
+          matchedOrder.orderCode,
+        );
+
+        if (resolvedNotice) {
+          setWalletReturnNotice(resolvedNotice);
+        }
+      } catch {
+        if (!isActive) {
+          return;
+        }
+
+        if (attemptCount < maxAttempts) {
+          timeoutId = window.setTimeout(syncTopUpStatus, pollDelay);
+        }
+      }
+    }
+
+    timeoutId = window.setTimeout(syncTopUpStatus, pollDelay);
+
+    return () => {
+      isActive = false;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    accessToken,
+    isHighlightedTopUpPending,
+    walletReturnNotice?.orderCode,
+    walletReturnNotice?.type,
+  ]);
+
   return (
     <AccountPageShell
       activeKey="wallet"
@@ -4030,10 +4358,196 @@ function WalletPage({
           </div>
         ) : null}
 
+        {walletReturnNotice ? (
+          <section
+            className={`rounded-[22px] border px-5 py-5 shadow-[0_12px_30px_rgba(46,72,54,0.05)] sm:px-6 ${
+              walletReturnNotice.type === "success"
+                ? "border-[#CBE8D2] bg-[#F4FCF6]"
+                : walletReturnNotice.type === "warning"
+                  ? "border-[#F3E0B6] bg-[#FFF9EC]"
+                  : "border-[#F3D1D1] bg-[#FFF6F6]"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${
+                      walletReturnNotice.type === "success"
+                        ? "border-[#BFE0C8] bg-white text-[#0F8B41]"
+                        : walletReturnNotice.type === "warning"
+                          ? "border-[#E9D49A] bg-white text-[#9A6700]"
+                          : "border-[#EDC4C4] bg-white text-[#C43D3D]"
+                    }`}
+                  >
+                    {walletReturnNotice.type === "success"
+                      ? "Top-up thành công"
+                      : walletReturnNotice.type === "warning"
+                        ? "Giao dịch đã hủy"
+                        : "Top-up thất bại"}
+                  </span>
+                  {walletReturnNotice.orderCode ? (
+                    <span className="inline-flex items-center rounded-full border border-[#DCE4DE] bg-white px-3 py-1 text-xs font-semibold text-[#526071]">
+                      Mã GD: {walletReturnNotice.orderCode}
+                    </span>
+                  ) : null}
+                  {highlightedTopUpOrderStatus ? (
+                    <span
+                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${highlightedTopUpOrderStatus.className}`}
+                    >
+                      Trạng thái ghi nhận: {highlightedTopUpOrderStatus.label}
+                    </span>
+                  ) : null}
+                </div>
+                <h2 className="mt-3 text-xl font-bold text-[#172033]">
+                  {walletReturnNotice.title}
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-[#536179]">
+                  {walletReturnNotice.message}
+                </p>
+                {isHighlightedTopUpPending ? (
+                  <p className="mt-3 text-sm font-medium text-[#9A6700]">
+                    WeRent đang chờ SePay xác nhận giao dịch và sẽ tự cập nhật
+                    ngay khi nhận được kết quả cuối cùng.
+                  </p>
+                ) : null}
+                {highlightedTopUpOrder ? (
+                  <div className="mt-3 space-y-1 text-sm font-medium text-[#5C697E]">
+                    <p>
+                      {formatWalletCurrency(highlightedTopUpOrder.amount)} ·{" "}
+                      {getTopUpOrderMethod(highlightedTopUpOrder)} ·{" "}
+                      {highlightedTopUpOrderTime?.date}{" "}
+                      {highlightedTopUpOrderTime?.time}
+                    </p>
+                    {walletReturnNotice.type === "success" ? (
+                      <p className="text-[#0F8B41]">
+                        Đã cộng{" "}
+                        {formatWalletCurrency(highlightedTopUpCreditedAmount)}{" "}
+                        vào ví của bạn. Tổng số dư hiện tại:{" "}
+                        {formatWalletCurrency(totalWalletBalance)}.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-[#078C3F] px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(7,140,63,0.2)] transition hover:bg-[#067437]"
+                    type="button"
+                    onClick={() => onNavigate("walletTopUp")}
+                  >
+                    {walletReturnNotice.type === "success"
+                      ? "Nạp thêm tiền"
+                      : "Thử nạp lại"}
+                  </button>
+                  <button
+                    className="inline-flex h-11 items-center justify-center rounded-xl border border-[#D8DFDA] bg-white px-5 text-sm font-semibold text-[#223047] transition hover:border-[#C4CEC6]"
+                    type="button"
+                    onClick={() => setWalletReturnNotice(null)}
+                  >
+                    Đóng thông báo
+                  </button>
+                </div>
+              </div>
+              <button
+                className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-[#DCE4DE] bg-white text-[#66718A] transition hover:text-[#223047]"
+                type="button"
+                onClick={() => setWalletReturnNotice(null)}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {walletSummaryCardsWithValues.map((card) => (
             <WalletSummaryCard key={card.key} card={card} />
           ))}
+        </section>
+
+        <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
+          <div className="flex flex-col gap-3 border-b border-[#E7ECE8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-[#172033]">
+                Lệnh nạp tiền gần đây
+              </h2>
+              <p className="mt-1 text-sm text-[#63708A]">
+                Theo dõi trạng thái các giao dịch nạp tiền, bao gồm chờ xác
+                nhận, thành công, thất bại hoặc đã hủy.
+              </p>
+            </div>
+            <button
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+              type="button"
+              onClick={() => onNavigate("walletTopUp")}
+            >
+              Tạo giao dịch mới
+              <ArrowRight className="size-4" />
+            </button>
+          </div>
+
+          <div className="divide-y divide-[#EEF1EE]">
+            {isLoadingPaymentOrders ? (
+              <div className="px-5 py-8 text-sm text-[#63708A]">
+                Đang tải lịch sử nạp tiền...
+              </div>
+            ) : paymentOrderError ? (
+              <div className="px-5 py-8 text-sm text-[#B73A3A]">
+                {paymentOrderError}
+              </div>
+            ) : walletTopUpOrders.length ? (
+              walletTopUpOrders.map((order) => {
+                const statusMeta = getTopUpOrderStatusMeta(order.status);
+                const orderTime = formatWalletTransactionDate(order.createdAt);
+                return (
+                  <div
+                    key={order.id}
+                    className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-[#263149]">
+                          {order.orderCode}
+                        </p>
+                        <span
+                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusMeta.className}`}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-[#63708A]">
+                        {getTopUpOrderMethod(order)} · {orderTime.date}{" "}
+                        {orderTime.time}
+                      </p>
+                      {order.note ? (
+                        <p className="mt-1 text-sm text-[#5C697E]">
+                          {order.note}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="text-left lg:text-right">
+                      <p className="text-lg font-bold text-[#172033]">
+                        {formatWalletCurrency(order.amount)}
+                      </p>
+                      <p className="mt-1 text-sm text-[#63708A]">
+                        {order.status === "paid"
+                          ? `Đã cộng ${formatWalletCurrency(order.totalCredit || order.amount)}`
+                          : order.status === "canceled"
+                            ? "Chưa cộng vào ví do giao dịch bị hủy"
+                            : order.status === "failed"
+                              ? "Chưa cộng vào ví do giao dịch thất bại"
+                              : "Đang chờ hệ thống xác nhận"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="px-5 py-8 text-sm text-[#63708A]">
+                Chưa có lệnh nạp tiền nào.
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
@@ -4569,7 +5083,10 @@ function TopUpPaymentPage({
                       ...quickAutoPromotions,
                       ...(quickDefaultPromotion ? [quickDefaultPromotion] : []),
                     ];
-                    const quickBonus = getTopUpBonus(option.amount, quickPromotions);
+                    const quickBonus = getTopUpBonus(
+                      option.amount,
+                      quickPromotions,
+                    );
 
                     return (
                       <button
@@ -4629,12 +5146,16 @@ function TopUpPaymentPage({
                       </span>
                     </div>
                     <p className="mt-1 text-xs font-medium text-[#63708A]">
-                      {autoPromotions.map((promotion) => promotion.name).join(", ")}
+                      {autoPromotions
+                        .map((promotion) => promotion.name)
+                        .join(", ")}
                     </p>
                   </div>
                 ) : null}
 
-                <div className={`${autoPromotions.length ? "mt-3" : "mt-5"} space-y-3`}>
+                <div
+                  className={`${autoPromotions.length ? "mt-3" : "mt-5"} space-y-3`}
+                >
                   {isLoadingPromotions ? (
                     <div className="rounded-2xl border border-dashed border-[#DDE4DF] px-4 py-5 text-sm leading-6 text-[#63708A]">
                       Đang tải chương trình khuyến mãi...
@@ -4695,10 +5216,7 @@ function TopUpPaymentPage({
                                 <span className="block text-sm font-bold text-[#172033]">
                                   {promotion.name}
                                   {!promotion.stackable ? (
-                                    <span className="text-[#D05252]">
-                                      {" "}
-                                      (*)
-                                    </span>
+                                    <span className="text-[#D05252]"> (*)</span>
                                   ) : null}
                                 </span>
                               </span>
@@ -7584,6 +8102,102 @@ function AccountKycSubmittedModal({ onClose }) {
   );
 }
 
+function AccountKycReasonModal({ error, feedback, isLoading, onClose }) {
+  const rejectionReason = feedback?.rejectionReason?.trim();
+  const adminNote = feedback?.adminNote?.trim();
+
+  return (
+    <Modal
+      className="max-w-[640px]"
+      contentClassName="px-6 pb-0 pt-6 sm:px-8"
+      footer={
+        <Button className="min-w-[160px]" variant="primary" onClick={onClose}>
+          Đóng
+        </Button>
+      }
+      footerClassName="border-t border-[#EEF1EE] pb-6 pt-5 sm:justify-center"
+      showCloseButton={false}
+      size="md"
+      onClose={onClose}
+    >
+      <div className="relative pb-2">
+        <button
+          aria-label="Đóng"
+          className="absolute right-0 top-0 text-[#7F8892] transition hover:text-[#49515A]"
+          type="button"
+          onClick={onClose}
+        >
+          <X className="size-6" />
+        </button>
+
+        {isLoading ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-sm text-[#68717B]">
+            <LoaderCircle className="size-7 animate-spin text-[#31A252]" />
+            <p>Đang tải phản hồi xác thực...</p>
+          </div>
+        ) : error ? (
+          <div className="py-8">
+            <p className="rounded-2xl border border-[#F1D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B43D3D]">
+              {error}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <span className="relative mx-auto flex size-[108px] items-center justify-center rounded-full bg-[radial-gradient(circle_at_top,#FFF3F3_0%,#FBE8E8_75%,#F7DCDC_100%)] text-[#D84747] shadow-[0_12px_30px_rgba(216,71,71,0.14)]">
+              <FileText className="size-11" />
+              <span className="absolute bottom-4 right-4 flex size-7 items-center justify-center rounded-full bg-[#D84747] text-white shadow-md">
+                <X className="size-4" />
+              </span>
+            </span>
+            <h2 className="mt-6 text-center text-[22px] font-bold tracking-[-0.02em] text-[#1F252D] sm:text-[26px]">
+              Hồ sơ chưa hợp lệ
+            </h2>
+            <p className="mt-2 text-center text-sm leading-6 text-[#66707A] sm:text-base">
+              Vui lòng nộp lại hồ sơ theo yêu cầu bổ sung.
+            </p>
+
+            <div className="mt-7 space-y-4">
+              <div className="rounded-[20px] border border-[#F3CFCF] bg-[#FFF8F8] px-5 py-4 shadow-[0_8px_24px_rgba(202,73,73,0.06)]">
+                <div className="flex items-start gap-4">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#FDEAEA] text-[#D84747]">
+                    <Info className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-bold text-[#D84747]">
+                      Lý do từ chối
+                    </p>
+                    <p className="mt-1.5 text-sm leading-7 text-[#404853]">
+                      {rejectionReason || "Chưa có lý do chi tiết."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-[#D5EBDD] bg-[#FBFEFC] px-5 py-4 shadow-[0_8px_24px_rgba(46,145,73,0.06)]">
+                <div className="flex items-start gap-4">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#EAF7EE] text-[#2E9149]">
+                    <ShieldCheck className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-bold text-[#2E9149]">
+                      Yêu cầu bổ sung
+                    </p>
+                    <p className="mt-1.5 text-sm leading-7 text-[#404853]">
+                      {adminNote ||
+                        rejectionReason ||
+                        "Vui lòng cập nhật hồ sơ theo phản hồi của bộ phận kiểm duyệt rồi nộp lại."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function PostListingPage({
   accessToken,
   editingListing,
@@ -7619,8 +8233,12 @@ function PostListingPage({
         draftValues.internetPrice,
         internetPriceOptions,
       ),
-      propertyType: draftValues.propertyType || defaultListingDraft.propertyType,
-      waterPrice: getSelectOptionValue(draftValues.waterPrice, waterPriceOptions),
+      propertyType:
+        draftValues.propertyType || defaultListingDraft.propertyType,
+      waterPrice: getSelectOptionValue(
+        draftValues.waterPrice,
+        waterPriceOptions,
+      ),
     }),
   );
   const [listingTitle, setListingTitle] = useState(editingListing?.title ?? "");
@@ -8542,14 +9160,6 @@ function ListingDetailMediaViewer({
   const [isImageZoomed, setIsImageZoomed] = useState(false);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
 
-  useEffect(() => {
-    imageDragStateRef.current = null;
-    imagePanRef.current = { x: 0, y: 0 };
-    didDragImageRef.current = false;
-    setIsImageZoomed(false);
-    setIsDraggingImage(false);
-  }, [activeMedia?.key]);
-
   useEffect(
     () => () => {
       if (imageAnimationFrameRef.current) {
@@ -8716,9 +9326,7 @@ function ListingDetailMediaViewer({
           )
         ) : (
           <button
-            aria-label={
-              isImageZoomed ? "Thu nhỏ ảnh" : "Phóng lớn ảnh"
-            }
+            aria-label={isImageZoomed ? "Thu nhỏ ảnh" : "Phóng lớn ảnh"}
             className={`mx-auto flex min-h-full min-w-full select-none items-center justify-center ${
               isImageZoomed
                 ? isDraggingImage
@@ -8834,8 +9442,7 @@ function ListingDetailPage({
     useState(null);
   const [isLoadingListingVerification, setIsLoadingListingVerification] =
     useState(false);
-  const [listingVerificationError, setListingVerificationError] =
-    useState("");
+  const [listingVerificationError, setListingVerificationError] = useState("");
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
   const fullAddress =
     draft.formattedAddress ||
@@ -8860,7 +9467,8 @@ function ListingDetailPage({
     listingVerificationStatus,
   );
   const isListingVerificationPending = listingVerificationStatus === "pending";
-  const isListingVerificationRejected = listingVerificationStatus === "rejected";
+  const isListingVerificationRejected =
+    listingVerificationStatus === "rejected";
   const isListingVerificationNeedMoreInfo =
     listingVerificationStatus === "need_more_info";
   const previewMessage = {
@@ -8924,17 +9532,17 @@ function ListingDetailPage({
     );
   }
 
-  function showPreviousViewerMedia() {
+  const showPreviousViewerMedia = useCallback(() => {
     setMediaViewerIndex((current) =>
       current === null || current === 0 ? mediaItems.length - 1 : current - 1,
     );
-  }
+  }, [mediaItems.length]);
 
-  function showNextViewerMedia() {
+  const showNextViewerMedia = useCallback(() => {
     setMediaViewerIndex((current) =>
       current === null || current === mediaItems.length - 1 ? 0 : current + 1,
     );
-  }
+  }, [mediaItems.length]);
 
   useEffect(() => {
     if (mediaViewerIndex === null) {
@@ -8964,7 +9572,7 @@ function ListingDetailPage({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleViewerKeyDown);
     };
-  }, [mediaViewerIndex, mediaItems.length]);
+  }, [mediaViewerIndex, showNextViewerMedia, showPreviousViewerMedia]);
 
   useEffect(() => {
     if (!accessToken || !isOwnerViewer) {
@@ -9013,6 +9621,7 @@ function ListingDetailPage({
     <div className="min-h-screen bg-[#F5F7F4] text-[#20262E]">
       {mediaViewerIndex !== null ? (
         <ListingDetailMediaViewer
+          key={mediaItems[mediaViewerIndex]?.key ?? mediaViewerIndex}
           activeIndex={mediaViewerIndex}
           listingTitle={listing.title}
           mediaItems={mediaItems}
@@ -9044,8 +9653,8 @@ function ListingDetailPage({
             isListingVerificationRejected
               ? "Chi tiết từ chối xác thực BĐS"
               : isListingVerificationNeedMoreInfo
-              ? "Duyệt lại xác thực bất động sản"
-              : "Xác thực bất động sản"
+                ? "Duyệt lại xác thực bất động sản"
+                : "Xác thực bất động sản"
           }
         />
       ) : null}
@@ -9089,7 +9698,9 @@ function ListingDetailPage({
                           <button
                             className="absolute right-4 top-4 rounded-xl bg-white/95 px-3 py-2 text-sm font-semibold text-[#1F252D] shadow-[0_10px_24px_rgba(31,37,45,0.16)] transition hover:bg-white"
                             type="button"
-                            onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                            onClick={() =>
+                              setMediaViewerIndex(activeMediaIndex)
+                            }
                           >
                             Xem lớn
                           </button>
@@ -10229,6 +10840,10 @@ function ProfilePage({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showKycModal, setShowKycModal] = useState(false);
   const [showKycSubmittedModal, setShowKycSubmittedModal] = useState(false);
+  const [showKycReasonModal, setShowKycReasonModal] = useState(false);
+  const [latestAccountKyc, setLatestAccountKyc] = useState(null);
+  const [isLoadingKycFeedback, setIsLoadingKycFeedback] = useState(false);
+  const [kycFeedbackError, setKycFeedbackError] = useState("");
   const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
@@ -10244,9 +10859,37 @@ function ProfilePage({
   const memberSince = user.createdAt
     ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
     : "Chưa có dữ liệu";
+  const isRejectedAccountKyc = ["rejected", "need_more_info"].includes(
+    user.kycStatus,
+  );
   const kycStatusDisplay = getKycStatusDisplay(user.kycStatus);
   const formatProfileDate = (value) =>
     value ? new Intl.DateTimeFormat("vi-VN").format(new Date(value)) : "";
+  const loadLatestAccountKyc = useCallback(async () => {
+    if (!isRejectedAccountKyc) {
+      setLatestAccountKyc(null);
+      setKycFeedbackError("");
+      return null;
+    }
+
+    setIsLoadingKycFeedback(true);
+    setKycFeedbackError("");
+
+    try {
+      const response = await getAccountKycRequest(accessToken);
+      const item = response.data?.item ?? null;
+      setLatestAccountKyc(item);
+      return item;
+    } catch (error) {
+      setLatestAccountKyc(null);
+      setKycFeedbackError(
+        error.message || "Không thể tải phản hồi xác thực lúc này.",
+      );
+      return null;
+    } finally {
+      setIsLoadingKycFeedback(false);
+    }
+  }, [accessToken, isRejectedAccountKyc]);
   const profileInfoRows = [
     ["Họ và tên", user.fullName],
     ["Ngày sinh", formatProfileDate(user.dateOfBirth)],
@@ -10267,6 +10910,15 @@ function ProfilePage({
     ["passportNumber", "Số hộ Chiếu", "text"],
     ["taxCode", "Mã số thuế", "text"],
   ];
+
+  const isKycReasonModalVisible = showKycReasonModal && isRejectedAccountKyc;
+
+  function openKycReasonModal() {
+    setShowKycReasonModal(true);
+    if (!latestAccountKyc && !isLoadingKycFeedback) {
+      loadLatestAccountKyc();
+    }
+  }
 
   function handleFormChange(event) {
     const { name, value } = event.target;
@@ -10425,6 +11077,14 @@ function ProfilePage({
       {showKycSubmittedModal ? (
         <AccountKycSubmittedModal
           onClose={() => setShowKycSubmittedModal(false)}
+        />
+      ) : null}
+      {isKycReasonModalVisible ? (
+        <AccountKycReasonModal
+          error={kycFeedbackError}
+          feedback={latestAccountKyc}
+          isLoading={isLoadingKycFeedback}
+          onClose={() => setShowKycReasonModal(false)}
         />
       ) : null}
 
@@ -10685,9 +11345,24 @@ function ProfilePage({
                         <p className="text-sm font-semibold text-[#414A53]">
                           {kycStatusDisplay.label}
                         </p>
-                        <p className="mt-1 text-xs leading-5 text-[#7D858F]">
-                          {kycStatusDisplay.description}
-                        </p>
+                        {isRejectedAccountKyc ? (
+                          <p className="mt-1 text-xs leading-5 text-[#7D858F]">
+                            Vui lòng xem{" "}
+                            <button
+                              className="inline font-semibold text-[#2F9C50] underline decoration-[#2F9C50]/40 underline-offset-2 transition hover:text-[#238C43]"
+                              type="button"
+                              onClick={openKycReasonModal}
+                            >
+                              chi tiết
+                            </button>{" "}
+                            và làm theo hướng dẫn bổ sung hồ sơ để được xét
+                            duyệt lại.
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs leading-5 text-[#7D858F]">
+                            {kycStatusDisplay.description}
+                          </p>
+                        )}
                       </div>
                     </div>
                     {user.kycStatus !== "verified" &&
@@ -10697,8 +11372,8 @@ function ProfilePage({
                         type="button"
                         onClick={() => setShowKycModal(true)}
                       >
-                        {user.kycStatus === "rejected" ||
-                        user.kycStatus === "need_more_info"
+                        {user.kycStatus !== "verified" &&
+                        user.kycStatus !== "pending"
                           ? "Nộp lại hồ sơ"
                           : "Xác thực tài khoản"}
                       </button>
