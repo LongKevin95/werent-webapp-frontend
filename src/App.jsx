@@ -41,6 +41,7 @@ import {
   confirmMomoMockPayment,
   createTopUpCheckout,
   getPaymentHistory,
+  getPaymentCapabilities,
   getTopUpPromotions,
   getWalletOverview,
   reconcileTopUpOrder,
@@ -3961,6 +3962,14 @@ function getTopUpOrderMethod(order) {
     return "Admin demo";
   }
 
+  if (order.provider === "momo_mock") {
+    return "MoMo Mock";
+  }
+
+  if (order.provider === "momo") {
+    return "MoMo";
+  }
+
   return "SePay";
 }
 
@@ -4116,7 +4125,7 @@ function FavoritesPage({ accessToken, headerSearchContent, onLogout, onNavigate,
           <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((favorite) => {
               const listing = mapApiPropertyToListingRecord(favorite.property);
-              return <div key={favorite._id} className="relative"><PropertyCard listing={listing} onViewListing={() => onViewListing(listing)} /><button aria-label="Bỏ lưu tin" className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white text-[#EF4444] shadow" type="button" onClick={() => handleRemove(favorite.property._id)}><Heart className="size-5 fill-current" /></button></div>;
+              return <div key={favorite._id} className="relative"><PropertyCard listing={listing} onViewListing={() => onViewListing(listing)} /><button aria-label="Bỏ lưu tin" className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white text-[#EF4444] shadow" type="button" onClick={(event) => { event.stopPropagation(); handleRemove(favorite.property._id); }}><Heart className="size-5 fill-current" /></button></div>;
             })}
           </div>
         ) : <div className="mt-6 rounded-2xl border border-dashed border-[#CFD9D1] px-6 py-14 text-center"><Heart className="mx-auto size-10 text-[#94A39A]" /><p className="mt-4 font-semibold text-[#263149]">Bạn chưa lưu tin đăng nào.</p><button className="mt-4 text-sm font-semibold text-[#078C3F]" type="button" onClick={() => onNavigate("search")}>Khám phá tin đăng</button></div>}
@@ -4769,7 +4778,12 @@ function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNa
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirming, setIsConfirming] = useState(false);
   const [notice, setNotice] = useState(null);
-  const qrValue = typeof window === "undefined" ? `WERENT-MOMO-MOCK:${orderCode}` : window.location.href;
+  const qrValue = JSON.stringify({
+    provider: "MOMO_MOCK",
+    environment: "DEMO_ONLY",
+    orderCode,
+    amount: Number(order?.amount ?? 0),
+  });
 
   useEffect(() => {
     let active = true;
@@ -4809,6 +4823,7 @@ function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNa
         {isLoading ? <p className="py-12 text-[#697386]">Đang tải giao dịch...</p> : order ? (
           <>
             <div className="mx-auto mt-7 w-fit rounded-3xl border border-[#F0D5E4] bg-white p-5 shadow-sm"><QRCodeSVG value={qrValue} size={220} level="M" /></div>
+            <p className="mt-3 text-xs font-medium text-[#7D7180]">QR chỉ minh họa dữ liệu giao dịch demo, không quét hoặc thanh toán bằng ứng dụng MoMo.</p>
             <div className="mx-auto mt-6 max-w-md rounded-2xl bg-[#FFF5FA] p-5 text-left text-sm">
               <div className="flex justify-between gap-4"><span className="text-[#70798A]">Mã giao dịch</span><strong className="break-all text-right">{order.orderCode}</strong></div>
               <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Số tiền demo</span><strong className="text-[#A50064]">{formatWalletCurrency(order.amount)}</strong></div>
@@ -4844,6 +4859,7 @@ function TopUpPaymentPage({
   const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
   const [promotionLoadError, setPromotionLoadError] = useState("");
   const [isPromotionSummaryOpen, setIsPromotionSummaryOpen] = useState(false);
+  const [momoCapability, setMomoCapability] = useState({ enabled: false, mode: "loading" });
 
   const amount = Number(amountValue || 0);
   const autoPromotions = useMemo(
@@ -4873,7 +4889,21 @@ function TopUpPaymentPage({
   const shouldShowPromotionSummary =
     isPromotionSummaryOpen && appliedPromotionDetails.length > 0;
   const total = amount + bonus;
-  const selectedMethodDetail = topUpPaymentMethods.find(
+  const availablePaymentMethods = topUpPaymentMethods.map((method) =>
+    method.key === "momo"
+      ? {
+          ...method,
+          enabled: momoCapability.enabled,
+          capabilityMode: momoCapability.mode,
+          label: momoCapability.mode === "mock" ? "MoMo Mock" : method.label,
+          description:
+            momoCapability.mode === "mock"
+              ? "Mô phỏng thanh toán, không dùng tiền thật"
+              : method.description,
+        }
+      : method,
+  );
+  const selectedMethodDetail = availablePaymentMethods.find(
     (method) => method.key === selectedMethod,
   );
   const canContinue =
@@ -4918,6 +4948,16 @@ function TopUpPaymentPage({
       ignore = true;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    let active = true;
+    getPaymentCapabilities()
+      .then((response) => {
+        if (active) setMomoCapability(response.data?.capabilities?.momo ?? { enabled: false, mode: "unavailable" });
+      })
+      .catch(() => active && setMomoCapability({ enabled: false, mode: "unavailable" }));
+    return () => { active = false; };
+  }, []);
 
   function selectDefaultPromotionForAmount(nextAmount) {
     const nextAutoPromotions = getEligibleTopUpPromotions(
@@ -5106,7 +5146,7 @@ function TopUpPaymentPage({
                 Chọn phương thức thanh toán
               </h2>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                {topUpPaymentMethods.map((method) => {
+                {availablePaymentMethods.map((method) => {
                   const Icon = method.icon;
                   const isSelected = selectedMethod === method.key;
 
@@ -5119,7 +5159,9 @@ function TopUpPaymentPage({
                           : "border-[#E1E7E3] hover:border-[#BFDCC7]"
                       } ${method.enabled ? "" : "opacity-70"}`}
                       type="button"
+                      disabled={!method.enabled}
                       onClick={() => {
+                        if (!method.enabled) return;
                         setSelectedMethod(method.key);
                         setNotice(null);
                       }}
@@ -5131,7 +5173,7 @@ function TopUpPaymentPage({
                       ) : null}
                       {!method.enabled ? (
                         <span className="absolute left-4 top-4 rounded-full bg-[#F1F4F2] px-2.5 py-1 text-[11px] font-bold text-[#68717C]">
-                          Sắp có
+                          {method.key === "momo" ? "Chưa cấu hình" : "Sắp có"}
                         </span>
                       ) : null}
                       <span
@@ -9566,6 +9608,7 @@ function ListingDetailPage({
   const [listingVerificationError, setListingVerificationError] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);
   const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
+  const [favoriteNotice, setFavoriteNotice] = useState("");
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
 
   useEffect(() => {
@@ -9580,10 +9623,13 @@ function ListingDetailPage({
   async function handleFavoriteToggle() {
     if (!currentUser) { onNavigate("favorites"); return; }
     setIsUpdatingFavorite(true);
+    setFavoriteNotice("");
     try {
       if (isFavorite) await removeFavorite(accessToken, listing.id);
       else await addFavorite(accessToken, listing.id);
       setIsFavorite((current) => !current);
+    } catch (error) {
+      setFavoriteNotice(error.message || "Không thể cập nhật tin yêu thích. Vui lòng thử lại.");
     } finally { setIsUpdatingFavorite(false); }
   }
   const fullAddress =
@@ -9979,6 +10025,7 @@ function ListingDetailPage({
                       <Heart className={`size-5 ${isFavorite ? "fill-current" : ""}`} />
                       {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
                     </button>
+                    {favoriteNotice ? <p className="mt-2 text-sm font-medium text-[#B43D3D]" role="alert">{favoriteNotice}</p> : null}
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
                       <span className="flex items-center gap-2">
                         <MapPin className="size-4 text-[#35A554]" />
