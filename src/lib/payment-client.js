@@ -62,3 +62,11 @@ export function getPaymentHistory(token) {
     token,
   });
 }
+
+export function reconcileTopUpOrder(token, orderCode) {
+  return request("/api/payments/top-up/reconcile", {
+    method: "POST",
+    token,
+    body: { orderCode },
+  });
+}

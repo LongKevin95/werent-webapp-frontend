@@ -41,6 +41,7 @@ import {
   getPaymentHistory,
   getTopUpPromotions,
   getWalletOverview,
+  reconcileTopUpOrder,
 } from "./lib/payment-client";
 import { addFavorite, listFavorites, removeFavorite } from "./lib/favorite-client";
 import {
@@ -4301,12 +4302,16 @@ function WalletPage({
     let attemptCount = 0;
     let timeoutId = null;
     const maxAttempts = 8;
-    const pollDelay = 2000;
+    const pollDelay = 1000;
 
     async function syncTopUpStatus() {
       attemptCount += 1;
 
       try {
+        await reconcileTopUpOrder(
+          accessToken,
+          walletReturnNotice.orderCode,
+        ).catch(() => null);
         const [walletResponse, paymentHistoryResponse] = await Promise.all([
           getWalletOverview(accessToken),
           getPaymentHistory(accessToken),
@@ -4354,7 +4359,7 @@ function WalletPage({
       }
     }
 
-    timeoutId = window.setTimeout(syncTopUpStatus, pollDelay);
+    syncTopUpStatus();
 
     return () => {
       isActive = false;
