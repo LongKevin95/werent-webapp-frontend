@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   MapContainer,
   Marker,
@@ -37,6 +38,7 @@ import {
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
+  confirmMomoMockPayment,
   createTopUpCheckout,
   getPaymentHistory,
   getTopUpPromotions,
@@ -128,6 +130,7 @@ const FRONTEND_ROUTES = Object.freeze({
   search: "/search",
   wallet: "/wallet",
   walletTopUp: "/wallet/top-up",
+  walletMomoMock: "/wallet/top-up/momo-mock",
   favorites: "/favorites",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
@@ -4755,6 +4758,68 @@ function WalletPage({
             </div>
           </div>
         </section>
+      </div>
+    </AccountPageShell>
+  );
+}
+
+function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNavigate, user }) {
+  const orderCode = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("orderCode")?.trim() ?? "";
+  const [order, setOrder] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const qrValue = typeof window === "undefined" ? `WERENT-MOMO-MOCK:${orderCode}` : window.location.href;
+
+  useEffect(() => {
+    let active = true;
+    getPaymentHistory(accessToken)
+      .then((response) => {
+        if (!active) return;
+        const matchedOrder = (response.data?.items ?? []).find((item) => item.orderCode === orderCode);
+        setOrder(matchedOrder ?? null);
+        if (!matchedOrder) setNotice({ type: "error", message: "Không tìm thấy giao dịch mô phỏng." });
+      })
+      .catch((error) => active && setNotice({ type: "error", message: error.message || "Không thể tải giao dịch mô phỏng." }))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
+  }, [accessToken, orderCode]);
+
+  async function handleConfirm() {
+    setIsConfirming(true);
+    setNotice(null);
+    try {
+      const response = await confirmMomoMockPayment(accessToken, orderCode);
+      setOrder(response.data?.order ?? order);
+      setNotice({ type: "success", message: "Đã mô phỏng thanh toán thành công. Số dư ví WeRent đã được cập nhật." });
+    } catch (error) {
+      setNotice({ type: "error", message: error.message || "Không thể xác nhận giao dịch mô phỏng." });
+    } finally {
+      setIsConfirming(false);
+    }
+  }
+
+  const isPaid = order?.status === "paid";
+  return (
+    <AccountPageShell activeKey="wallet" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+      <div className="mx-auto max-w-2xl rounded-[28px] border border-[#F1B5D6] bg-white p-6 text-center shadow-[0_18px_50px_rgba(180,20,110,0.12)] sm:p-9">
+        <div className="mx-auto inline-flex rounded-full bg-[#A50064] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white">MoMo Mock · Demo</div>
+        <h1 className="mt-5 text-3xl font-bold text-[#191724]">Thanh toán MoMo mô phỏng</h1>
+        <p className="mt-3 font-semibold text-[#B00068]">Không kết nối MoMo và không phát sinh tiền thật</p>
+        {isLoading ? <p className="py-12 text-[#697386]">Đang tải giao dịch...</p> : order ? (
+          <>
+            <div className="mx-auto mt-7 w-fit rounded-3xl border border-[#F0D5E4] bg-white p-5 shadow-sm"><QRCodeSVG value={qrValue} size={220} level="M" /></div>
+            <div className="mx-auto mt-6 max-w-md rounded-2xl bg-[#FFF5FA] p-5 text-left text-sm">
+              <div className="flex justify-between gap-4"><span className="text-[#70798A]">Mã giao dịch</span><strong className="break-all text-right">{order.orderCode}</strong></div>
+              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Số tiền demo</span><strong className="text-[#A50064]">{formatWalletCurrency(order.amount)}</strong></div>
+              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Trạng thái</span><strong>{isPaid ? "Đã thanh toán" : "Chờ mô phỏng"}</strong></div>
+            </div>
+            {notice ? <div className={`mt-5 rounded-2xl border px-4 py-3 text-sm ${notice.type === "success" ? "border-[#CFE8D5] bg-[#F2FAF4] text-[#247A3D]" : "border-[#F1CCCC] bg-[#FFF5F5] text-[#B43D3D]"}`}>{notice.message}</div> : null}
+            <button className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#A50064] px-6 text-sm font-bold text-white transition hover:bg-[#8F0057] disabled:cursor-not-allowed disabled:opacity-60" disabled={isPaid || isConfirming} type="button" onClick={handleConfirm}>{isPaid ? "Đã thanh toán mô phỏng" : isConfirming ? "Đang xử lý..." : "Mô phỏng thanh toán thành công"}</button>
+            <button className="mt-3 text-sm font-semibold text-[#178246]" type="button" onClick={() => onNavigate("wallet")}>Quay về ví WeRent</button>
+          </>
+        ) : null}
+        {!order && notice ? <div className="mt-6 rounded-2xl border border-[#F1CCCC] bg-[#FFF5F5] px-4 py-3 text-sm text-[#B43D3D]">{notice.message}</div> : null}
       </div>
     </AccountPageShell>
   );
@@ -11708,6 +11773,7 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "walletMomoMock",
       "favorites",
     ];
 
@@ -11843,6 +11909,7 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "walletMomoMock",
       "favorites",
       "adminDashboard",
     ];
@@ -12215,6 +12282,18 @@ function HomePage() {
   if (currentView === "walletTopUp" && currentUser) {
     return renderWithViewportNotice(
       <TopUpPaymentPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        user={currentUser}
+      />,
+    );
+  }
+
+  if (currentView === "walletMomoMock" && currentUser) {
+    return renderWithViewportNotice(
+      <MomoMockCheckoutPage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}

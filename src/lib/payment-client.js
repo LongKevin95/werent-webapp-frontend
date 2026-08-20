@@ -70,3 +70,11 @@ export function reconcileTopUpOrder(token, orderCode) {
     body: { orderCode },
   });
 }
+
+export function confirmMomoMockPayment(token, orderCode) {
+  return request("/api/payments/top-up/momo-mock/confirm", {
+    method: "POST",
+    token,
+    body: { orderCode },
+  });
+}
