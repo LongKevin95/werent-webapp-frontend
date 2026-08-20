@@ -1438,23 +1438,26 @@ function SearchResultsListItem({ listing, onViewListing }) {
 
   return (
     <article className="grid gap-4 rounded-[26px] border border-[#E7ECE8] bg-white p-4 shadow-[0_12px_30px_rgba(42,66,52,0.055)] lg:grid-cols-[260px_minmax(0,1fr)_220px]">
-      <button
-        className="relative overflow-hidden rounded-[22px]"
-        type="button"
-        onClick={() => onViewListing?.(listing)}
-      >
-        <img
-          alt={listing.title}
-          className="h-[210px] w-full object-cover transition duration-300 hover:scale-[1.02]"
-          src={listing.image}
-        />
-        <span
-          className={`absolute left-3 top-3 rounded-xl px-3 py-1.5 text-xs font-bold shadow-sm ${getTierBadgeClassName(
-            listing,
-          )}`}
+      <div className="relative overflow-hidden rounded-[22px]">
+        <button
+          aria-label={`Xem chi tiết ${listing.title}`}
+          className="block w-full overflow-hidden rounded-[22px]"
+          type="button"
+          onClick={() => onViewListing?.(listing)}
         >
-          {getTierLabel(listing)}
-        </span>
+          <img
+            alt={listing.title}
+            className="h-[210px] w-full object-cover transition duration-300 hover:scale-[1.02]"
+            src={listing.image}
+          />
+          <span
+            className={`absolute left-3 top-3 rounded-xl px-3 py-1.5 text-xs font-bold shadow-sm ${getTierBadgeClassName(
+              listing,
+            )}`}
+          >
+            {getTierLabel(listing)}
+          </span>
+        </button>
         <button
           aria-label="Lưu tin"
           className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-full bg-white/90 text-[#7B8590] shadow-sm"
@@ -1462,7 +1465,7 @@ function SearchResultsListItem({ listing, onViewListing }) {
         >
           <Heart className="size-4" />
         </button>
-      </button>
+      </div>
 
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-4">

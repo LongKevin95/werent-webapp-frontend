@@ -2718,9 +2718,17 @@ function buildListingFullAddress(draft) {
 }
 
 function hasValidCoordinates(coordinates) {
+  const lat = Number(coordinates?.lat);
+  const lng = Number(coordinates?.lng);
+
   return (
-    Number.isFinite(Number(coordinates?.lat)) &&
-    Number.isFinite(Number(coordinates?.lng))
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    !(lat === 0 && lng === 0)
   );
 }
 
@@ -11750,19 +11758,17 @@ function HomePage() {
 
         setCurrentUser(response.data.user);
       })
-      .catch((error) => {
+      .catch(() => {
         if (!isActive) {
           return;
         }
 
         setAccessToken("");
         setCurrentUser(null);
-        setAuthNotice({
-          type: "error",
-          message:
-            error.message ||
-            "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
-        });
+        // A stored token can expire between visits. Clear it silently during
+        // session restoration so public pages do not greet logged-out users
+        // with an authentication error.
+        setAuthNotice(null);
       });
 
     return () => {
