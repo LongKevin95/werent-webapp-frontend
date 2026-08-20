@@ -835,7 +835,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
 
   useEffect(() => {
     if (error) {
-      showAdminToast(error, "error");
+      window.queueMicrotask(() => showAdminToast(error, "error"));
     }
   }, [error, showAdminToast]);
 

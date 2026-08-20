@@ -42,6 +42,7 @@ import {
   getTopUpPromotions,
   getWalletOverview,
 } from "./lib/payment-client";
+import { addFavorite, listFavorites, removeFavorite } from "./lib/favorite-client";
 import {
   createPropertyListing,
   deletePropertyListing,
@@ -126,6 +127,7 @@ const FRONTEND_ROUTES = Object.freeze({
   search: "/search",
   wallet: "/wallet",
   walletTopUp: "/wallet/top-up",
+  favorites: "/favorites",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
   Object.fromEntries(
@@ -1530,7 +1532,7 @@ const dashboardSidebarSections = [
     title: "Tài khoản",
     items: [
       { key: "profile", icon: UserRound, label: "Thông tin cá nhân" },
-      { key: "favorites", icon: Heart, label: "Tin yêu thích", disabled: true },
+      { key: "favorites", icon: Heart, label: "Tin yêu thích" },
       {
         key: "appointments",
         icon: CalendarDays,
@@ -1679,7 +1681,7 @@ const topUpPaymentMethods = [
     label: "MoMo",
     description: "Thanh toán nhanh chóng qua ví MoMo",
     icon: CreditCard,
-    enabled: false,
+    enabled: true,
   },
 ];
 
@@ -4075,6 +4077,50 @@ function clearWalletReturnSearchParams() {
   );
 }
 
+function FavoritesPage({ accessToken, headerSearchContent, onLogout, onNavigate, onViewListing, user }) {
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    listFavorites(accessToken)
+      .then((response) => {
+        if (active) setItems((response.data?.items ?? []).filter((item) => item.property));
+      })
+      .catch((requestError) => active && setError(requestError.message || "Không thể tải tin yêu thích."))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
+  }, [accessToken]);
+
+  async function handleRemove(propertyId) {
+    try {
+      await removeFavorite(accessToken, propertyId);
+      setItems((current) => current.filter((item) => String(item.property?._id) !== String(propertyId)));
+    } catch (requestError) {
+      setError(requestError.message || "Không thể bỏ lưu tin.");
+    }
+  }
+
+  return (
+    <AccountPageShell activeKey="favorites" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+      <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
+        <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">Tin yêu thích</h1>
+        <p className="mt-2 text-sm text-[#536179]">Danh sách các tin đăng bạn đã lưu để xem lại sau.</p>
+        {error ? <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">{error}</div> : null}
+        {isLoading ? <p className="py-12 text-center text-[#63708A]">Đang tải tin yêu thích...</p> : items.length ? (
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((favorite) => {
+              const listing = mapApiPropertyToListingRecord(favorite.property);
+              return <div key={favorite._id} className="relative"><PropertyCard listing={listing} onViewListing={() => onViewListing(listing)} /><button aria-label="Bỏ lưu tin" className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white text-[#EF4444] shadow" type="button" onClick={() => handleRemove(favorite.property._id)}><Heart className="size-5 fill-current" /></button></div>;
+            })}
+          </div>
+        ) : <div className="mt-6 rounded-2xl border border-dashed border-[#CFD9D1] px-6 py-14 text-center"><Heart className="mx-auto size-10 text-[#94A39A]" /><p className="mt-4 font-semibold text-[#263149]">Bạn chưa lưu tin đăng nào.</p><button className="mt-4 text-sm font-semibold text-[#078C3F]" type="button" onClick={() => onNavigate("search")}>Khám phá tin đăng</button></div>}
+      </section>
+    </AccountPageShell>
+  );
+}
+
 function WalletPage({
   accessToken,
   headerSearchContent,
@@ -4911,6 +4957,11 @@ function TopUpPaymentPage({
         expectedBonusAmount: bonus,
       });
       const checkout = response.data?.checkout;
+
+      if (checkout?.redirectUrl) {
+        window.location.assign(checkout.redirectUrl);
+        return;
+      }
 
       if (!checkout?.actionUrl || !checkout.fields) {
         throw new Error("Không nhận được thông tin thanh toán từ máy chủ.");
@@ -9443,7 +9494,28 @@ function ListingDetailPage({
   const [isLoadingListingVerification, setIsLoadingListingVerification] =
     useState(false);
   const [listingVerificationError, setListingVerificationError] = useState("");
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
+
+  useEffect(() => {
+    if (!accessToken || !listing.id || !/^[a-f\d]{24}$/i.test(String(listing.id))) return;
+    let active = true;
+    listFavorites(accessToken).then((response) => {
+      if (active) setIsFavorite((response.data?.items ?? []).some((item) => String(item.property?._id) === String(listing.id)));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [accessToken, listing.id]);
+
+  async function handleFavoriteToggle() {
+    if (!currentUser) { onNavigate("favorites"); return; }
+    setIsUpdatingFavorite(true);
+    try {
+      if (isFavorite) await removeFavorite(accessToken, listing.id);
+      else await addFavorite(accessToken, listing.id);
+      setIsFavorite((current) => !current);
+    } finally { setIsUpdatingFavorite(false); }
+  }
   const fullAddress =
     draft.formattedAddress ||
     buildListingFullAddress(draft) ||
@@ -9833,6 +9905,10 @@ function ListingDetailPage({
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
+                    <button className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`} disabled={isUpdatingFavorite} type="button" onClick={handleFavoriteToggle}>
+                      <Heart className={`size-5 ${isFavorite ? "fill-current" : ""}`} />
+                      {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
+                    </button>
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
                       <span className="flex items-center gap-2">
                         <MapPin className="size-4 text-[#35A554]" />
@@ -11627,6 +11703,7 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "favorites",
     ];
 
     if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
@@ -11761,6 +11838,7 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "favorites",
       "adminDashboard",
     ];
 
@@ -11797,7 +11875,6 @@ function HomePage() {
     }
 
     const comingSoonViews = [
-      "favorites",
       "messages",
       "support",
       "about",
@@ -12121,6 +12198,12 @@ function HomePage() {
         onNavigate={navigateTo}
         user={currentUser}
       />,
+    );
+  }
+
+  if (currentView === "favorites" && currentUser) {
+    return (
+      <FavoritesPage accessToken={accessToken} headerSearchContent={basicHeaderSearchContent} onLogout={handleLogout} onNavigate={navigateTo} onViewListing={(listing) => openListingDetail(listing, "favorites")} user={currentUser} />
     );
   }
 
