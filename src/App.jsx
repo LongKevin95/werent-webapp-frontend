@@ -3912,8 +3912,22 @@ function WalletTransactionIcon({ type }) {
 
 function getWalletTransactionMethod(transaction) {
   if (transaction.type === "top_up") {
-    if (transaction.metadata?.provider === "admin_demo") {
+    const provider = String(transaction.metadata?.provider ?? "").toLowerCase();
+
+    if (provider === "admin_demo") {
       return "Admin demo";
+    }
+
+    if (provider === "momo_mock") {
+      return "MoMo Mock";
+    }
+
+    if (provider === "momo") {
+      return "MoMo";
+    }
+
+    if (provider === "sepay") {
+      return "SePay";
     }
 
     return "Mã QR";
@@ -11622,6 +11636,9 @@ function HomePage() {
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [propertyListError, setPropertyListError] = useState("");
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
+  const [searchFavoritePropertyIds, setSearchFavoritePropertyIds] = useState(
+    [],
+  );
   const [searchAdministrativeDivisions, setSearchAdministrativeDivisions] =
     useState(() => readCachedAdministrativeDivisions());
   const closeViewportNotice = useCallback(() => {
@@ -11777,6 +11794,36 @@ function HomePage() {
   }, [accessToken, currentUser]);
 
   useEffect(() => {
+    if (!accessToken || !currentUser) {
+      return undefined;
+    }
+
+    let isActive = true;
+    listFavorites(accessToken)
+      .then((response) => {
+        if (!isActive) {
+          return;
+        }
+
+        setSearchFavoritePropertyIds(
+          (response.data?.items ?? [])
+            .map((item) => item.property?._id ?? item.property?.id)
+            .filter(Boolean)
+            .map(String),
+        );
+      })
+      .catch(() => {
+        if (isActive) {
+          setSearchFavoritePropertyIds([]);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken, currentUser, currentView]);
+
+  useEffect(() => {
     if (!accessToken || currentView !== "profile") {
       return undefined;
     }
@@ -11828,6 +11875,7 @@ function HomePage() {
       "walletTopUp",
       "walletMomoMock",
       "favorites",
+      "adminDashboard",
     ];
 
     if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
@@ -11849,6 +11897,35 @@ function HomePage() {
       isActive = false;
     };
   }, [currentUser, currentView, showLoginRequiredNotice]);
+
+  useEffect(() => {
+    if (
+      currentView !== "adminDashboard" ||
+      currentUser === undefined ||
+      currentUser === null ||
+      currentUser.roles?.includes("admin")
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      updateFrontendRoute("home", { replace: true });
+      setCurrentView("home");
+      setAuthNotice({
+        type: "error",
+        message: "Bạn không có quyền truy cập khu vực quản trị.",
+      });
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView]);
 
   useEffect(() => {
     if (
@@ -11926,6 +12003,7 @@ function HomePage() {
   function handleLogout() {
     setAccessToken("");
     setCurrentUser(null);
+    setSearchFavoritePropertyIds([]);
     updateFrontendRoute("home");
     setCurrentView("home");
     setEditingListing(null);
@@ -12013,6 +12091,57 @@ function HomePage() {
         id: createNoticeId(),
         type: "success",
         message: "Tính năng này đang được phát triển.",
+      });
+    }
+  }
+
+  async function handleSearchFavoriteToggle(listing) {
+    if (!currentUser || !accessToken) {
+      showLoginRequiredNotice();
+      setAuthModal("login");
+      return;
+    }
+
+    const propertyId = String(listing?.id ?? "");
+    if (!/^[a-f\d]{24}$/i.test(propertyId)) {
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "error",
+        message: "Tin đăng này chưa thể lưu vào danh sách yêu thích.",
+      });
+      return;
+    }
+
+    const isFavorite = searchFavoritePropertyIds.includes(propertyId);
+    try {
+      if (isFavorite) {
+        await removeFavorite(accessToken, propertyId);
+        setSearchFavoritePropertyIds((current) =>
+          current.filter((id) => id !== propertyId),
+        );
+      } else {
+        await addFavorite(accessToken, propertyId);
+        setSearchFavoritePropertyIds((current) =>
+          current.includes(propertyId) ? current : [...current, propertyId],
+        );
+      }
+
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "success",
+        message: isFavorite
+          ? "Đã bỏ lưu tin yêu thích."
+          : "Đã lưu tin vào danh sách yêu thích.",
+      });
+    } catch (error) {
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "error",
+        message:
+          error.message ||
+          (isFavorite
+            ? "Không thể bỏ lưu tin lúc này."
+            : "Không thể lưu tin lúc này."),
       });
     }
   }
@@ -12432,12 +12561,14 @@ function HomePage() {
             <PropertySearchResultsPage
               administrativeDivisions={searchAdministrativeDivisions}
               appliedSearchState={appliedPropertySearch}
+              favoritePropertyIds={searchFavoritePropertyIds}
               listings={filteredSearchListings}
               onApplyFilters={handleApplyPropertySearch}
               onClearFilters={() =>
                 handleApplyPropertySearch(defaultPropertySearchState)
               }
               onSearchStateChange={handlePropertySearchDraftChange}
+              onToggleFavorite={handleSearchFavoriteToggle}
               onViewListing={(listing) => openListingDetail(listing, "search")}
               searchState={propertySearchDraft}
             />
