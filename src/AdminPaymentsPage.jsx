@@ -122,12 +122,10 @@ function getPromotionPayload(form) {
 function AdjustmentModal({ accessToken, transaction, onClose, onNotify = () => {}, onSuccess }) {
   const user = transaction?.user;
   const [form, setForm] = useState({ direction: "credit", amount: "", reason: "" });
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
-    setError("");
     setSaving(true);
 
     try {
@@ -138,7 +136,6 @@ function AdjustmentModal({ accessToken, transaction, onClose, onNotify = () => {
       });
       onSuccess(response.message);
     } catch (requestError) {
-      setError(requestError.message);
       onNotify(requestError.message, "error");
     } finally {
       setSaving(false);
@@ -226,7 +223,6 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onNotify = () => {}
     status: "idle",
     quote: null,
   });
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const amount = parseIntegerInputValue(form.amount);
   const normalizedEmail = form.email.trim().toLowerCase();
@@ -325,7 +321,6 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onNotify = () => {}
 
   async function submit(event) {
     event.preventDefault();
-    setError("");
     setSaving(true);
 
     try {
@@ -336,7 +331,6 @@ function DemoTopUpModal({ accessToken, transaction, onClose, onNotify = () => {}
       });
       onSuccess(response.message);
     } catch (requestError) {
-      setError(requestError.message);
       onNotify(requestError.message, "error");
     } finally {
       setSaving(false);
@@ -474,7 +468,6 @@ function Promotions({ accessToken, onNotify = () => {} }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState(null);
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(() => ({ ...emptyPromotionForm }));
 
@@ -486,26 +479,23 @@ function Promotions({ accessToken, onNotify = () => {} }) {
       })
       .catch((requestError) => {
         if (active) {
-          setError(requestError.message);
           onNotify(requestError.message, "error");
         }
       });
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken, onNotify]);
 
   function openCreateForm() {
     setEditingPromotion(null);
     setForm({ ...emptyPromotionForm });
-    setError("");
     setOpen(true);
   }
 
   function openEditForm(promotion) {
     setEditingPromotion(promotion);
     setForm(getPromotionFormValues(promotion));
-    setError("");
     setOpen(false);
   }
 
@@ -517,7 +507,6 @@ function Promotions({ accessToken, onNotify = () => {} }) {
 
   async function submit(event) {
     event.preventDefault();
-    setError("");
     setSaving(true);
     try {
       const payload = getPromotionPayload(form);
@@ -532,7 +521,6 @@ function Promotions({ accessToken, onNotify = () => {} }) {
       const response = await getAdminPromotions(accessToken);
       setItems(response.data.items);
     } catch (requestError) {
-      setError(requestError.message);
       onNotify(requestError.message, "error");
     } finally {
       setSaving(false);
@@ -761,7 +749,6 @@ export default function AdminPaymentsPage({ accessToken, onNotify = () => {} }) 
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState({ search: "", status: "" });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [adjusting, setAdjusting] = useState(false);
   const [demoTopUpOpen, setDemoTopUpOpen] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -787,7 +774,6 @@ export default function AdminPaymentsPage({ accessToken, onNotify = () => {} }) 
       })
       .catch((requestError) => {
         if (requestError.name !== "AbortError") {
-          setError(requestError.message);
           onNotify(requestError.message, "error");
         }
       })
@@ -795,7 +781,7 @@ export default function AdminPaymentsPage({ accessToken, onNotify = () => {} }) 
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [accessToken, query.search, query.status, refresh]);
+  }, [accessToken, onNotify, query.search, query.status, refresh]);
 
   const cards = useMemo(
     () => [

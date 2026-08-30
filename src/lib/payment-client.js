@@ -62,3 +62,23 @@ export function getPaymentHistory(token) {
     token,
   });
 }
+
+export function reconcileTopUpOrder(token, orderCode) {
+  return request("/api/payments/top-up/reconcile", {
+    method: "POST",
+    token,
+    body: { orderCode },
+  });
+}
+
+export function getPaymentCapabilities() {
+  return request("/api/payments/packages", { method: "GET" });
+}
+
+export function confirmMomoMockPayment(token, orderCode) {
+  return request("/api/payments/top-up/momo-mock/confirm", {
+    method: "POST",
+    token,
+    body: { orderCode },
+  });
+}

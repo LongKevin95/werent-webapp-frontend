@@ -1433,36 +1433,62 @@ function ResultsFilterPopover({
   );
 }
 
-function SearchResultsListItem({ listing, onViewListing }) {
+function SearchResultsListItem({
+  isFavorite = false,
+  listing,
+  onToggleFavorite,
+  onViewListing,
+}) {
   const tags = getResultItemTags(listing);
+  const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
+
+  async function handleToggleFavorite() {
+    if (isFavoriteBusy) {
+      return;
+    }
+
+    setIsFavoriteBusy(true);
+    try {
+      await onToggleFavorite?.(listing);
+    } finally {
+      setIsFavoriteBusy(false);
+    }
+  }
 
   return (
     <article className="grid gap-4 rounded-[26px] border border-[#E7ECE8] bg-white p-4 shadow-[0_12px_30px_rgba(42,66,52,0.055)] lg:grid-cols-[260px_minmax(0,1fr)_220px]">
-      <button
-        className="relative overflow-hidden rounded-[22px]"
-        type="button"
-        onClick={() => onViewListing?.(listing)}
-      >
-        <img
-          alt={listing.title}
-          className="h-[210px] w-full object-cover transition duration-300 hover:scale-[1.02]"
-          src={listing.image}
-        />
-        <span
-          className={`absolute left-3 top-3 rounded-xl px-3 py-1.5 text-xs font-bold shadow-sm ${getTierBadgeClassName(
-            listing,
-          )}`}
-        >
-          {getTierLabel(listing)}
-        </span>
+      <div className="relative overflow-hidden rounded-[22px]">
         <button
-          aria-label="Lưu tin"
-          className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-full bg-white/90 text-[#7B8590] shadow-sm"
+          aria-label={`Xem chi tiết ${listing.title}`}
+          className="block w-full overflow-hidden rounded-[22px]"
           type="button"
+          onClick={() => onViewListing?.(listing)}
         >
-          <Heart className="size-4" />
+          <img
+            alt={listing.title}
+            className="h-[210px] w-full object-cover transition duration-300 hover:scale-[1.02]"
+            src={listing.image}
+          />
+          <span
+            className={`absolute left-3 top-3 rounded-xl px-3 py-1.5 text-xs font-bold shadow-sm ${getTierBadgeClassName(
+              listing,
+            )}`}
+          >
+            {getTierLabel(listing)}
+          </span>
         </button>
-      </button>
+        <button
+          aria-label={isFavorite ? "Bỏ lưu tin" : "Lưu tin"}
+          className={`absolute right-3 top-3 flex size-10 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
+            isFavorite ? "text-[#EF4444]" : "text-[#7B8590] hover:text-[#EF4444]"
+          }`}
+          disabled={isFavoriteBusy}
+          type="button"
+          onClick={handleToggleFavorite}
+        >
+          <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
+        </button>
+      </div>
 
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-4">
@@ -2504,10 +2530,12 @@ export function PropertySearchHeaderBar({
 export function PropertySearchResultsPage({
   administrativeDivisions = [],
   appliedSearchState = defaultPropertySearchState,
+  favoritePropertyIds = [],
   listings = [],
   onApplyFilters,
   onClearFilters,
   onSearchStateChange,
+  onToggleFavorite,
   onViewListing,
   searchState = defaultPropertySearchState,
 }) {
@@ -2517,6 +2545,10 @@ export function PropertySearchResultsPage({
   const [openFilter, setOpenFilter] = useState("");
   const [filterDraft, setFilterDraft] = useState(() =>
     normalizePropertySearchState(searchState),
+  );
+  const favoritePropertyIdSet = useMemo(
+    () => new Set(favoritePropertyIds.map(String)),
+    [favoritePropertyIds],
   );
   const filtersRef = useRef(null);
   const divisions = useMemo(
@@ -3140,7 +3172,9 @@ export function PropertySearchResultsPage({
             currentListings.map((listing) => (
               <SearchResultsListItem
                 key={listing.id}
+                isFavorite={favoritePropertyIdSet.has(String(listing.id))}
                 listing={listing}
+                onToggleFavorite={onToggleFavorite}
                 onViewListing={onViewListing}
               />
             ))

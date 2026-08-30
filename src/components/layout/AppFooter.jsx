@@ -33,6 +33,19 @@ const socialLinks = [
   { className: "bg-black text-white", label: "TikTok", text: "♪" },
 ];
 
+function PendingFooterLink({ children, className = "", ...props }) {
+  return (
+    <span
+      aria-disabled="true"
+      className={`cursor-not-allowed opacity-65 ${className}`}
+      title="Nội dung đang được cập nhật"
+      {...props}
+    >
+      {children}
+    </span>
+  );
+}
+
 const contactItems = [
   {
     icon: MapPin,
@@ -69,14 +82,13 @@ function AppFooter() {
 
           <div className="mt-6 flex items-center gap-4">
             {socialLinks.map((item) => (
-              <a
+              <PendingFooterLink
                 key={item.label}
                 aria-label={item.label}
                 className={`flex size-6 items-center justify-center rounded-full text-[11px] font-bold shadow-sm transition hover:-translate-y-0.5 ${item.className}`}
-                href="#"
               >
                 {item.text}
-              </a>
+              </PendingFooterLink>
             ))}
           </div>
         </div>
@@ -89,9 +101,9 @@ function AppFooter() {
             <ul className="mt-5 space-y-4 text-[15px] font-medium text-[#303847]">
               {column.items.map((item) => (
                 <li key={item}>
-                  <a className="transition hover:text-[#12803A]" href="#">
+                  <PendingFooterLink className="transition">
                     {item}
-                  </a>
+                  </PendingFooterLink>
                 </li>
               ))}
             </ul>

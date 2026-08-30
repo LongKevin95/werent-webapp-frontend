@@ -835,7 +835,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
 
   useEffect(() => {
     if (error) {
-      showAdminToast(error, "error");
+      window.queueMicrotask(() => showAdminToast(error, "error"));
     }
   }, [error, showAdminToast]);
 
@@ -852,13 +852,13 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
   async function handleFormSubmit(payload) {
     if (formUserId) {
       const response = await updateAdminUser(accessToken, formUserId, payload);
-      showAdminToast(response.message || "Cáº­p nháº­t tÃ i khoáº£n thÃ nh cÃ´ng.");
+      showAdminToast(response.message || "Cập nhật tài khoản thành công.");
       refresh();
       return;
     }
 
     const response = await createAdminUser(accessToken, payload);
-    showAdminToast(response.message || "Táº¡o tÃ i khoáº£n thÃ nh cÃ´ng.");
+    showAdminToast(response.message || "Tạo tài khoản thành công.");
     setPage(1);
     refresh();
   }
@@ -867,7 +867,7 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
     if (!deleteUserId) return;
 
     const response = await deleteAdminUser(accessToken, deleteUserId);
-    showAdminToast(response.message || "XÃ³a tÃ i khoáº£n thÃ nh cÃ´ng.");
+    showAdminToast(response.message || "Xóa tài khoản thành công.");
     if (users.length === 1 && page > 1) setPage((value) => value - 1);
     refresh();
   }

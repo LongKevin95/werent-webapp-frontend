@@ -1,5 +1,7 @@
 import L from "leaflet";
+import { GoogleLogin } from "@react-oauth/google";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   MapContainer,
   Marker,
@@ -31,17 +33,22 @@ import {
   getCurrentUser as fetchCurrentUser,
   getApiBaseUrl,
   login as loginRequest,
+  loginWithGoogle as loginWithGoogleRequest,
   register as registerRequest,
   updateProfile as updateProfileRequest,
   uploadAvatar as uploadAvatarRequest,
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
+  confirmMomoMockPayment,
   createTopUpCheckout,
   getPaymentHistory,
+  getPaymentCapabilities,
   getTopUpPromotions,
   getWalletOverview,
+  reconcileTopUpOrder,
 } from "./lib/payment-client";
+import { addFavorite, listFavorites, removeFavorite } from "./lib/favorite-client";
 import {
   createPropertyListing,
   deletePropertyListing,
@@ -112,6 +119,7 @@ import {
 } from "lucide-react";
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? "";
 const ACCOUNT_KYC_SUBMITTED_MESSAGE =
   "Yêu cầu xác thực của bạn đã đươc gửi đi. Vui lòng chờ đợi quá trình phê duyệt!";
 const ACCOUNT_KYC_REJECTED_MESSAGE =
@@ -126,6 +134,8 @@ const FRONTEND_ROUTES = Object.freeze({
   search: "/search",
   wallet: "/wallet",
   walletTopUp: "/wallet/top-up",
+  walletMomoMock: "/wallet/top-up/momo-mock",
+  favorites: "/favorites",
 });
 const FRONTEND_ROUTE_VIEWS = Object.freeze(
   Object.fromEntries(
@@ -315,6 +325,34 @@ const guestHeaderNavItems = [
   { key: "support", label: "Hỗ trợ", disabled: true },
   { key: "about", label: "Về chúng tôi", disabled: true },
 ];
+
+function GoogleIcon({ className = "size-5" }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M21.6 12.227c0-.709-.064-1.391-.182-2.045H12v3.868h5.382a4.602 4.602 0 0 1-1.996 3.018v2.509h3.232c1.891-1.741 2.982-4.305 2.982-7.35Z"
+        fill="#4285F4"
+      />
+      <path
+        d="M12 22c2.7 0 4.964-.895 6.618-2.423l-3.232-2.509c-.895.6-2.041.955-3.386.955-2.605 0-4.81-1.759-5.596-4.123H3.064v2.591A9.996 9.996 0 0 0 12 22Z"
+        fill="#34A853"
+      />
+      <path
+        d="M6.404 13.9A6.009 6.009 0 0 1 6.091 12c0-.659.114-1.3.313-1.9V7.509h-3.34A9.996 9.996 0 0 0 2 12c0 1.614.386 3.141 1.064 4.491l3.34-2.591Z"
+        fill="#FBBC05"
+      />
+      <path
+        d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.959 2.991 14.695 2 12 2a9.996 9.996 0 0 0-8.936 5.509l3.34 2.591C7.19 7.736 9.395 5.977 12 5.977Z"
+        fill="#EA4335"
+      />
+    </svg>
+  );
+}
 
 const authenticatedHeaderNavItems = [
   { key: "postListing", label: "Đăng tin", actionGroup: true },
@@ -848,7 +886,13 @@ function CategoryCard({ icon: Icon, title, count }) {
   );
 }
 
-function PropertyCard({ listing, onViewListing }) {
+function PropertyCard({
+  isFavorite = false,
+  listing,
+  onToggleFavorite,
+  onViewListing,
+}) {
+  const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
   const handleOpen = () => onViewListing?.(listing);
   const publishedTimeLabel = formatRelativeListingPublishedTime(
     listing.publishedAtRaw ??
@@ -858,6 +902,21 @@ function PropertyCard({ listing, onViewListing }) {
       listing.updatedAt ??
       listing.detail?.publishedAt,
   );
+
+  async function handleToggleFavorite(event) {
+    event.stopPropagation();
+
+    if (isFavoriteBusy) {
+      return;
+    }
+
+    setIsFavoriteBusy(true);
+    try {
+      await onToggleFavorite?.(listing);
+    } finally {
+      setIsFavoriteBusy(false);
+    }
+  }
 
   return (
     <article
@@ -925,13 +984,16 @@ function PropertyCard({ listing, onViewListing }) {
           </div>
           <button
             aria-label="Lưu tin yêu thích"
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#D8EEDD] text-[#77B87B] transition hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
+            className={`flex size-9 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-wait disabled:opacity-65 ${
+              isFavorite
+                ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#EF4444]"
+                : "border-[#D8EEDD] text-[#77B87B] hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
+            }`}
+            disabled={isFavoriteBusy}
             type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-            }}
+            onClick={handleToggleFavorite}
           >
-            <Heart className="size-4" />
+            <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
           </button>
         </div>
       </div>
@@ -939,8 +1001,29 @@ function PropertyCard({ listing, onViewListing }) {
   );
 }
 
-function MiniPropertyCard({ listing, onViewListing }) {
+function MiniPropertyCard({
+  isFavorite = false,
+  listing,
+  onToggleFavorite,
+  onViewListing,
+}) {
+  const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
   const handleOpen = () => onViewListing?.(listing);
+
+  async function handleToggleFavorite(event) {
+    event.stopPropagation();
+
+    if (isFavoriteBusy) {
+      return;
+    }
+
+    setIsFavoriteBusy(true);
+    try {
+      await onToggleFavorite?.(listing);
+    } finally {
+      setIsFavoriteBusy(false);
+    }
+  }
 
   return (
     <article
@@ -955,11 +1038,24 @@ function MiniPropertyCard({ listing, onViewListing }) {
         }
       }}
     >
-      <img
-        alt={listing.title}
-        className="h-[155px] w-full object-cover"
-        src={listing.image}
-      />
+      <div className="relative">
+        <img
+          alt={listing.title}
+          className="h-[155px] w-full object-cover"
+          src={listing.image}
+        />
+        <button
+          aria-label={isFavorite ? "Bỏ lưu tin yêu thích" : "Lưu tin yêu thích"}
+          className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
+            isFavorite ? "text-[#EF4444]" : "text-[#7B8590] hover:text-[#EF4444]"
+          }`}
+          disabled={isFavoriteBusy}
+          type="button"
+          onClick={handleToggleFavorite}
+        >
+          <Heart className={`size-3.5 ${isFavorite ? "fill-current" : ""}`} />
+        </button>
+      </div>
       <div className="space-y-3 p-[18px]">
         {listing.isVerified ? (
           <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700">
@@ -1121,6 +1217,41 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleGoogleSuccess(credentialResponse) {
+    setSubmitError("");
+
+    if (!credentialResponse?.credential) {
+      setSubmitError("Không nhận được thông tin đăng nhập từ Google.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await loginWithGoogleRequest({
+        credential: credentialResponse.credential,
+      });
+
+      onClose();
+      window.dispatchEvent(
+        new CustomEvent("werent-auth-success", {
+          detail: {
+            ...response.data,
+            message: response.message,
+          },
+        }),
+      );
+    } catch (error) {
+      setSubmitError(error.message || "Đăng nhập Google thất bại. Vui lòng thử lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleGoogleError() {
+    setSubmitError("Đăng nhập Google thất bại. Vui lòng thử lại.");
   }
 
   return (
@@ -1489,15 +1620,39 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
-              type="button"
-            >
-              <span className="flex size-5 items-center justify-center rounded-full bg-white text-[18px] font-bold text-[#4285F4]">
-                G
-              </span>
-              {isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
-            </button>
+            {GOOGLE_CLIENT_ID ? (
+              <div
+                className={`relative flex ${fieldHeightClassName} w-full items-center justify-center gap-3 overflow-hidden rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition ${isSubmitting ? "pointer-events-none opacity-70" : "hover:bg-[#F8FAFC]"}`}
+              >
+                <GoogleIcon />
+                <span>
+                  {isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
+                </span>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0">
+                  <GoogleLogin
+                    logo_alignment="left"
+                    shape="rectangular"
+                    size="large"
+                    text={isLogin ? "signin_with" : "signup_with"}
+                    useOneTap={false}
+                    width="400"
+                    onError={handleGoogleError}
+                    onSuccess={handleGoogleSuccess}
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
+                type="button"
+                onClick={() =>
+                  setSubmitError("Chưa cấu hình VITE_GOOGLE_CLIENT_ID cho frontend.")
+                }
+              >
+                <GoogleIcon />
+                Google
+              </button>
+            )}
             <button
               className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
               type="button"
@@ -1530,7 +1685,7 @@ const dashboardSidebarSections = [
     title: "Tài khoản",
     items: [
       { key: "profile", icon: UserRound, label: "Thông tin cá nhân" },
-      { key: "favorites", icon: Heart, label: "Tin yêu thích", disabled: true },
+      { key: "favorites", icon: Heart, label: "Tin yêu thích" },
       {
         key: "appointments",
         icon: CalendarDays,
@@ -1679,7 +1834,7 @@ const topUpPaymentMethods = [
     label: "MoMo",
     description: "Thanh toán nhanh chóng qua ví MoMo",
     icon: CreditCard,
-    enabled: false,
+    enabled: true,
   },
 ];
 
@@ -2711,9 +2866,17 @@ function buildListingFullAddress(draft) {
 }
 
 function hasValidCoordinates(coordinates) {
+  const lat = Number(coordinates?.lat);
+  const lng = Number(coordinates?.lng);
+
   return (
-    Number.isFinite(Number(coordinates?.lat)) &&
-    Number.isFinite(Number(coordinates?.lng))
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    !(lat === 0 && lng === 0)
   );
 }
 
@@ -3851,27 +4014,28 @@ function WalletSummaryCard({ card }) {
 
   return (
     <article className="rounded-[18px] border border-[#E4EAE5] bg-white p-5 shadow-[0_10px_28px_rgba(45,69,54,0.045)]">
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-2">
         <span
-          className={`flex size-14 shrink-0 items-center justify-center rounded-full ${toneClasses[card.tone]}`}
+          className={`flex size-10 shrink-0 items-center justify-center rounded-full ${toneClasses[card.tone]}`}
         >
-          <Icon className="size-6" />
+          <Icon className="size-5" />
         </span>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-[#526071]">{card.label}</p>
-          <p className="mt-3 text-[24px] font-bold leading-tight text-[#11182A]">
+        <div className="min-w-0 flex-1 pr-2">
+          <p className="flex h-10 items-center text-lg font-bold leading-6 text-[#35415A] whitespace-nowrap">
+            {card.label}
+          </p>
+          <p className="mt-4 min-w-[150px] text-xl font-bold leading-tight text-[#11182A] tabular-nums whitespace-nowrap">
             {formatWalletCurrency(card.value)}
           </p>
+          <button
+            className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
+            type="button"
+          >
+            Xem chi tiết
+            <ArrowRight className="size-4" />
+          </button>
         </div>
       </div>
-
-      <button
-        className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
-        type="button"
-      >
-        Xem chi tiết
-        <ArrowRight className="size-4" />
-      </button>
     </article>
   );
 }
@@ -3897,8 +4061,22 @@ function WalletTransactionIcon({ type }) {
 
 function getWalletTransactionMethod(transaction) {
   if (transaction.type === "top_up") {
-    if (transaction.metadata?.provider === "admin_demo") {
+    const provider = String(transaction.metadata?.provider ?? "").toLowerCase();
+
+    if (provider === "admin_demo") {
       return "Admin demo";
+    }
+
+    if (provider === "momo_mock") {
+      return "MoMo Mock";
+    }
+
+    if (provider === "momo") {
+      return "MoMo";
+    }
+
+    if (provider === "sepay") {
+      return "SePay";
     }
 
     return "Mã QR";
@@ -3953,6 +4131,14 @@ function normalizePaymentOrder(order) {
 function getTopUpOrderMethod(order) {
   if (order.provider === "admin_demo") {
     return "Admin demo";
+  }
+
+  if (order.provider === "momo_mock") {
+    return "MoMo Mock";
+  }
+
+  if (order.provider === "momo") {
+    return "MoMo";
   }
 
   return "SePay";
@@ -4075,6 +4261,50 @@ function clearWalletReturnSearchParams() {
   );
 }
 
+function FavoritesPage({ accessToken, headerSearchContent, onLogout, onNavigate, onViewListing, user }) {
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    listFavorites(accessToken)
+      .then((response) => {
+        if (active) setItems((response.data?.items ?? []).filter((item) => item.property));
+      })
+      .catch((requestError) => active && setError(requestError.message || "Không thể tải tin yêu thích."))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
+  }, [accessToken]);
+
+  async function handleRemove(propertyId) {
+    try {
+      await removeFavorite(accessToken, propertyId);
+      setItems((current) => current.filter((item) => String(item.property?._id) !== String(propertyId)));
+    } catch (requestError) {
+      setError(requestError.message || "Không thể bỏ lưu tin.");
+    }
+  }
+
+  return (
+    <AccountPageShell activeKey="favorites" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+      <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
+        <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">Tin yêu thích</h1>
+        <p className="mt-2 text-sm text-[#536179]">Danh sách các tin đăng bạn đã lưu để xem lại sau.</p>
+        {error ? <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">{error}</div> : null}
+        {isLoading ? <p className="py-12 text-center text-[#63708A]">Đang tải tin yêu thích...</p> : items.length ? (
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((favorite) => {
+              const listing = mapApiPropertyToListingRecord(favorite.property);
+              return <div key={favorite._id} className="relative"><PropertyCard listing={listing} onViewListing={() => onViewListing(listing)} /><button aria-label="Bỏ lưu tin" className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white text-[#EF4444] shadow" type="button" onClick={(event) => { event.stopPropagation(); handleRemove(favorite.property._id); }}><Heart className="size-5 fill-current" /></button></div>;
+            })}
+          </div>
+        ) : <div className="mt-6 rounded-2xl border border-dashed border-[#CFD9D1] px-6 py-14 text-center"><Heart className="mx-auto size-10 text-[#94A39A]" /><p className="mt-4 font-semibold text-[#263149]">Bạn chưa lưu tin đăng nào.</p><button className="mt-4 text-sm font-semibold text-[#078C3F]" type="button" onClick={() => onNavigate("search")}>Khám phá tin đăng</button></div>}
+      </section>
+    </AccountPageShell>
+  );
+}
+
 function WalletPage({
   accessToken,
   headerSearchContent,
@@ -4089,8 +4319,6 @@ function WalletPage({
     getWalletReturnNoticeFromSearch(),
   );
   const [paymentOrders, setPaymentOrders] = useState([]);
-  const [isLoadingPaymentOrders, setIsLoadingPaymentOrders] = useState(true);
-  const [paymentOrderError, setPaymentOrderError] = useState("");
   const walletSummary = walletData?.summary ?? {
     availableBalance: 0,
     promotionBalance: 0,
@@ -4119,17 +4347,6 @@ function WalletPage({
       value: walletSummary.totalSpent,
     },
   ];
-  const walletTopUpOrders = useMemo(
-    () =>
-      paymentOrders
-        .filter(
-          (order) =>
-            order.orderType === "wallet_top_up" ||
-            order.transactionType === "topup",
-        )
-        .slice(0, 5),
-    [paymentOrders],
-  );
   const highlightedTopUpOrder = useMemo(() => {
     if (!walletReturnNotice?.orderCode) {
       return null;
@@ -4202,8 +4419,6 @@ function WalletPage({
           return null;
         }
 
-        setIsLoadingPaymentOrders(true);
-        setPaymentOrderError("");
         return getPaymentHistory(accessToken);
       })
       .then((response) => {
@@ -4213,17 +4428,9 @@ function WalletPage({
           );
         }
       })
-      .catch((error) => {
+      .catch(() => {
         if (isActive) {
           setPaymentOrders([]);
-          setPaymentOrderError(
-            error.message || "Không thể tải lịch sử nạp tiền lúc này.",
-          );
-        }
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsLoadingPaymentOrders(false);
         }
       });
 
@@ -4255,12 +4462,16 @@ function WalletPage({
     let attemptCount = 0;
     let timeoutId = null;
     const maxAttempts = 8;
-    const pollDelay = 2000;
+    const pollDelay = 1000;
 
     async function syncTopUpStatus() {
       attemptCount += 1;
 
       try {
+        await reconcileTopUpOrder(
+          accessToken,
+          walletReturnNotice.orderCode,
+        ).catch(() => null);
         const [walletResponse, paymentHistoryResponse] = await Promise.all([
           getWalletOverview(accessToken),
           getPaymentHistory(accessToken),
@@ -4275,7 +4486,6 @@ function WalletPage({
           normalizePaymentOrder,
         );
         setPaymentOrders(nextOrders);
-        setPaymentOrderError("");
 
         const matchedOrder =
           nextOrders.find(
@@ -4308,7 +4518,7 @@ function WalletPage({
       }
     }
 
-    timeoutId = window.setTimeout(syncTopUpStatus, pollDelay);
+    syncTopUpStatus();
 
     return () => {
       isActive = false;
@@ -4467,91 +4677,6 @@ function WalletPage({
 
         <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
           <div className="flex flex-col gap-3 border-b border-[#E7ECE8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-[#172033]">
-                Lệnh nạp tiền gần đây
-              </h2>
-              <p className="mt-1 text-sm text-[#63708A]">
-                Theo dõi trạng thái các giao dịch nạp tiền, bao gồm chờ xác
-                nhận, thành công, thất bại hoặc đã hủy.
-              </p>
-            </div>
-            <button
-              className="inline-flex items-center gap-2 text-sm font-semibold text-[#0C8A3F]"
-              type="button"
-              onClick={() => onNavigate("walletTopUp")}
-            >
-              Tạo giao dịch mới
-              <ArrowRight className="size-4" />
-            </button>
-          </div>
-
-          <div className="divide-y divide-[#EEF1EE]">
-            {isLoadingPaymentOrders ? (
-              <div className="px-5 py-8 text-sm text-[#63708A]">
-                Đang tải lịch sử nạp tiền...
-              </div>
-            ) : paymentOrderError ? (
-              <div className="px-5 py-8 text-sm text-[#B73A3A]">
-                {paymentOrderError}
-              </div>
-            ) : walletTopUpOrders.length ? (
-              walletTopUpOrders.map((order) => {
-                const statusMeta = getTopUpOrderStatusMeta(order.status);
-                const orderTime = formatWalletTransactionDate(order.createdAt);
-                return (
-                  <div
-                    key={order.id}
-                    className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-[#263149]">
-                          {order.orderCode}
-                        </p>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusMeta.className}`}
-                        >
-                          {statusMeta.label}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm text-[#63708A]">
-                        {getTopUpOrderMethod(order)} · {orderTime.date}{" "}
-                        {orderTime.time}
-                      </p>
-                      {order.note ? (
-                        <p className="mt-1 text-sm text-[#5C697E]">
-                          {order.note}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="text-left lg:text-right">
-                      <p className="text-lg font-bold text-[#172033]">
-                        {formatWalletCurrency(order.amount)}
-                      </p>
-                      <p className="mt-1 text-sm text-[#63708A]">
-                        {order.status === "paid"
-                          ? `Đã cộng ${formatWalletCurrency(order.totalCredit || order.amount)}`
-                          : order.status === "canceled"
-                            ? "Chưa cộng vào ví do giao dịch bị hủy"
-                            : order.status === "failed"
-                              ? "Chưa cộng vào ví do giao dịch thất bại"
-                              : "Đang chờ hệ thống xác nhận"}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-5 py-8 text-sm text-[#63708A]">
-                Chưa có lệnh nạp tiền nào.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-[22px] border border-[#E3E8E4] bg-white shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
-          <div className="flex flex-col gap-3 border-b border-[#E7ECE8] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xl font-bold text-[#172033]">
               Lịch sử giao dịch gần đây
             </h2>
@@ -4571,7 +4696,7 @@ function WalletPage({
                   <th className="px-5 py-4 font-semibold">Thời gian</th>
                   <th className="px-5 py-4 font-semibold">Nội dung</th>
                   <th className="px-5 py-4 font-semibold">Phương thức</th>
-                  <th className="px-5 py-4 text-right font-semibold">
+                  <th className="min-w-[150px] px-5 py-4 text-right font-semibold whitespace-nowrap">
                     Số tiền
                   </th>
                   <th className="px-5 py-4 text-right font-semibold">
@@ -4640,7 +4765,7 @@ function WalletPage({
                           {getWalletTransactionMethod(transaction)}
                         </td>
                         <td
-                          className={`px-5 py-4 text-right font-bold ${
+                          className={`min-w-[150px] px-5 py-4 text-right font-bold tabular-nums whitespace-nowrap ${
                             signedAmount < 0
                               ? "text-[#EF2417]"
                               : "text-[#07943F]"
@@ -4709,18 +4834,82 @@ function WalletPage({
   );
 }
 
+function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNavigate, onNotify = () => {}, user }) {
+  const orderCode = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("orderCode")?.trim() ?? "";
+  const [order, setOrder] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const qrValue = JSON.stringify({
+    provider: "MOMO_MOCK",
+    environment: "DEMO_ONLY",
+    orderCode,
+    amount: Number(order?.amount ?? 0),
+  });
+
+  useEffect(() => {
+    let active = true;
+    getPaymentHistory(accessToken)
+      .then((response) => {
+        if (!active) return;
+        const matchedOrder = (response.data?.items ?? []).find((item) => item.orderCode === orderCode);
+        setOrder(matchedOrder ?? null);
+        if (!matchedOrder) onNotify("Không tìm thấy giao dịch mô phỏng.", "error");
+      })
+      .catch((error) => active && onNotify(error.message || "Không thể tải giao dịch mô phỏng.", "error"))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
+  }, [accessToken, onNotify, orderCode]);
+
+  async function handleConfirm() {
+    setIsConfirming(true);
+    try {
+      const response = await confirmMomoMockPayment(accessToken, orderCode);
+      setOrder(response.data?.order ?? order);
+      onNotify("Đã mô phỏng thanh toán thành công. Số dư ví WeRent đã được cập nhật.");
+    } catch (error) {
+      onNotify(error.message || "Không thể xác nhận giao dịch mô phỏng.", "error");
+    } finally {
+      setIsConfirming(false);
+    }
+  }
+
+  const isPaid = order?.status === "paid";
+  return (
+    <AccountPageShell activeKey="wallet" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+      <div className="mx-auto max-w-2xl rounded-[28px] border border-[#F1B5D6] bg-white p-6 text-center shadow-[0_18px_50px_rgba(180,20,110,0.12)] sm:p-9">
+        <div className="mx-auto inline-flex rounded-full bg-[#A50064] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white">MoMo Mock · Demo</div>
+        <h1 className="mt-5 text-3xl font-bold text-[#191724]">Thanh toán MoMo mô phỏng</h1>
+        <p className="mt-3 font-semibold text-[#B00068]">Không kết nối MoMo và không phát sinh tiền thật</p>
+        {isLoading ? <p className="py-12 text-[#697386]">Đang tải giao dịch...</p> : order ? (
+          <>
+            <div className="mx-auto mt-7 w-fit rounded-3xl border border-[#F0D5E4] bg-white p-5 shadow-sm"><QRCodeSVG value={qrValue} size={220} level="M" /></div>
+            <p className="mt-3 text-xs font-medium text-[#7D7180]">QR chỉ minh họa dữ liệu giao dịch demo, không quét hoặc thanh toán bằng ứng dụng MoMo.</p>
+            <div className="mx-auto mt-6 max-w-md rounded-2xl bg-[#FFF5FA] p-5 text-left text-sm">
+              <div className="flex justify-between gap-4"><span className="text-[#70798A]">Mã giao dịch</span><strong className="break-all text-right">{order.orderCode}</strong></div>
+              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Số tiền demo</span><strong className="text-[#A50064]">{formatWalletCurrency(order.amount)}</strong></div>
+              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Trạng thái</span><strong>{isPaid ? "Đã thanh toán" : "Chờ mô phỏng"}</strong></div>
+            </div>
+            <button className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#A50064] px-6 text-sm font-bold text-white transition hover:bg-[#8F0057] disabled:cursor-not-allowed disabled:opacity-60" disabled={isPaid || isConfirming} type="button" onClick={handleConfirm}>{isPaid ? "Đã thanh toán mô phỏng" : isConfirming ? "Đang xử lý..." : "Mô phỏng thanh toán thành công"}</button>
+            <button className="mt-3 text-sm font-semibold text-[#178246]" type="button" onClick={() => onNavigate("wallet")}>Quay về ví WeRent</button>
+          </>
+        ) : null}
+      </div>
+    </AccountPageShell>
+  );
+}
+
 function TopUpPaymentPage({
   accessToken,
   headerSearchContent,
   onLogout,
   onNavigate,
+  onNotify = () => {},
   user,
 }) {
   const [selectedMethod, setSelectedMethod] = useState("qr");
   const [amountValue, setAmountValue] = useState("");
   const [note, setNote] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(true);
-  const [notice, setNotice] = useState(null);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [selectedPromotionIds, setSelectedPromotionIds] = useState([]);
   const [topUpPromotionItems, setTopUpPromotionItems] = useState([]);
@@ -4728,6 +4917,7 @@ function TopUpPaymentPage({
   const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
   const [promotionLoadError, setPromotionLoadError] = useState("");
   const [isPromotionSummaryOpen, setIsPromotionSummaryOpen] = useState(false);
+  const [momoCapability, setMomoCapability] = useState({ enabled: false, mode: "loading" });
 
   const amount = Number(amountValue || 0);
   const autoPromotions = useMemo(
@@ -4757,7 +4947,21 @@ function TopUpPaymentPage({
   const shouldShowPromotionSummary =
     isPromotionSummaryOpen && appliedPromotionDetails.length > 0;
   const total = amount + bonus;
-  const selectedMethodDetail = topUpPaymentMethods.find(
+  const availablePaymentMethods = topUpPaymentMethods.map((method) =>
+    method.key === "momo"
+      ? {
+          ...method,
+          enabled: momoCapability.enabled,
+          capabilityMode: momoCapability.mode,
+          label: momoCapability.mode === "mock" ? "MoMo Mock" : method.label,
+          description:
+            momoCapability.mode === "mock"
+              ? "Mô phỏng thanh toán, không dùng tiền thật"
+              : method.description,
+        }
+      : method,
+  );
+  const selectedMethodDetail = availablePaymentMethods.find(
     (method) => method.key === selectedMethod,
   );
   const canContinue =
@@ -4803,6 +5007,16 @@ function TopUpPaymentPage({
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    let active = true;
+    getPaymentCapabilities()
+      .then((response) => {
+        if (active) setMomoCapability(response.data?.capabilities?.momo ?? { enabled: false, mode: "unavailable" });
+      })
+      .catch(() => active && setMomoCapability({ enabled: false, mode: "unavailable" }));
+    return () => { active = false; };
+  }, []);
+
   function selectDefaultPromotionForAmount(nextAmount) {
     const nextAutoPromotions = getEligibleTopUpPromotions(
       autoTopUpPromotionItems,
@@ -4828,18 +5042,13 @@ function TopUpPaymentPage({
     setAmountValue(nextAmountValue);
     selectDefaultPromotionForAmount(Number(nextAmountValue || 0));
     setIsPromotionSummaryOpen(false);
-    setNotice(null);
   }
 
   function handlePromotionToggle(promotion) {
     const isSelected = selectedPromotionIds.includes(promotion.id);
-    setNotice(null);
 
     if (!isTopUpPromotionEligible(promotion, amount)) {
-      setNotice({
-        type: "error",
-        message: `Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`,
-      });
+      onNotify(`Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`, "error");
       return;
     }
 
@@ -4852,10 +5061,7 @@ function TopUpPaymentPage({
 
     if (!promotion.stackable) {
       setSelectedPromotionIds([promotion.id]);
-      setNotice({
-        type: "success",
-        message: `${promotion.name} không áp dụng song song với chương trình khác.`,
-      });
+      onNotify(`${promotion.name} không áp dụng song song với chương trình khác.`);
       return;
     }
 
@@ -4864,19 +5070,15 @@ function TopUpPaymentPage({
     );
 
     if (hasExclusivePromotion) {
-      setNotice({
-        type: "error",
-        message:
-          "Khuyến mãi đang chọn không thể áp dụng song song. Vui lòng bỏ chọn trước khi thêm chương trình khác.",
-      });
+      onNotify(
+        "Khuyến mãi đang chọn không thể áp dụng song song. Vui lòng bỏ chọn trước khi thêm chương trình khác.",
+        "error",
+      );
       return;
     }
 
     if (appliedPromotions.length >= TOP_UP_PROMOTION_SELECTION_LIMIT) {
-      setNotice({
-        type: "error",
-        message: `Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`,
-      });
+      onNotify(`Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`, "error");
       return;
     }
 
@@ -4884,10 +5086,10 @@ function TopUpPaymentPage({
       selectedPromotionPercent + Number(promotion.bonusPercent || 0) >
       TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT
     ) {
-      setNotice({
-        type: "error",
-        message: `Tổng % khuyến mãi áp dụng song song không được vượt quá ${TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT}%.`,
-      });
+      onNotify(
+        `Tổng % khuyến mãi áp dụng song song không được vượt quá ${TOP_UP_STACKED_PROMOTION_PERCENT_LIMIT}%.`,
+        "error",
+      );
       return;
     }
 
@@ -4900,7 +5102,6 @@ function TopUpPaymentPage({
     }
 
     setIsCreatingCheckout(true);
-    setNotice(null);
 
     try {
       const response = await createTopUpCheckout(accessToken, {
@@ -4911,6 +5112,11 @@ function TopUpPaymentPage({
         expectedBonusAmount: bonus,
       });
       const checkout = response.data?.checkout;
+
+      if (checkout?.redirectUrl) {
+        window.location.assign(checkout.redirectUrl);
+        return;
+      }
 
       if (!checkout?.actionUrl || !checkout.fields) {
         throw new Error("Không nhận được thông tin thanh toán từ máy chủ.");
@@ -4936,12 +5142,10 @@ function TopUpPaymentPage({
       document.body.appendChild(form);
       form.submit();
     } catch (error) {
-      setNotice({
-        type: "error",
-        message:
-          error.message ||
-          "Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.",
-      });
+      onNotify(
+        error.message || "Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.",
+        "error",
+      );
       setIsCreatingCheckout(false);
     }
   }
@@ -4985,7 +5189,7 @@ function TopUpPaymentPage({
                 Chọn phương thức thanh toán
               </h2>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                {topUpPaymentMethods.map((method) => {
+                {availablePaymentMethods.map((method) => {
                   const Icon = method.icon;
                   const isSelected = selectedMethod === method.key;
 
@@ -4998,9 +5202,10 @@ function TopUpPaymentPage({
                           : "border-[#E1E7E3] hover:border-[#BFDCC7]"
                       } ${method.enabled ? "" : "opacity-70"}`}
                       type="button"
+                      disabled={!method.enabled}
                       onClick={() => {
+                        if (!method.enabled) return;
                         setSelectedMethod(method.key);
-                        setNotice(null);
                       }}
                     >
                       {isSelected ? (
@@ -5010,7 +5215,7 @@ function TopUpPaymentPage({
                       ) : null}
                       {!method.enabled ? (
                         <span className="absolute left-4 top-4 rounded-full bg-[#F1F4F2] px-2.5 py-1 text-[11px] font-bold text-[#68717C]">
-                          Sắp có
+                          {method.key === "momo" ? "Chưa cấu hình" : "Sắp có"}
                         </span>
                       ) : null}
                       <span
@@ -5100,7 +5305,6 @@ function TopUpPaymentPage({
                         onClick={() => {
                           setAmountValue(String(option.amount));
                           selectDefaultPromotionForAmount(option.amount);
-                          setNotice(null);
                         }}
                       >
                         <span className="block text-lg font-bold text-[#11182A]">
@@ -5295,17 +5499,6 @@ function TopUpPaymentPage({
                 </span>
               </label>
 
-              {notice ? (
-                <div
-                  className={`rounded-2xl border px-4 py-3 text-sm ${
-                    notice.type === "error"
-                      ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
-                      : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
-                  }`}
-                >
-                  {notice.message}
-                </div>
-              ) : null}
             </section>
           </div>
 
@@ -6243,7 +6436,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
   const [searchStatus, setSearchStatus] = useState("idle");
   const [selectionStatus, setSelectionStatus] = useState("idle");
   const [isLocatingUser, setIsLocatingUser] = useState(false);
-  const [notice, setNotice] = useState("");
   const autocompleteAbortRef = useRef(null);
   const autocompleteCacheRef = useRef(new Map());
   const lastSelectedQueryRef = useRef("");
@@ -6323,7 +6515,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     let abortController = null;
 
     setSearchStatus("loading");
-    setNotice("");
 
     const timeoutId = window.setTimeout(() => {
       const requestLocation = locationRef.current;
@@ -6373,7 +6564,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
           setPredictions([]);
           setActivePredictionIndex(-1);
           setSearchStatus("error");
-          setNotice(error.message);
         });
     }, MAP_SEARCH_DEBOUNCE_MS);
 
@@ -6420,7 +6610,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     }
 
     setSelectionStatus("loading");
-    setNotice("Đã chọn vị trí từ Geoapify.");
     applySelectedPlace(prediction, { syncSearchInput: true });
   }
 
@@ -6506,7 +6695,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     setPredictions([]);
     setActivePredictionIndex(-1);
     setSearchStatus("idle");
-    setNotice("");
     setIsSuggestionsOpen(recentPlaces.length > 0);
     searchInputRef.current?.focus();
   }
@@ -6539,7 +6727,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
         }
 
         setSelectionStatus("error");
-        setNotice("Đã đổi tọa độ ghim, nhưng chưa lấy được địa chỉ gần nhất.");
       });
   }
 
@@ -6563,7 +6750,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     };
 
     onLocationChangeRef.current(nextLocation);
-    setNotice("");
     scheduleReverseLookup(nextPosition);
   }
 
@@ -6572,13 +6758,11 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
     event.stopPropagation();
 
     if (!navigator.geolocation) {
-      setNotice("Trình duyệt chưa hỗ trợ lấy vị trí hiện tại.");
       return;
     }
 
     setIsLocatingUser(true);
     setSelectionStatus("loading");
-    setNotice("");
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -6591,9 +6775,6 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
       () => {
         setIsLocatingUser(false);
         setSelectionStatus("error");
-        setNotice(
-          "Không thể lấy vị trí hiện tại. Vui lòng kiểm tra quyền truy cập vị trí.",
-        );
       },
       {
         enableHighAccuracy: true,
@@ -6771,14 +6952,11 @@ function GeoapifyLeafletLocationPicker({ location, onLocationChange }) {
         </div>
       </div>
 
-      {notice ? <ListingHint icon={Info}>{notice}</ListingHint> : null}
-
       <LocationSelectionSummary location={location} />
     </div>
   );
 }
 function PostListingLocationStep({
-  administrativeDivisionsNotice,
   canGoBack,
   canGoNext,
   cityOptions = [],
@@ -6875,12 +7053,6 @@ function PostListingLocationStep({
             Địa chỉ
           </h3>
           <div className="mt-5 space-y-4">
-            {administrativeDivisionsNotice ? (
-              <ListingHint icon={Info} tone="neutral">
-                {administrativeDivisionsNotice}
-              </ListingHint>
-            ) : null}
-
             <div className="grid gap-4 md:grid-cols-3">
               <ListingSelect
                 label="Tỉnh / Thành phố"
@@ -7497,7 +7669,6 @@ function PostListingPricingStep({
   onSaveDraft,
   onTierChange,
   submitLabel = "Hoàn tất & đăng tin",
-  submitNotice,
 }) {
   const [selectedScheduleOption, setSelectedScheduleOption] = useState(
     scheduleOptions[0],
@@ -7874,18 +8045,6 @@ function PostListingPricingStep({
             {scheduleSummary}
           </div>
         </div>
-
-        {submitNotice ? (
-          <div
-            className={`rounded-2xl border px-4 py-3 text-sm ${
-              submitNotice.type === "error"
-                ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
-                : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
-            }`}
-          >
-            {submitNotice.message}
-          </div>
-        ) : null}
 
         <PostListingStepFooter
           canGoBack={canGoBack}
@@ -8267,18 +8426,15 @@ function PostListingPage({
     isAdministrativeDivisionsLoading,
     setIsAdministrativeDivisionsLoading,
   ] = useState(false);
-  const [administrativeDivisionsError, setAdministrativeDivisionsError] =
+  const [, setAdministrativeDivisionsError] =
     useState("");
   const [imageError, setImageError] = useState("");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [pendingExitAction, setPendingExitAction] = useState(null);
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [submitNotice, setSubmitNotice] = useState(null);
   const [showListingVerificationModal, setShowListingVerificationModal] =
     useState(false);
-  const [listingVerificationNotice, setListingVerificationNotice] =
-    useState("");
   const [
     submittedListingVerificationRequest,
     setSubmittedListingVerificationRequest,
@@ -8286,6 +8442,13 @@ function PostListingPage({
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
+  const showPostListingNotice = useCallback((message, type = "success") => {
+    setViewportNotice({
+      id: createNoticeId(),
+      type,
+      message,
+    });
+  }, []);
   const videoLinkError = getVideoLinkError(videoLink);
   const selectedProvince = useMemo(
     () =>
@@ -8323,9 +8486,6 @@ function PostListingPage({
     () => getAdministrativeDivisionOptions(selectedDistrict?.wards ?? []),
     [selectedDistrict],
   );
-  const administrativeDivisionsNotice = isAdministrativeDivisionsLoading
-    ? "Đang tải dữ liệu tỉnh/thành, quận/huyện, phường/xã..."
-    : administrativeDivisionsError;
   const editingListingVerificationStatus =
     submittedListingVerificationRequest?.status ??
     editingListing?.verificationStatus;
@@ -8739,8 +8899,6 @@ function PostListingPage({
       return;
     }
 
-    setSubmitNotice(null);
-
     const nextValidationErrors = getDraftRequiredFieldErrors({
       listingDescription,
       listingDraft,
@@ -8762,10 +8920,7 @@ function PostListingPage({
     setDraftValidationErrors({});
 
     if (!accessToken) {
-      setSubmitNotice({
-        type: "error",
-        message: "Vui lòng đăng nhập lại trước khi lưu nháp.",
-      });
+      showPostListingNotice("Vui lòng đăng nhập lại trước khi lưu nháp.", "error");
       return;
     }
 
@@ -8799,45 +8954,36 @@ function PostListingPage({
         onNavigate("myListings");
       }
     } catch (error) {
-      setSubmitNotice({
-        type: "error",
-        message:
-          error.message ||
+      showPostListingNotice(
+        error.message ||
           "Chưa thể lưu nháp tin đăng lúc này. Vui lòng thử lại sau.",
-      });
+        "error",
+      );
     } finally {
       setIsSavingDraft(false);
     }
   }
 
   async function handleSubmitListing(pricingData) {
-    setSubmitNotice(null);
-
     if (!accessToken) {
-      setSubmitNotice({
-        type: "error",
-        message: isEditingListing
+      showPostListingNotice(
+        isEditingListing
           ? "Vui lòng đăng nhập lại trước khi cập nhật tin."
           : "Vui lòng đăng nhập lại trước khi đăng tin.",
-      });
+        "error",
+      );
       return;
     }
 
     if (!listingTitle.trim()) {
       setCurrentPostListingStep(0);
-      setSubmitNotice({
-        type: "error",
-        message: "Vui lòng nhập tiêu đề tin đăng.",
-      });
+      showPostListingNotice("Vui lòng nhập tiêu đề tin đăng.", "error");
       return;
     }
 
     if (videoLinkError) {
       setCurrentPostListingStep(2);
-      setSubmitNotice({
-        type: "error",
-        message: videoLinkError,
-      });
+      showPostListingNotice(videoLinkError, "error");
       return;
     }
 
@@ -8848,13 +8994,6 @@ function PostListingPage({
       const response = await saveListingFormData(formData);
       const savedProperty = response.data?.property;
 
-      setSubmitNotice({
-        type: "success",
-        message: isEditingListing
-          ? "Cập nhật tin thành công. Tin đã được gửi lại để chờ kiểm duyệt."
-          : "Đăng tin thành công. Tin đang chờ quản trị viên kiểm duyệt.",
-      });
-
       if (savedProperty) {
         onListingCreated?.(savedProperty, {
           mode: isEditingListing ? "update" : "create",
@@ -8863,14 +9002,13 @@ function PostListingPage({
         onNavigate(isEditingListing ? "myListings" : "home");
       }
     } catch (error) {
-      setSubmitNotice({
-        type: "error",
-        message:
-          error.message ||
+      showPostListingNotice(
+        error.message ||
           (isEditingListing
             ? "Chưa thể cập nhật tin đăng lúc này. Vui lòng thử lại sau."
             : "Chưa thể tạo tin đăng lúc này. Vui lòng thử lại sau."),
-      });
+        "error",
+      );
     } finally {
       setIsSubmittingListing(false);
     }
@@ -8902,7 +9040,6 @@ function PostListingPage({
     if (currentPostListingStep === 1) {
       return (
         <PostListingLocationStep
-          administrativeDivisionsNotice={administrativeDivisionsNotice}
           canGoBack={canGoBack}
           canGoNext={canGoNext}
           cityOptions={cityOptions}
@@ -8955,7 +9092,6 @@ function PostListingPage({
         selectedDuration={selectedDuration}
         selectedTier={selectedTier}
         submitLabel={isEditingListing ? "Cập nhật tin" : "Hoàn tất & đăng tin"}
-        submitNotice={submitNotice}
         onBackStep={goToPreviousStep}
         onDurationChange={setSelectedDuration}
         onNextStep={handleSubmitListing}
@@ -8979,7 +9115,7 @@ function PostListingPage({
           onSuccess={(response) => {
             setShowListingVerificationModal(false);
             setSubmittedListingVerificationRequest(response.data?.item ?? null);
-            setListingVerificationNotice(response.message);
+            showPostListingNotice(response.message);
           }}
         />
       ) : null}
@@ -9075,11 +9211,6 @@ function PostListingPage({
                   </Button>
                 </div>
               </div>
-              {listingVerificationNotice ? (
-                <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-                  {listingVerificationNotice}
-                </div>
-              ) : null}
               <div className="mt-7">
                 <ListingProgress activeStep={currentPostListingStep} />
               </div>
@@ -9090,19 +9221,6 @@ function PostListingPage({
                 onClose={closeCancelPostListingModal}
                 onConfirm={confirmCancelPostListing}
               />
-            ) : null}
-
-            {submitNotice &&
-            currentPostListingStep !== postListingSteps.length - 1 ? (
-              <div
-                className={`rounded-2xl border px-4 py-3 text-sm ${
-                  submitNotice.type === "error"
-                    ? "border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
-                    : "border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
-                }`}
-              >
-                {submitNotice.message}
-              </div>
             ) : null}
 
             {renderCurrentPostListingStep()}
@@ -9425,6 +9543,7 @@ function ListingDetailPage({
   listing,
   onLogout,
   onNavigate,
+  onNotify = () => {},
   showFooter = false,
 }) {
   const detail = listing.detail ?? ownerListingPublicDetails[listing.id] ?? {};
@@ -9443,7 +9562,30 @@ function ListingDetailPage({
   const [isLoadingListingVerification, setIsLoadingListingVerification] =
     useState(false);
   const [listingVerificationError, setListingVerificationError] = useState("");
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
+
+  useEffect(() => {
+    if (!accessToken || !listing.id || !/^[a-f\d]{24}$/i.test(String(listing.id))) return;
+    let active = true;
+    listFavorites(accessToken).then((response) => {
+      if (active) setIsFavorite((response.data?.items ?? []).some((item) => String(item.property?._id) === String(listing.id)));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [accessToken, listing.id]);
+
+  async function handleFavoriteToggle() {
+    if (!currentUser) { onNavigate("favorites"); return; }
+    setIsUpdatingFavorite(true);
+    try {
+      if (isFavorite) await removeFavorite(accessToken, listing.id);
+      else await addFavorite(accessToken, listing.id);
+      setIsFavorite((current) => !current);
+    } catch (error) {
+      onNotify(error.message || "Không thể cập nhật tin yêu thích. Vui lòng thử lại.", "error");
+    } finally { setIsUpdatingFavorite(false); }
+  }
   const fullAddress =
     draft.formattedAddress ||
     buildListingFullAddress(draft) ||
@@ -9833,6 +9975,10 @@ function ListingDetailPage({
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
+                    <button className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`} disabled={isUpdatingFavorite} type="button" onClick={handleFavoriteToggle}>
+                      <Heart className={`size-5 ${isFavorite ? "fill-current" : ""}`} />
+                      {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
+                    </button>
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
                       <span className="flex items-center gap-2">
                         <MapPin className="size-4 text-[#35A554]" />
@@ -10827,6 +10973,7 @@ function ProfilePage({
   headerSearchContent,
   onLogout,
   onNavigate,
+  onNotify = () => {},
   onUserChange,
   user,
 }) {
@@ -10844,7 +10991,6 @@ function ProfilePage({
   const [latestAccountKyc, setLatestAccountKyc] = useState(null);
   const [isLoadingKycFeedback, setIsLoadingKycFeedback] = useState(false);
   const [kycFeedbackError, setKycFeedbackError] = useState("");
-  const [notice, setNotice] = useState(null);
   const [formValues, setFormValues] = useState({
     fullName: user.fullName ?? "",
     dateOfBirth: formatProfileInputDate(user.dateOfBirth),
@@ -10947,15 +11093,13 @@ function ProfilePage({
       taxCode: user.taxCode ?? "",
     });
     setIsEditing(false);
-    setNotice(null);
   }
 
   async function handleProfileSubmit(event) {
     event.preventDefault();
-    setNotice(null);
 
     if (!formValues.fullName.trim()) {
-      setNotice({ type: "error", message: "Họ và tên không được để trống." });
+      onNotify("Họ và tên không được để trống.", "error");
       return;
     }
 
@@ -10990,12 +11134,9 @@ function ProfilePage({
       const response = await updateProfileRequest(accessToken, payload);
       onUserChange(response.data.user);
       setIsEditing(false);
-      setNotice({ type: "success", message: response.message });
+      onNotify(response.message);
     } catch (error) {
-      setNotice({
-        type: "error",
-        message: error.message || "Không thể cập nhật hồ sơ.",
-      });
+      onNotify(error.message || "Không thể cập nhật hồ sơ.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -11004,7 +11145,6 @@ function ProfilePage({
   async function handleAvatarChange(event) {
     const [file] = event.target.files ?? [];
     event.target.value = "";
-    setNotice(null);
 
     if (!file) {
       return;
@@ -11015,15 +11155,12 @@ function ProfilePage({
         file.type,
       )
     ) {
-      setNotice({
-        type: "error",
-        message: "Vui lòng chọn ảnh JPG, PNG, WEBP hoặc GIF.",
-      });
+      onNotify("Vui lòng chọn ảnh JPG, PNG, WEBP hoặc GIF.", "error");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setNotice({ type: "error", message: "Ảnh không được vượt quá 5 MB." });
+      onNotify("Ảnh không được vượt quá 5 MB.", "error");
       return;
     }
 
@@ -11032,12 +11169,9 @@ function ProfilePage({
     try {
       const response = await uploadAvatarRequest(accessToken, file);
       onUserChange(response.data.user);
-      setNotice({ type: "success", message: response.message });
+      onNotify(response.message);
     } catch (error) {
-      setNotice({
-        type: "error",
-        message: error.message || "Không thể tải ảnh đại diện.",
-      });
+      onNotify(error.message || "Không thể tải ảnh đại diện.", "error");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -11050,10 +11184,7 @@ function ProfilePage({
           accessToken={accessToken}
           onClose={() => setShowPasswordModal(false)}
           onSuccess={(message) =>
-            setNotice({
-              type: "success",
-              message: message || "Đổi mật khẩu thành công.",
-            })
+            onNotify(message || "Đổi mật khẩu thành công.")
           }
         />
       ) : null}
@@ -11069,7 +11200,6 @@ function ProfilePage({
               kycStatus: "pending",
               canPostListing: false,
             });
-            setNotice(null);
             setShowKycSubmittedModal(true);
           }}
         />
@@ -11188,18 +11318,6 @@ function ProfilePage({
                 </button>
               </div>
             </section>
-
-            {notice ? (
-              <div
-                className={`rounded-2xl border px-4 py-3 text-sm ${
-                  notice.type === "error"
-                    ? "border-[#F1D1D1] bg-[#FFF6F6] text-[#B43D3D]"
-                    : "border-[#D4EAD7] bg-[#F1F9F2] text-[#267C40]"
-                }`}
-              >
-                {notice.message}
-              </div>
-            ) : null}
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
               <section
@@ -11397,7 +11515,6 @@ function HomePage() {
   const [currentUser, setCurrentUser] = useState(() =>
     getStoredAccessToken() ? undefined : null,
   );
-  const [authNotice, setAuthNotice] = useState(null);
   const [viewportNotice, setViewportNotice] = useState(null);
   const [
     isPostListingVerificationModalOpen,
@@ -11418,22 +11535,29 @@ function HomePage() {
   );
   const [apiListings, setApiListings] = useState([]);
   const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
-  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
+  const [, setIsLoadingProperties] = useState(false);
   const [propertyListError, setPropertyListError] = useState("");
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
+  const [searchFavoritePropertyIds, setSearchFavoritePropertyIds] = useState(
+    [],
+  );
   const [searchAdministrativeDivisions, setSearchAdministrativeDivisions] =
     useState(() => readCachedAdministrativeDivisions());
   const closeViewportNotice = useCallback(() => {
     setViewportNotice(null);
   }, []);
-  const showLoginRequiredNotice = useCallback(() => {
-    setAuthNotice(null);
+
+  const showViewportNotice = useCallback((message, type = "success") => {
     setViewportNotice({
       id: createNoticeId(),
-      type: "success",
-      message: LOGIN_REQUIRED_MESSAGE,
+      type,
+      message,
     });
   }, []);
+
+  const showLoginRequiredNotice = useCallback(() => {
+    showViewportNotice(LOGIN_REQUIRED_MESSAGE);
+  }, [showViewportNotice]);
 
   useEffect(() => {
     function handleRouteChange() {
@@ -11525,14 +11649,10 @@ function HomePage() {
       setAccessToken(nextToken);
       setCurrentUser(nextUser);
       if (nextMessage === "Đăng nhập thành công.") {
-        setAuthNotice(null);
         return;
       }
 
-      setAuthNotice({
-        type: "success",
-        message: nextMessage,
-      });
+      showViewportNotice(nextMessage);
     }
 
     window.addEventListener("werent-auth-success", handleAuthSuccess);
@@ -11540,7 +11660,7 @@ function HomePage() {
     return () => {
       window.removeEventListener("werent-auth-success", handleAuthSuccess);
     };
-  }, []);
+  }, [showViewportNotice]);
 
   useEffect(() => {
     if (!accessToken || currentUser !== undefined) {
@@ -11557,25 +11677,53 @@ function HomePage() {
 
         setCurrentUser(response.data.user);
       })
-      .catch((error) => {
+      .catch(() => {
         if (!isActive) {
           return;
         }
 
         setAccessToken("");
         setCurrentUser(null);
-        setAuthNotice({
-          type: "error",
-          message:
-            error.message ||
-            "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
-        });
+        // A stored token can expire between visits. Clear it silently during
+        // session restoration so public pages do not greet logged-out users
+        // with an authentication error.
+        setViewportNotice(null);
       });
 
     return () => {
       isActive = false;
     };
   }, [accessToken, currentUser]);
+
+  useEffect(() => {
+    if (!accessToken || !currentUser) {
+      return undefined;
+    }
+
+    let isActive = true;
+    listFavorites(accessToken)
+      .then((response) => {
+        if (!isActive) {
+          return;
+        }
+
+        setSearchFavoritePropertyIds(
+          (response.data?.items ?? [])
+            .map((item) => item.property?._id ?? item.property?.id)
+            .filter(Boolean)
+            .map(String),
+        );
+      })
+      .catch(() => {
+        if (isActive) {
+          setSearchFavoritePropertyIds([]);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken, currentUser, currentView]);
 
   useEffect(() => {
     if (!accessToken || currentView !== "profile") {
@@ -11627,6 +11775,9 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "walletMomoMock",
+      "favorites",
+      "adminDashboard",
     ];
 
     if (currentUser !== null || !routeProtectedViews.includes(currentView)) {
@@ -11648,6 +11799,35 @@ function HomePage() {
       isActive = false;
     };
   }, [currentUser, currentView, showLoginRequiredNotice]);
+
+  useEffect(() => {
+    if (
+      currentView !== "adminDashboard" ||
+      currentUser === undefined ||
+      currentUser === null ||
+      currentUser.roles?.includes("admin")
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      updateFrontendRoute("home", { replace: true });
+      setCurrentView("home");
+      showViewportNotice(
+        "Bạn không có quyền truy cập khu vực quản trị.",
+        "error",
+      );
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView, showViewportNotice]);
 
   useEffect(() => {
     if (
@@ -11725,15 +11905,13 @@ function HomePage() {
   function handleLogout() {
     setAccessToken("");
     setCurrentUser(null);
+    setSearchFavoritePropertyIds([]);
     updateFrontendRoute("home");
     setCurrentView("home");
     setEditingListing(null);
     setSelectedListingDetail(null);
     setListingDetailBackView("home");
-    setAuthNotice({
-      type: "success",
-      message: "Bạn đã đăng xuất thành công.",
-    });
+    setViewportNotice(null);
   }
 
   function navigateTo(view) {
@@ -11761,6 +11939,8 @@ function HomePage() {
       "myListings",
       "wallet",
       "walletTopUp",
+      "walletMomoMock",
+      "favorites",
       "adminDashboard",
     ];
 
@@ -11774,15 +11954,15 @@ function HomePage() {
       }
 
       if (view === "adminDashboard" && !currentUser.roles?.includes("admin")) {
-        setAuthNotice({
-          type: "error",
-          message: "Bạn không có quyền truy cập khu vực quản trị.",
-        });
+        showViewportNotice(
+          "Bạn không có quyền truy cập khu vực quản trị.",
+          "error",
+        );
         return;
       }
 
       if (view === "postListing" && !canUserPostListing(currentUser)) {
-        setAuthNotice(null);
+        setViewportNotice(null);
         setIsPostListingVerificationModalOpen(true);
         return;
       }
@@ -11797,7 +11977,6 @@ function HomePage() {
     }
 
     const comingSoonViews = [
-      "favorites",
       "messages",
       "support",
       "about",
@@ -11815,6 +11994,57 @@ function HomePage() {
     }
   }
 
+  async function handleSearchFavoriteToggle(listing) {
+    if (!currentUser || !accessToken) {
+      showLoginRequiredNotice();
+      setAuthModal("login");
+      return;
+    }
+
+    const propertyId = String(listing?.id ?? "");
+    if (!/^[a-f\d]{24}$/i.test(propertyId)) {
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "error",
+        message: "Tin đăng này chưa thể lưu vào danh sách yêu thích.",
+      });
+      return;
+    }
+
+    const isFavorite = searchFavoritePropertyIds.includes(propertyId);
+    try {
+      if (isFavorite) {
+        await removeFavorite(accessToken, propertyId);
+        setSearchFavoritePropertyIds((current) =>
+          current.filter((id) => id !== propertyId),
+        );
+      } else {
+        await addFavorite(accessToken, propertyId);
+        setSearchFavoritePropertyIds((current) =>
+          current.includes(propertyId) ? current : [...current, propertyId],
+        );
+      }
+
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "success",
+        message: isFavorite
+          ? "Đã bỏ lưu tin yêu thích."
+          : "Đã lưu tin vào danh sách yêu thích.",
+      });
+    } catch (error) {
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "error",
+        message:
+          error.message ||
+          (isFavorite
+            ? "Không thể bỏ lưu tin lúc này."
+            : "Không thể lưu tin lúc này."),
+      });
+    }
+  }
+
   function openListingEditor(listing) {
     if (!currentUser) {
       showLoginRequiredNotice();
@@ -11826,10 +12056,10 @@ function HomePage() {
       !currentUser.roles?.includes("admin") &&
       (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
     ) {
-      setAuthNotice({
-        type: "error",
-        message: "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin.",
-      });
+      showViewportNotice(
+        "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin.",
+        "error",
+      );
       updateFrontendRoute("profile");
       setCurrentView("profile");
       return;
@@ -11883,14 +12113,13 @@ function HomePage() {
       replace: true,
     });
     setCurrentView(isUpdate || isDraft ? "myListings" : "home");
-    setAuthNotice({
-      type: "success",
-      message: isDraft
+    showViewportNotice(
+      isDraft
         ? "Lưu nháp tin đăng thành công. Bạn có thể tiếp tục chỉnh sửa trong Tin đăng của tôi."
         : isUpdate
           ? "Cập nhật tin thành công. Danh sách tin đăng của bạn đã được làm mới."
           : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
-    });
+    );
   }
 
   function handleListingVisibilityChange(property) {
@@ -11922,7 +12151,6 @@ function HomePage() {
     setPropertyRefreshKey((current) => current + 1);
   }
 
-  const isCheckingSession = Boolean(accessToken) && currentUser === undefined;
   const shouldUseApiListings = hasFetchedProperties && !propertyListError;
   const propertySearchListings = useMemo(() => {
     const baseListings = shouldUseApiListings
@@ -11956,6 +12184,15 @@ function HomePage() {
         appliedPropertySearch,
       ),
     [appliedPropertySearch, propertySearchListings],
+  );
+  const authenticatedHeaderNavItemsWithFavoriteCount = useMemo(
+    () =>
+      authenticatedHeaderNavItems.map((item) =>
+        item.key === "favorites"
+          ? { ...item, badgeCount: searchFavoritePropertyIds.length }
+          : item,
+      ),
+    [searchFavoritePropertyIds.length],
   );
   function renderBasicHeaderSearchContent(options = {}) {
     const keyPrefix = options.keyPrefix ?? "header";
@@ -11995,6 +12232,10 @@ function HomePage() {
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
     : latestListings;
+  const homeFavoritePropertyIdSet = useMemo(
+    () => new Set(searchFavoritePropertyIds.map(String)),
+    [searchFavoritePropertyIds],
+  );
   function closePostListingVerificationModal() {
     setIsPostListingVerificationModalOpen(false);
   }
@@ -12055,6 +12296,7 @@ function HomePage() {
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        onNotify={showViewportNotice}
         onUserChange={setCurrentUser}
         user={currentUser}
       />,
@@ -12092,6 +12334,7 @@ function HomePage() {
         listing={selectedListingDetail}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        onNotify={showViewportNotice}
         showFooter={listingDetailBackView === "home"}
       />,
     );
@@ -12124,6 +12367,12 @@ function HomePage() {
     );
   }
 
+  if (currentView === "favorites" && currentUser) {
+    return (
+      <FavoritesPage accessToken={accessToken} headerSearchContent={basicHeaderSearchContent} onLogout={handleLogout} onNavigate={navigateTo} onViewListing={(listing) => openListingDetail(listing, "favorites")} user={currentUser} />
+    );
+  }
+
   if (currentView === "walletTopUp" && currentUser) {
     return renderWithViewportNotice(
       <TopUpPaymentPage
@@ -12131,6 +12380,20 @@ function HomePage() {
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        onNotify={showViewportNotice}
+        user={currentUser}
+      />,
+    );
+  }
+
+  if (currentView === "walletMomoMock" && currentUser) {
+    return renderWithViewportNotice(
+      <MomoMockCheckoutPage
+        accessToken={accessToken}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        onNotify={showViewportNotice}
         user={currentUser}
       />,
     );
@@ -12166,7 +12429,9 @@ function HomePage() {
           activeNav="home"
           currentUser={currentUser}
           navItems={
-            currentUser ? authenticatedHeaderNavItems : guestHeaderNavItems
+            currentUser
+              ? authenticatedHeaderNavItemsWithFavoriteCount
+              : guestHeaderNavItems
           }
           onLogin={() => setAuthModal("login")}
           onLogoClick={() => navigateTo("home")}
@@ -12177,47 +12442,19 @@ function HomePage() {
           searchContent={basicHeaderSearchContent}
         />
 
-        {isCheckingSession ? (
-          <div className="mt-3 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
-            Đang kiểm tra phiên đăng nhập của bạn...
-          </div>
-        ) : null}
-
-        {authNotice ? (
-          <div
-            className={`mt-3 rounded-2xl px-4 py-3 text-sm ${
-              authNotice.type === "error"
-                ? "border border-[#F3D1D1] bg-[#FFF6F6] text-[#B73A3A]"
-                : "border border-[#D6EFD7] bg-[#F4FBF5] text-[#217A3B]"
-            }`}
-          >
-            {authNotice.message}
-          </div>
-        ) : null}
-
-        {isLoadingProperties ? (
-          <div className="mt-5 rounded-2xl border border-[#DDEBFF] bg-[#F5F9FF] px-4 py-3 text-sm text-[#305EAF]">
-            Đang tải danh sách tin đăng...
-          </div>
-        ) : null}
-
-        {propertyListError ? (
-          <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
-            {propertyListError}
-          </div>
-        ) : null}
-
         {currentView === "search" ? (
           <>
             <PropertySearchResultsPage
               administrativeDivisions={searchAdministrativeDivisions}
               appliedSearchState={appliedPropertySearch}
+              favoritePropertyIds={searchFavoritePropertyIds}
               listings={filteredSearchListings}
               onApplyFilters={handleApplyPropertySearch}
               onClearFilters={() =>
                 handleApplyPropertySearch(defaultPropertySearchState)
               }
               onSearchStateChange={handlePropertySearchDraftChange}
+              onToggleFavorite={handleSearchFavoriteToggle}
               onViewListing={(listing) => openListingDetail(listing, "search")}
               searchState={propertySearchDraft}
             />
@@ -12272,7 +12509,11 @@ function HomePage() {
                     {visibleFeaturedListings.map((listing) => (
                       <PropertyCard
                         key={listing.id}
+                        isFavorite={homeFavoritePropertyIdSet.has(
+                          String(listing.id),
+                        )}
                         listing={listing}
+                        onToggleFavorite={handleSearchFavoriteToggle}
                         onViewListing={() => openListingDetail(listing)}
                       />
                     ))}
@@ -12298,7 +12539,11 @@ function HomePage() {
                   {visibleLatestListings.map((listing) => (
                     <MiniPropertyCard
                       key={listing.id}
+                      isFavorite={homeFavoritePropertyIdSet.has(
+                        String(listing.id),
+                      )}
                       listing={listing}
+                      onToggleFavorite={handleSearchFavoriteToggle}
                       onViewListing={() => openListingDetail(listing)}
                     />
                   ))}

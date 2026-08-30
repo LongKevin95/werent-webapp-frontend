@@ -118,8 +118,8 @@ export function getAdminKycRequests(token, kind, query = {}, options = {}) {
   return adminRequest(`/api/admin/kyc/${kind}${suffix ? `?${suffix}` : ""}`, token, options);
 }
 
-export function getAdminKycRequest(token, kind, requestId) {
-  return adminRequest(`/api/admin/kyc/${kind}/${requestId}`, token);
+export function getAdminKycRequest(token, kind, requestId, options = {}) {
+  return adminRequest(`/api/admin/kyc/${kind}/${requestId}`, token, options);
 }
 
 export function reviewAdminKycRequest(token, kind, requestId, payload) {
