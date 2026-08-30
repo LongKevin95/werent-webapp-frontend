@@ -72,6 +72,13 @@ export function register(payload) {
   });
 }
 
+export function loginWithGoogle(payload) {
+  return request("/api/auth/google", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export function getCurrentUser(token) {
   return request("/api/auth/me", {
     method: "GET",

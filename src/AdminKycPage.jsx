@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -27,7 +27,7 @@ const listingStatuses = {
   verified_owner: "Chính chủ",
   verified_authorized: "Được ủy quyền",
   rejected: "Từ chối",
-  need_more_info: "Cần bổ sung",
+  need_more_info: "Bổ sung",
 };
 const documentTypes = {
   ownership_certificate: "Sổ hồng",
@@ -332,7 +332,7 @@ function Detail({ accessToken, item, kind, onError, onReview, busy }) {
           ["Địa chỉ", item.address],
           ["Số CCCD", item.identityNumber],
           ["Ngày cấp", fmt(item.identityIssuedAt)],
-          ["Số hộ Chiếu", item.passportNumber],
+          ["Số hộ chiếu", item.passportNumber],
           ["Mã số thuế", item.taxCode],
         ]
       : [
@@ -410,6 +410,11 @@ function Detail({ accessToken, item, kind, onError, onReview, busy }) {
 }
 
 export default function AdminKycPage({ accessToken, onNotify = () => {} }) {
+  const cacheRef = useRef({
+    details: new Map(),
+    lists: new Map(),
+  });
+  const detailRequestRef = useRef(null);
   const [kind, setKind] = useState("accounts");
   const [status, setStatus] = useState("pending");
   const [items, setItems] = useState([]);
@@ -418,48 +423,109 @@ export default function AdminKycPage({ accessToken, onNotify = () => {} }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const cacheVersion = refresh;
+
+  const loadDetail = useCallback(
+    async (nextKind, item, options = {}) => {
+      if (!item?._id) return null;
+
+      const cacheKey = `${cacheVersion}:${nextKind}:${item._id}`;
+      const cachedDetail = cacheRef.current.details.get(cacheKey);
+
+      if (cachedDetail) {
+        return cachedDetail;
+      }
+
+      const response = await getAdminKycRequest(
+        accessToken,
+        nextKind,
+        item._id,
+        options,
+      );
+      const detail = response.data.item;
+      cacheRef.current.details.set(cacheKey, detail);
+      return detail;
+    },
+    [accessToken, cacheVersion],
+  );
+
   useEffect(() => {
     if (error) onNotify(error, "error");
   }, [error, onNotify]);
   useEffect(() => {
     const controller = new AbortController();
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) {
-        setLoading(true);
-        setError("");
-      }
-    });
-    getAdminKycRequests(
-      accessToken,
-      kind,
-      { status, limit: 50 },
-      { signal: controller.signal },
-    )
-      .then((r) => {
-        setItems(r.data.items);
-        const first = r.data.items[0];
-        if (first)
-          return getAdminKycRequest(accessToken, kind, first._id).then(
-            (detail) => setSelected(detail.data.item),
+    const listCacheKey = `${cacheVersion}:${kind}:${status}:50`;
+    let isActive = true;
+
+    async function loadRequests() {
+      setLoading(true);
+      setError("");
+
+      try {
+        let nextItems = cacheRef.current.lists.get(listCacheKey);
+
+        if (!nextItems) {
+          const response = await getAdminKycRequests(
+            accessToken,
+            kind,
+            { status, limit: 50 },
+            { signal: controller.signal },
           );
-        setSelected(null);
-      })
-      .catch((e) => {
+          nextItems = response.data.items;
+          cacheRef.current.lists.set(listCacheKey, nextItems);
+        }
+
+        if (!isActive || controller.signal.aborted) return;
+
+        setItems(nextItems);
+
+        const first = nextItems[0];
+        if (!first) {
+          setSelected(null);
+          return;
+        }
+
+        const detail = await loadDetail(kind, first, {
+          signal: controller.signal,
+        });
+
+        if (!isActive || controller.signal.aborted) return;
+        setSelected(detail);
+      } catch (e) {
         if (e.name !== "AbortError") {
           setError(e.message);
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [accessToken, kind, status, refresh]);
+      } finally {
+        if (isActive && !controller.signal.aborted) setLoading(false);
+      }
+    }
+
+    loadRequests();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [accessToken, cacheVersion, kind, loadDetail, status]);
   async function open(item) {
+    detailRequestRef.current?.abort();
+    const controller = new AbortController();
+    detailRequestRef.current = controller;
+
     try {
-      const r = await getAdminKycRequest(accessToken, kind, item._id);
-      setSelected(r.data.item);
+      const detail = await loadDetail(kind, item, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setSelected(detail);
     } catch (e) {
-      setError(e.message);
+      if (e.name !== "AbortError") {
+        setError(e.message);
+      }
+    } finally {
+      if (detailRequestRef.current === controller) {
+        detailRequestRef.current = null;
+      }
     }
   }
   async function review(payload) {
@@ -517,14 +583,14 @@ export default function AdminKycPage({ accessToken, onNotify = () => {} }) {
       </div>
       <section className="mt-4 grid overflow-hidden rounded-2xl border bg-white xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[760px] table-fixed text-left text-sm">
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="p-4">Mã hồ sơ</th>
-                <th>Người gửi</th>
-                <th>{kind === "accounts" ? "CCCD" : "Tin đăng"}</th>
-                <th>Ngày gửi</th>
-                <th>Trạng thái</th>
+                <th className="w-[118px] p-4">Mã hồ sơ</th>
+                <th className="w-[172px] px-3">Người gửi</th>
+                <th className="px-3">{kind === "accounts" ? "CCCD" : "Tin đăng"}</th>
+                <th className="w-[92px] whitespace-nowrap px-3">Ngày gửi</th>
+                <th className="w-[96px] whitespace-nowrap px-3">Trạng thái</th>
               </tr>
             </thead>
             <tbody>
@@ -541,24 +607,32 @@ export default function AdminKycPage({ accessToken, onNotify = () => {} }) {
                     key={item._id}
                     onClick={() => open(item)}
                   >
-                    <td className="p-4 font-semibold">
+                    <td className="whitespace-nowrap p-4 font-semibold">
                       #{item._id.slice(-8).toUpperCase()}
                     </td>
-                    <td>
-                      {item.user?.fullName || item.fullName}
-                      <p className="text-xs text-slate-400">
-                        {item.user?.email || item.email}
+                    <td className="min-w-0 px-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {item.user?.fullName || item.fullName}
+                        </p>
+                        <p className="truncate text-xs text-slate-400">
+                          {item.user?.email || item.email}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-3">
+                      <p className="line-clamp-2">
+                        {kind === "accounts"
+                          ? item.identityNumber
+                          : item.property?.title}
                       </p>
                     </td>
-                    <td>
-                      {kind === "accounts"
-                        ? item.identityNumber
-                        : item.property?.title}
+                    <td className="whitespace-nowrap px-3">
+                      {fmt(item.createdAt)}
                     </td>
-                    <td>{fmt(item.createdAt)}</td>
-                    <td>
+                    <td className="px-3">
                       <span
-                        className={`rounded-full px-2 py-1 text-xs ${statusBadgeClass(kind === "accounts" ? normalizeAccountStatus(item.status) : item.status)}`}
+                        className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs ${statusBadgeClass(kind === "accounts" ? normalizeAccountStatus(item.status) : item.status)}`}
                       >
                         {
                           statuses[
@@ -593,3 +667,4 @@ export default function AdminKycPage({ accessToken, onNotify = () => {} }) {
     </div>
   );
 }
+

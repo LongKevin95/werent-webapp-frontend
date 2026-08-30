@@ -178,7 +178,7 @@ function PropertyDetailModal({ onAction, onClose, property }) {
   );
 }
 
-export default function AdminPropertiesPage({ accessToken, onCountsChange, onStatusChange, status = "" }) {
+export default function AdminPropertiesPage({ accessToken, onCountsChange, onNotify = () => {}, onStatusChange, status = "" }) {
   const [properties, setProperties] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
   const [filterOptions, setFilterOptions] = useState({ cities: [], propertyTypes: [] });
@@ -190,8 +190,6 @@ export default function AdminPropertiesPage({ accessToken, onCountsChange, onSta
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
@@ -205,7 +203,7 @@ export default function AdminPropertiesPage({ accessToken, onCountsChange, onSta
 
   useEffect(() => {
     const controller = new AbortController();
-    window.queueMicrotask(() => { setIsLoading(true); setError(""); });
+    window.queueMicrotask(() => { setIsLoading(true); });
     getAdminProperties(accessToken, { city, dateFrom, dateTo, limit: 10, page, propertyType, search: debouncedSearch, status }, { signal: controller.signal })
       .then((response) => {
         setProperties(response.data.items);
@@ -214,11 +212,11 @@ export default function AdminPropertiesPage({ accessToken, onCountsChange, onSta
         onCountsChange(response.data.statusCounts ?? {});
       })
       .catch((requestError) => {
-        if (requestError.name !== "AbortError") setError(requestError.message || "Không thể tải danh sách tin đăng.");
+        if (requestError.name !== "AbortError") onNotify(requestError.message || "Không thể tải danh sách tin đăng.", "error");
       })
       .finally(() => { if (!controller.signal.aborted) setIsLoading(false); });
     return () => controller.abort();
-  }, [accessToken, city, dateFrom, dateTo, debouncedSearch, onCountsChange, page, propertyType, refreshVersion, status]);
+  }, [accessToken, city, dateFrom, dateTo, debouncedSearch, onCountsChange, onNotify, page, propertyType, refreshVersion, status]);
 
   const pageNumbers = useMemo(() => {
     const totalPages = pagination.totalPages ?? 1;
@@ -236,21 +234,17 @@ export default function AdminPropertiesPage({ accessToken, onCountsChange, onSta
   }
 
   async function submitReview(property, action, reason) {
-    setIsReviewing(true); setError("");
+    setIsReviewing(true);
     try {
       const response = await reviewAdminProperty(accessToken, property.id ?? property._id, { status: action, ...(reason ? { reason } : {}) });
-      setNotice(response.message); setReviewTarget(null); setReviewAction(""); setSelectedProperty(null); setRefreshVersion((value) => value + 1);
-      window.setTimeout(() => setNotice(""), 3500);
+      onNotify(response.message); setReviewTarget(null); setReviewAction(""); setSelectedProperty(null); setRefreshVersion((value) => value + 1);
     } catch (requestError) {
-      setError(requestError.message || "Không thể cập nhật trạng thái tin đăng.");
+      onNotify(requestError.message || "Không thể cập nhật trạng thái tin đăng.", "error");
     } finally { setIsReviewing(false); }
   }
 
   return (
     <div className="space-y-4">
-      {notice ? <div className="rounded-xl border border-[#CBE7D1] bg-[#EFF9F1] px-4 py-3 text-sm text-[#247D3E]">{notice}</div> : null}
-      {error ? <div className="rounded-xl border border-[#F0C9CD] bg-[#FFF5F5] px-4 py-3 text-sm text-[#B83C46]">{error}</div> : null}
-
       <section className="overflow-hidden rounded-xl border border-[#E5EAE6] bg-white shadow-[0_8px_30px_rgba(38,57,43,0.04)]">
         <div className="grid gap-4 border-b border-[#E8ECE9] p-4 lg:grid-cols-[2.2fr_repeat(4,1fr)] lg:p-5">
           <label className="relative"><span className="sr-only">Tìm kiếm tin đăng</span><Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8D97A2]" /><input className="h-11 w-full rounded-lg border border-[#DDE3DE] pl-10 pr-3 text-sm outline-none focus:border-[#31A451] focus:ring-2 focus:ring-[#31A451]/15" placeholder="Tìm theo tiêu đề, mô tả, người đăng..." type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
