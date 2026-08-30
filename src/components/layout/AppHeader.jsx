@@ -171,19 +171,22 @@ function AppHeader({
       <button
         key={item.key}
         aria-label={item.ariaLabel || item.label}
-        className={`flex size-10 items-center justify-center rounded-full border transition ${
-          isActive
-            ? "border-[#CDE8D5] bg-[#F1FAF3] text-[#35A554]"
-            : item.disabled
-              ? "cursor-not-allowed border-[#E7EBE7] text-[#B0B5BC]"
-              : "cursor-pointer border-[#E7EBE7] text-[#68717A] hover:border-[#D3E7D7] hover:bg-[#F5FAF6] hover:text-[#35A554]"
+        className={`relative flex size-11 items-center justify-center rounded-xl transition ${
+          item.disabled
+            ? "cursor-not-allowed text-[#B0B5BC]"
+            : "text-[#68717A] hover:bg-[#EEF1F4]"
         }`}
         disabled={item.disabled}
-        title={item.label}
+        title={item.key === "favorites" ? "Mục yêu thích" : item.label}
         type="button"
         onClick={() => onNavigate?.(item.key)}
       >
         <Icon className="size-4" />
+        {Number(item.badgeCount) >= 0 ? (
+          <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1.5 text-[10px] font-bold leading-5 text-white shadow-sm">
+            {Number(item.badgeCount) > 99 ? "99+" : item.badgeCount}
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -252,14 +255,13 @@ function AppHeader({
 
         {currentUser ? (
           <div className="flex flex-wrap items-center justify-end gap-2 self-end lg:ml-auto lg:self-auto">
-            {actionNavItems.length ? (
-              <div className="flex items-center gap-2">
+            {actionNavItems.length || showNotification ? (
+              <div className="flex items-center gap-1">
                 {actionNavItems.map(renderActionButton)}
+                {showNotification ? (
+                  <NotificationInbox subscriberId={notificationSubscriberId} />
+                ) : null}
               </div>
-            ) : null}
-
-            {showNotification ? (
-              <NotificationInbox subscriberId={notificationSubscriberId} />
             ) : null}
 
             <div className="relative z-[60]" ref={userMenuRef}>
