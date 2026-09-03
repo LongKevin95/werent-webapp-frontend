@@ -2000,7 +2000,7 @@ export function PropertySearchHeaderBar({
         commitKeywordSearch();
       }}
     >
-      <div className="grid gap-3 rounded-[28px] border border-[#E8EDE8] bg-white p-3 shadow-[0_18px_42px_rgba(39,57,45,0.1)] lg:grid-cols-2 lg:items-center xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_150px]">
+      <div className="grid gap-3 rounded-[28px] border border-[#E8EDE8] bg-white p-4 shadow-[0_18px_42px_rgba(39,57,45,0.1)] lg:grid-cols-2 lg:items-center xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_150px]">
         <div className="relative order-2">
           <button
             className={`flex h-12 w-full items-center justify-between gap-3 rounded-[16px] border bg-white px-4 text-[15px] font-semibold text-[#26313D] transition ${
@@ -2408,19 +2408,21 @@ export function PropertySearchHeaderBar({
           className="relative order-1 min-w-0 pb-3 after:absolute after:bottom-0 after:left-1/2 after:h-px after:w-[94%] after:-translate-x-1/2 after:bg-[#E3E8E4] lg:col-span-2 xl:col-span-5"
           ref={keywordPanelRef}
         >
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#747C86]" />
-          <input
-            className="h-12 w-full rounded-[16px] bg-transparent pl-11 pr-4 text-[16px] font-medium text-[#2B3440] outline-none transition placeholder:text-[#7D858F] focus:bg-[#F8FBF8]"
-            placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
-            type="search"
-            value={keywordInput}
-            onFocus={openKeywordPanel}
-            onKeyDown={handleKeywordInputKeyDown}
-            onChange={(event) => {
-              setKeywordInput(event.target.value);
-              setOpenPanel("keyword");
-            }}
-          />
+          <div className="flex h-12 w-full items-center gap-3 rounded-[16px] bg-[#F5F8F5] px-4 transition focus-within:bg-[#F8FBF8] focus-within:ring-2 focus-within:ring-[#35A554]/15">
+            <Search className="pointer-events-none size-5 shrink-0 text-[#747C86]" />
+            <input
+              className="h-full min-w-0 flex-1 bg-transparent text-[16px] font-medium text-[#2B3440] outline-none placeholder:text-[#7D858F]"
+              placeholder="Tìm theo địa chỉ, khu vực, trường học, ..."
+              type="search"
+              value={keywordInput}
+              onFocus={openKeywordPanel}
+              onKeyDown={handleKeywordInputKeyDown}
+              onChange={(event) => {
+                setKeywordInput(event.target.value);
+                setOpenPanel("keyword");
+              }}
+            />
+          </div>
 
           {openPanel === "keyword" ? (
             <div className="absolute left-0 top-[calc(100%-4px)] z-[80] w-full rounded-[18px] border border-[#E1E7E3] bg-white px-4 py-3 shadow-[0_24px_56px_rgba(42,62,49,0.14)]">
