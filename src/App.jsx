@@ -12,6 +12,7 @@ import {
 } from "react-leaflet";
 import AdminPage from "./AdminPage";
 import bannerImg from "./assets/banner-img.png";
+import zaloIcon from "./assets/zalo-icon.svg";
 import AppFooter from "./components/layout/AppFooter";
 import AppHeader from "./components/layout/AppHeader";
 import {
@@ -48,7 +49,11 @@ import {
   getWalletOverview,
   reconcileTopUpOrder,
 } from "./lib/payment-client";
-import { addFavorite, listFavorites, removeFavorite } from "./lib/favorite-client";
+import {
+  addFavorite,
+  listFavorites,
+  removeFavorite,
+} from "./lib/favorite-client";
 import {
   createPropertyListing,
   deletePropertyListing,
@@ -74,6 +79,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Copy,
   CreditCard,
   Download,
   FileText,
@@ -186,7 +192,7 @@ function getStoredAccessToken() {
     return "";
   }
 
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? "";
+  return window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? "";
 }
 
 function getNormalizedRoutePath(pathname = "/") {
@@ -321,9 +327,11 @@ function createPlaceholderImage(title, primary, secondary) {
 }
 
 const guestHeaderNavItems = [
+  { key: "news", label: "Tin tức" },
+  { key: "statistics", label: "Thống kê" },
   { key: "postListing", label: "Đăng tin" },
-  { key: "support", label: "Hỗ trợ", disabled: true },
-  { key: "about", label: "Về chúng tôi", disabled: true },
+  { key: "support", label: "Hỗ trợ" },
+  { key: "about", label: "Về chúng tôi" },
 ];
 
 function GoogleIcon({ className = "size-5" }) {
@@ -355,6 +363,10 @@ function GoogleIcon({ className = "size-5" }) {
 }
 
 const authenticatedHeaderNavItems = [
+  { key: "news", label: "Tin tức" },
+  { key: "statistics", label: "Thống kê" },
+  { key: "support", label: "Hỗ trợ" },
+  { key: "about", label: "Về chúng tôi" },
   { key: "postListing", label: "Đăng tin", actionGroup: true },
   {
     key: "favorites",
@@ -983,13 +995,16 @@ function PropertyCard({
             <span className="truncate">{publishedTimeLabel}</span>
           </div>
           <button
-            aria-label="Lưu tin yêu thích"
+            aria-label={
+              isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"
+            }
             className={`flex size-9 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-wait disabled:opacity-65 ${
               isFavorite
                 ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#EF4444]"
                 : "border-[#D8EEDD] text-[#77B87B] hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
             }`}
             disabled={isFavoriteBusy}
+            title={isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"}
             type="button"
             onClick={handleToggleFavorite}
           >
@@ -1047,7 +1062,9 @@ function MiniPropertyCard({
         <button
           aria-label={isFavorite ? "Bỏ lưu tin yêu thích" : "Lưu tin yêu thích"}
           className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
-            isFavorite ? "text-[#EF4444]" : "text-[#7B8590] hover:text-[#EF4444]"
+            isFavorite
+              ? "text-[#EF4444]"
+              : "text-[#7B8590] hover:text-[#EF4444]"
           }`}
           disabled={isFavoriteBusy}
           type="button"
@@ -1244,7 +1261,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         }),
       );
     } catch (error) {
-      setSubmitError(error.message || "Đăng nhập Google thất bại. Vui lòng thử lại.");
+      setSubmitError(
+        error.message || "Đăng nhập Google thất bại. Vui lòng thử lại.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -1646,7 +1665,9 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
                 className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
                 type="button"
                 onClick={() =>
-                  setSubmitError("Chưa cấu hình VITE_GOOGLE_CLIENT_ID cho frontend.")
+                  setSubmitError(
+                    "Chưa cấu hình VITE_GOOGLE_CLIENT_ID cho frontend.",
+                  )
                 }
               >
                 <GoogleIcon />
@@ -2347,6 +2368,96 @@ function getListingAmenityItems(keys = []) {
   return keys.map((key) => listingAmenityMap[key]).filter(Boolean);
 }
 
+function getListingOverviewItems(draft) {
+  return [
+    {
+      icon: Ruler,
+      label: "Diện tích",
+      value: draft.area ? `${draft.area} m²` : null,
+    },
+    {
+      icon: BedDouble,
+      label: "Phòng ngủ",
+      value: draft.bedrooms ? `${draft.bedrooms} phòng` : null,
+    },
+    {
+      icon: Bath,
+      label: "Phòng tắm",
+      value: draft.bathrooms ? `${draft.bathrooms} phòng` : null,
+    },
+    { icon: Home, label: "Loại hình", value: draft.propertyType },
+    { icon: Sofa, label: "Nội thất", value: draft.furnishing },
+    {
+      icon: Ruler,
+      label: "Mặt tiền",
+      value: draft.frontage ? `${draft.frontage} m` : null,
+    },
+  ].filter((item) => item.value);
+}
+
+function getListingPropertyFactItems(listing, draft, detail) {
+  return [
+    {
+      icon: CalendarDays,
+      label: "Nhận nhà dự kiến",
+      value: detail.availableFrom,
+    },
+    { icon: LocateFixed, label: "Hướng nhà", value: draft.orientation },
+    {
+      icon: Building2,
+      label: "Tầng hiện tại",
+      value: draft.floor ? `Tầng ${draft.floor}` : null,
+    },
+    {
+      icon: Warehouse,
+      label: "Tổng số tầng",
+      value: draft.totalFloors ? `${draft.totalFloors} tầng` : null,
+    },
+    {
+      icon: Ruler,
+      label: "Đường vào",
+      value: draft.accessRoad ? `${draft.accessRoad} m` : null,
+    },
+  ].filter((item) => item.value);
+}
+
+function getListingPropertyFeatureItems(listing, draft, detail) {
+  return [
+    ...getListingOverviewItems(draft),
+    ...getListingPropertyFactItems(listing, draft, detail),
+  ];
+}
+
+function getPropertyFeatureGridColumnCount() {
+  if (typeof window === "undefined") {
+    return 3;
+  }
+
+  if (window.matchMedia("(min-width: 1280px)").matches) {
+    return 3;
+  }
+
+  if (window.matchMedia("(min-width: 640px)").matches) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function formatPreviewAvailableFrom(moveInDays) {
+  if (!hasListingInputValue(moveInDays)) {
+    return "Trao đổi trực tiếp";
+  }
+
+  const days = Math.trunc(parseListingNumericInput(moveInDays));
+
+  if (!days) {
+    return "Có thể dọn vào ngay";
+  }
+
+  return `Sau ${days} ngày`;
+}
+
 function getSelectOptionValue(value, options) {
   return options.includes(value) ? value : "";
 }
@@ -2880,6 +2991,15 @@ function hasValidCoordinates(coordinates) {
   );
 }
 
+function hasSelectedListingMapLocation(location) {
+  return (
+    hasValidCoordinates(location) &&
+    (Boolean(location?.isPinAdjusted) ||
+      hasListingInputValue(location?.placeId) ||
+      hasListingInputValue(location?.mapProvider))
+  );
+}
+
 function createDraftLocation(draft) {
   const fullAddress = buildListingFullAddress(draft);
   const hasCoordinates = hasValidCoordinates(draft.coordinates);
@@ -2898,6 +3018,97 @@ function createDraftLocation(draft) {
     mapProvider: draft.mapProvider ?? "",
     placeId: draft.placeId ?? null,
     searchText: draft.formattedAddress ?? fullAddress,
+  };
+}
+
+function createListingPreviewRecord({
+  listingDescription,
+  listingDraft,
+  listingImages,
+  listingLocation,
+  listingTitle,
+  locationNote,
+  selectedAmenities,
+  selectedDuration,
+  selectedTier,
+  user,
+  videoLink,
+}) {
+  const fullAddress =
+    buildListingFullAddress(listingDraft) || listingLocation.formattedAddress;
+  const city = listingDraft.city || "";
+  const district = listingDraft.district || "";
+  const location =
+    [district, city].filter(Boolean).join(", ") ||
+    listingLocation.formattedAddress ||
+    fullAddress ||
+    "Đang cập nhật vị trí";
+  const gallery = listingImages
+    .map((image) => image.previewUrl || image.url)
+    .filter(Boolean);
+  const propertyType = listingDraft.propertyType || "Tin đăng WeRent";
+  const primaryImage =
+    gallery[0] ?? createPlaceholderImage(propertyType, "#dce8d9", "#f4f7f4");
+  const priceValue = parseListingMoneyInput(listingDraft.rentPrice);
+  const ownerName = getUserDisplayName(user) || "Chủ nhà";
+  const selectedTierOption = getListingTierOptionByKey(selectedTier);
+  const coordinates = hasSelectedListingMapLocation(listingLocation)
+    ? {
+        lat: Number(listingLocation.lat),
+        lng: Number(listingLocation.lng),
+      }
+    : null;
+  const draft = {
+    ...defaultListingDraft,
+    ...listingDraft,
+    description: listingDescription.trim(),
+    locationNote: locationNote.trim(),
+    selectedAmenities,
+    selectedDuration,
+    selectedTier,
+    videoLink: videoLink.trim(),
+    coordinates,
+    formattedAddress: listingLocation.formattedAddress || fullAddress,
+  };
+
+  return {
+    id: "PREVIEW",
+    image: primaryImage,
+    location,
+    meta: [
+      listingDraft.area ? `${listingDraft.area}m²` : "",
+      listingDraft.bathrooms ? `${listingDraft.bathrooms} WC` : "",
+    ]
+      .filter(Boolean)
+      .join(" • "),
+    owner: ownerName,
+    packageLabel: selectedTierOption.label,
+    price: priceValue ? formatListingCurrency(priceValue) : "Thỏa thuận",
+    publishedAtRaw: null,
+    status: "draft",
+    statusLabel: "Xem trước",
+    verificationStatus: "unverified",
+    isVerified: false,
+    title: listingTitle.trim() || "Tiêu đề tin đăng của bạn",
+    area: listingDraft.area ? `${listingDraft.area}m²` : "Đang cập nhật",
+    metrics: [],
+    detail: {
+      ownerName,
+      ownerPhone: user?.phone || "",
+      ownerLabel: "Người đăng tin",
+      availableFrom: formatPreviewAvailableFrom(listingDraft.moveInDays),
+      deposit: "Thỏa thuận",
+      minimumStay: "Trao đổi trực tiếp",
+      maxOccupants: "Trao đổi trực tiếp",
+      publishedAt: "Bản xem trước",
+      publishedAtRaw: null,
+      expiresAt: "Theo gói đăng",
+      coordinates: coordinates ?? { lat: null, lng: null },
+      gallery: gallery.length ? gallery : [primaryImage],
+      nearbyPlaces: [district, city, "Liên hệ để xem nhà"].filter(Boolean),
+      houseRules: ["Trao đổi trực tiếp khi xem nhà"],
+    },
+    draft,
   };
 }
 
@@ -3539,6 +3750,79 @@ function ZaloMark({ className = "size-5" }) {
   );
 }
 
+function normalizeContactPhone(phone) {
+  if (typeof phone !== "string" && typeof phone !== "number") {
+    return "";
+  }
+
+  const digits = String(phone).replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.startsWith("84") && digits.length === 11) {
+    return `0${digits.slice(2)}`;
+  }
+
+  if (!digits.startsWith("0") && digits.length === 9) {
+    return `0${digits}`;
+  }
+
+  if (digits.startsWith("0") && digits.length === 10) {
+    return digits;
+  }
+
+  return "";
+}
+
+function formatContactPhone(phone) {
+  if (!phone) {
+    return "";
+  }
+
+  if (phone.length === 10) {
+    return `${phone.slice(0, 4)} ${phone.slice(4, 7)} ${phone.slice(7)}`;
+  }
+
+  return phone;
+}
+
+function formatMaskedContactPhone(phone) {
+  if (!phone) {
+    return "Liên hệ chủ nhà";
+  }
+
+  if (phone.length === 10) {
+    return `${phone.slice(0, 4)} ${phone.slice(4, 7)} ***`;
+  }
+
+  return `${phone.slice(0, Math.max(0, phone.length - 3))}***`;
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("copy_failed");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
+
 function getPasswordStrength(password) {
   const checks = [
     password.length >= 8,
@@ -3970,6 +4254,7 @@ function normalizeTopUpPromotion(promotion) {
 function AccountPageShell({
   activeKey,
   children,
+  headerNavItems = authenticatedHeaderNavItems,
   headerSearchContent,
   onLogout,
   onNavigate,
@@ -3981,7 +4266,7 @@ function AccountPageShell({
         <AppHeader
           activeNav="home"
           currentUser={user}
-          navItems={authenticatedHeaderNavItems}
+          navItems={headerNavItems}
           onLogoClick={() => onNavigate("home")}
           onLogout={onLogout}
           onNavigate={onNavigate}
@@ -4261,45 +4546,117 @@ function clearWalletReturnSearchParams() {
   );
 }
 
-function FavoritesPage({ accessToken, headerSearchContent, onLogout, onNavigate, onViewListing, user }) {
+function FavoritesPage({
+  accessToken,
+  favoriteCount = 0,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  onViewListing,
+  user,
+}) {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const favoriteBadgeCount = isLoading ? favoriteCount : items.length;
+  const headerNavItems = useMemo(
+    () =>
+      authenticatedHeaderNavItems.map((item) =>
+        item.key === "favorites"
+          ? { ...item, badgeCount: favoriteBadgeCount }
+          : item,
+      ),
+    [favoriteBadgeCount],
+  );
 
   useEffect(() => {
     let active = true;
     listFavorites(accessToken)
       .then((response) => {
-        if (active) setItems((response.data?.items ?? []).filter((item) => item.property));
+        if (active)
+          setItems(
+            (response.data?.items ?? []).filter((item) => item.property),
+          );
       })
-      .catch((requestError) => active && setError(requestError.message || "Không thể tải tin yêu thích."))
+      .catch(
+        (requestError) =>
+          active &&
+          setError(requestError.message || "Không thể tải tin yêu thích."),
+      )
       .finally(() => active && setIsLoading(false));
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [accessToken]);
 
   async function handleRemove(propertyId) {
     try {
       await removeFavorite(accessToken, propertyId);
-      setItems((current) => current.filter((item) => String(item.property?._id) !== String(propertyId)));
+      setItems((current) =>
+        current.filter(
+          (item) => String(item.property?._id) !== String(propertyId),
+        ),
+      );
     } catch (requestError) {
       setError(requestError.message || "Không thể bỏ lưu tin.");
     }
   }
 
   return (
-    <AccountPageShell activeKey="favorites" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+    <AccountPageShell
+      activeKey="favorites"
+      headerNavItems={headerNavItems}
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
       <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-        <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">Tin yêu thích</h1>
-        <p className="mt-2 text-sm text-[#536179]">Danh sách các tin đăng bạn đã lưu để xem lại sau.</p>
-        {error ? <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">{error}</div> : null}
-        {isLoading ? <p className="py-12 text-center text-[#63708A]">Đang tải tin yêu thích...</p> : items.length ? (
+        <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#10172A]">
+          Tin yêu thích
+        </h1>
+        <p className="mt-2 text-sm text-[#536179]">
+          Danh sách các tin đăng bạn đã lưu để xem lại sau.
+        </p>
+        {error ? (
+          <div className="mt-5 rounded-2xl border border-[#F3D1D1] bg-[#FFF6F6] px-4 py-3 text-sm text-[#B73A3A]">
+            {error}
+          </div>
+        ) : null}
+        {isLoading ? (
+          <p className="py-12 text-center text-[#63708A]">
+            Đang tải tin yêu thích...
+          </p>
+        ) : items.length ? (
           <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((favorite) => {
               const listing = mapApiPropertyToListingRecord(favorite.property);
-              return <div key={favorite._id} className="relative"><PropertyCard listing={listing} onViewListing={() => onViewListing(listing)} /><button aria-label="Bỏ lưu tin" className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white text-[#EF4444] shadow" type="button" onClick={(event) => { event.stopPropagation(); handleRemove(favorite.property._id); }}><Heart className="size-5 fill-current" /></button></div>;
+              return (
+                <PropertyCard
+                  key={favorite._id}
+                  isFavorite
+                  listing={listing}
+                  onToggleFavorite={() => handleRemove(favorite.property._id)}
+                  onViewListing={() => onViewListing(listing)}
+                />
+              );
             })}
           </div>
-        ) : <div className="mt-6 rounded-2xl border border-dashed border-[#CFD9D1] px-6 py-14 text-center"><Heart className="mx-auto size-10 text-[#94A39A]" /><p className="mt-4 font-semibold text-[#263149]">Bạn chưa lưu tin đăng nào.</p><button className="mt-4 text-sm font-semibold text-[#078C3F]" type="button" onClick={() => onNavigate("search")}>Khám phá tin đăng</button></div>}
+        ) : (
+          <div className="mt-6 rounded-2xl border border-dashed border-[#CFD9D1] px-6 py-14 text-center">
+            <Heart className="mx-auto size-10 text-[#94A39A]" />
+            <p className="mt-4 font-semibold text-[#263149]">
+              Bạn chưa lưu tin đăng nào.
+            </p>
+            <button
+              className="mt-4 text-sm font-semibold text-[#078C3F]"
+              type="button"
+              onClick={() => onNavigate("search")}
+            >
+              Khám phá tin đăng
+            </button>
+          </div>
+        )}
       </section>
     </AccountPageShell>
   );
@@ -4834,8 +5191,19 @@ function WalletPage({
   );
 }
 
-function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNavigate, onNotify = () => {}, user }) {
-  const orderCode = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("orderCode")?.trim() ?? "";
+function MomoMockCheckoutPage({
+  accessToken,
+  headerSearchContent,
+  onLogout,
+  onNavigate,
+  onNotify = () => {},
+  user,
+}) {
+  const orderCode =
+    typeof window === "undefined"
+      ? ""
+      : (new URLSearchParams(window.location.search).get("orderCode")?.trim() ??
+        "");
   const [order, setOrder] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -4851,13 +5219,25 @@ function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNa
     getPaymentHistory(accessToken)
       .then((response) => {
         if (!active) return;
-        const matchedOrder = (response.data?.items ?? []).find((item) => item.orderCode === orderCode);
+        const matchedOrder = (response.data?.items ?? []).find(
+          (item) => item.orderCode === orderCode,
+        );
         setOrder(matchedOrder ?? null);
-        if (!matchedOrder) onNotify("Không tìm thấy giao dịch mô phỏng.", "error");
+        if (!matchedOrder)
+          onNotify("Không tìm thấy giao dịch mô phỏng.", "error");
       })
-      .catch((error) => active && onNotify(error.message || "Không thể tải giao dịch mô phỏng.", "error"))
+      .catch(
+        (error) =>
+          active &&
+          onNotify(
+            error.message || "Không thể tải giao dịch mô phỏng.",
+            "error",
+          ),
+      )
       .finally(() => active && setIsLoading(false));
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [accessToken, onNotify, orderCode]);
 
   async function handleConfirm() {
@@ -4865,9 +5245,14 @@ function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNa
     try {
       const response = await confirmMomoMockPayment(accessToken, orderCode);
       setOrder(response.data?.order ?? order);
-      onNotify("Đã mô phỏng thanh toán thành công. Số dư ví WeRent đã được cập nhật.");
+      onNotify(
+        "Đã mô phỏng thanh toán thành công. Số dư ví WeRent đã được cập nhật.",
+      );
     } catch (error) {
-      onNotify(error.message || "Không thể xác nhận giao dịch mô phỏng.", "error");
+      onNotify(
+        error.message || "Không thể xác nhận giao dịch mô phỏng.",
+        "error",
+      );
     } finally {
       setIsConfirming(false);
     }
@@ -4875,22 +5260,71 @@ function MomoMockCheckoutPage({ accessToken, headerSearchContent, onLogout, onNa
 
   const isPaid = order?.status === "paid";
   return (
-    <AccountPageShell activeKey="wallet" headerSearchContent={headerSearchContent} onLogout={onLogout} onNavigate={onNavigate} user={user}>
+    <AccountPageShell
+      activeKey="wallet"
+      headerSearchContent={headerSearchContent}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+      user={user}
+    >
       <div className="mx-auto max-w-2xl rounded-[28px] border border-[#F1B5D6] bg-white p-6 text-center shadow-[0_18px_50px_rgba(180,20,110,0.12)] sm:p-9">
-        <div className="mx-auto inline-flex rounded-full bg-[#A50064] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white">MoMo Mock · Demo</div>
-        <h1 className="mt-5 text-3xl font-bold text-[#191724]">Thanh toán MoMo mô phỏng</h1>
-        <p className="mt-3 font-semibold text-[#B00068]">Không kết nối MoMo và không phát sinh tiền thật</p>
-        {isLoading ? <p className="py-12 text-[#697386]">Đang tải giao dịch...</p> : order ? (
+        <div className="mx-auto inline-flex rounded-full bg-[#A50064] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white">
+          MoMo Mock · Demo
+        </div>
+        <h1 className="mt-5 text-3xl font-bold text-[#191724]">
+          Thanh toán MoMo mô phỏng
+        </h1>
+        <p className="mt-3 font-semibold text-[#B00068]">
+          Không kết nối MoMo và không phát sinh tiền thật
+        </p>
+        {isLoading ? (
+          <p className="py-12 text-[#697386]">Đang tải giao dịch...</p>
+        ) : order ? (
           <>
-            <div className="mx-auto mt-7 w-fit rounded-3xl border border-[#F0D5E4] bg-white p-5 shadow-sm"><QRCodeSVG value={qrValue} size={220} level="M" /></div>
-            <p className="mt-3 text-xs font-medium text-[#7D7180]">QR chỉ minh họa dữ liệu giao dịch demo, không quét hoặc thanh toán bằng ứng dụng MoMo.</p>
-            <div className="mx-auto mt-6 max-w-md rounded-2xl bg-[#FFF5FA] p-5 text-left text-sm">
-              <div className="flex justify-between gap-4"><span className="text-[#70798A]">Mã giao dịch</span><strong className="break-all text-right">{order.orderCode}</strong></div>
-              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Số tiền demo</span><strong className="text-[#A50064]">{formatWalletCurrency(order.amount)}</strong></div>
-              <div className="mt-3 flex justify-between gap-4"><span className="text-[#70798A]">Trạng thái</span><strong>{isPaid ? "Đã thanh toán" : "Chờ mô phỏng"}</strong></div>
+            <div className="mx-auto mt-7 w-fit rounded-3xl border border-[#F0D5E4] bg-white p-5 shadow-sm">
+              <QRCodeSVG value={qrValue} size={220} level="M" />
             </div>
-            <button className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#A50064] px-6 text-sm font-bold text-white transition hover:bg-[#8F0057] disabled:cursor-not-allowed disabled:opacity-60" disabled={isPaid || isConfirming} type="button" onClick={handleConfirm}>{isPaid ? "Đã thanh toán mô phỏng" : isConfirming ? "Đang xử lý..." : "Mô phỏng thanh toán thành công"}</button>
-            <button className="mt-3 text-sm font-semibold text-[#178246]" type="button" onClick={() => onNavigate("wallet")}>Quay về ví WeRent</button>
+            <p className="mt-3 text-xs font-medium text-[#7D7180]">
+              QR chỉ minh họa dữ liệu giao dịch demo, không quét hoặc thanh toán
+              bằng ứng dụng MoMo.
+            </p>
+            <div className="mx-auto mt-6 max-w-md rounded-2xl bg-[#FFF5FA] p-5 text-left text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-[#70798A]">Mã giao dịch</span>
+                <strong className="break-all text-right">
+                  {order.orderCode}
+                </strong>
+              </div>
+              <div className="mt-3 flex justify-between gap-4">
+                <span className="text-[#70798A]">Số tiền demo</span>
+                <strong className="text-[#A50064]">
+                  {formatWalletCurrency(order.amount)}
+                </strong>
+              </div>
+              <div className="mt-3 flex justify-between gap-4">
+                <span className="text-[#70798A]">Trạng thái</span>
+                <strong>{isPaid ? "Đã thanh toán" : "Chờ mô phỏng"}</strong>
+              </div>
+            </div>
+            <button
+              className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#A50064] px-6 text-sm font-bold text-white transition hover:bg-[#8F0057] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isPaid || isConfirming}
+              type="button"
+              onClick={handleConfirm}
+            >
+              {isPaid
+                ? "Đã thanh toán mô phỏng"
+                : isConfirming
+                  ? "Đang xử lý..."
+                  : "Mô phỏng thanh toán thành công"}
+            </button>
+            <button
+              className="mt-3 text-sm font-semibold text-[#178246]"
+              type="button"
+              onClick={() => onNavigate("wallet")}
+            >
+              Quay về ví WeRent
+            </button>
           </>
         ) : null}
       </div>
@@ -4917,7 +5351,10 @@ function TopUpPaymentPage({
   const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
   const [promotionLoadError, setPromotionLoadError] = useState("");
   const [isPromotionSummaryOpen, setIsPromotionSummaryOpen] = useState(false);
-  const [momoCapability, setMomoCapability] = useState({ enabled: false, mode: "loading" });
+  const [momoCapability, setMomoCapability] = useState({
+    enabled: false,
+    mode: "loading",
+  });
 
   const amount = Number(amountValue || 0);
   const autoPromotions = useMemo(
@@ -5011,10 +5448,21 @@ function TopUpPaymentPage({
     let active = true;
     getPaymentCapabilities()
       .then((response) => {
-        if (active) setMomoCapability(response.data?.capabilities?.momo ?? { enabled: false, mode: "unavailable" });
+        if (active)
+          setMomoCapability(
+            response.data?.capabilities?.momo ?? {
+              enabled: false,
+              mode: "unavailable",
+            },
+          );
       })
-      .catch(() => active && setMomoCapability({ enabled: false, mode: "unavailable" }));
-    return () => { active = false; };
+      .catch(
+        () =>
+          active && setMomoCapability({ enabled: false, mode: "unavailable" }),
+      );
+    return () => {
+      active = false;
+    };
   }, []);
 
   function selectDefaultPromotionForAmount(nextAmount) {
@@ -5048,7 +5496,10 @@ function TopUpPaymentPage({
     const isSelected = selectedPromotionIds.includes(promotion.id);
 
     if (!isTopUpPromotionEligible(promotion, amount)) {
-      onNotify(`Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`, "error");
+      onNotify(
+        `Vui lòng nạp tối thiểu ${formatWalletCurrency(promotion.minimumAmount)} để áp dụng ${promotion.name}.`,
+        "error",
+      );
       return;
     }
 
@@ -5061,7 +5512,9 @@ function TopUpPaymentPage({
 
     if (!promotion.stackable) {
       setSelectedPromotionIds([promotion.id]);
-      onNotify(`${promotion.name} không áp dụng song song với chương trình khác.`);
+      onNotify(
+        `${promotion.name} không áp dụng song song với chương trình khác.`,
+      );
       return;
     }
 
@@ -5078,7 +5531,10 @@ function TopUpPaymentPage({
     }
 
     if (appliedPromotions.length >= TOP_UP_PROMOTION_SELECTION_LIMIT) {
-      onNotify(`Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`, "error");
+      onNotify(
+        `Chỉ được áp dụng tối đa ${TOP_UP_PROMOTION_SELECTION_LIMIT} chương trình khuyến mãi.`,
+        "error",
+      );
       return;
     }
 
@@ -5498,7 +5954,6 @@ function TopUpPaymentPage({
                   của WeRent
                 </span>
               </label>
-
             </section>
           </div>
 
@@ -6419,6 +6874,18 @@ function ListingDetailMap({ location }) {
       <p className="mt-2 text-xs font-medium text-[#75808C]">
         Dùng CTRL + cuộn chuột để phóng bản đồ
       </p>
+    </div>
+  );
+}
+
+function ListingPreviewMapPlaceholder() {
+  return (
+    <div className="mt-5 overflow-hidden rounded-[24px] border border-[#DDE4E0] bg-[#EEF1F2]">
+      <div className="flex min-h-[360px] items-center justify-center px-5 text-center">
+        <p className="text-sm font-semibold text-[#6B7280]">
+          Chưa có vị trí và tọa độ bất động sản
+        </p>
+      </div>
     </div>
   );
 }
@@ -7668,7 +8135,7 @@ function PostListingPricingStep({
   onNextStep,
   onSaveDraft,
   onTierChange,
-  submitLabel = "Hoàn tất & đăng tin",
+  submitLabel = "Hoàn tất",
 }) {
   const [selectedScheduleOption, setSelectedScheduleOption] = useState(
     scheduleOptions[0],
@@ -8426,19 +8893,13 @@ function PostListingPage({
     isAdministrativeDivisionsLoading,
     setIsAdministrativeDivisionsLoading,
   ] = useState(false);
-  const [, setAdministrativeDivisionsError] =
-    useState("");
+  const [, setAdministrativeDivisionsError] = useState("");
   const [imageError, setImageError] = useState("");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [pendingExitAction, setPendingExitAction] = useState(null);
   const [isSubmittingListing, setIsSubmittingListing] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [showListingVerificationModal, setShowListingVerificationModal] =
-    useState(false);
-  const [
-    submittedListingVerificationRequest,
-    setSubmittedListingVerificationRequest,
-  ] = useState(null);
+  const [isListingPreviewOpen, setIsListingPreviewOpen] = useState(false);
   const [draftValidationErrors, setDraftValidationErrors] = useState({});
   const [viewportNotice, setViewportNotice] = useState(null);
   const listingImagesRef = useRef(listingImages);
@@ -8486,16 +8947,43 @@ function PostListingPage({
     () => getAdministrativeDivisionOptions(selectedDistrict?.wards ?? []),
     [selectedDistrict],
   );
-  const editingListingVerificationStatus =
-    submittedListingVerificationRequest?.status ??
-    editingListing?.verificationStatus;
-  const isEditingListingVerified =
-    editingListing?.isVerified ||
-    ["verified_owner", "verified_authorized"].includes(
-      editingListingVerificationStatus,
-    );
-  const isEditingListingVerificationPending =
-    editingListingVerificationStatus === "pending";
+  const previewListing = useMemo(
+    () =>
+      createListingPreviewRecord({
+        listingDescription,
+        listingDraft: {
+          ...listingDraft,
+          city: selectedProvince?.name ?? listingDraft.city,
+          district: selectedDistrict?.name ?? listingDraft.district,
+          ward: selectedWard?.name ?? listingDraft.ward,
+        },
+        listingImages,
+        listingLocation,
+        listingTitle,
+        locationNote,
+        selectedAmenities,
+        selectedDuration,
+        selectedTier,
+        user,
+        videoLink,
+      }),
+    [
+      listingDescription,
+      listingDraft,
+      listingImages,
+      listingLocation,
+      listingTitle,
+      locationNote,
+      selectedAmenities,
+      selectedDistrict,
+      selectedDuration,
+      selectedProvince,
+      selectedTier,
+      selectedWard,
+      user,
+      videoLink,
+    ],
+  );
   const hasUnsavedNewListingInput = useMemo(
     () =>
       !isEditingListing &&
@@ -8920,7 +9408,10 @@ function PostListingPage({
     setDraftValidationErrors({});
 
     if (!accessToken) {
-      showPostListingNotice("Vui lòng đăng nhập lại trước khi lưu nháp.", "error");
+      showPostListingNotice(
+        "Vui lòng đăng nhập lại trước khi lưu nháp.",
+        "error",
+      );
       return;
     }
 
@@ -9091,7 +9582,7 @@ function PostListingPage({
         isSubmittingListing={isSubmittingListing}
         selectedDuration={selectedDuration}
         selectedTier={selectedTier}
-        submitLabel={isEditingListing ? "Cập nhật tin" : "Hoàn tất & đăng tin"}
+        submitLabel={isEditingListing ? "Cập nhật tin" : "Hoàn tất"}
         onBackStep={goToPreviousStep}
         onDurationChange={setSelectedDuration}
         onNextStep={handleSubmitListing}
@@ -9107,16 +9598,10 @@ function PostListingPage({
         notice={viewportNotice}
         onClose={() => setViewportNotice(null)}
       />
-      {showListingVerificationModal && editingListing ? (
-        <ListingVerificationModal
-          accessToken={accessToken}
-          listing={editingListing}
-          onClose={() => setShowListingVerificationModal(false)}
-          onSuccess={(response) => {
-            setShowListingVerificationModal(false);
-            setSubmittedListingVerificationRequest(response.data?.item ?? null);
-            showPostListingNotice(response.message);
-          }}
+      {isListingPreviewOpen ? (
+        <ListingPreviewModal
+          listing={previewListing}
+          onClose={() => setIsListingPreviewOpen(false)}
         />
       ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
@@ -9177,29 +9662,13 @@ function PostListingPage({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-                  {isEditingListingVerificationPending ? (
-                    <span className="inline-flex h-11 items-center rounded-xl border border-[#CFE8D4] bg-[#F4FBF5] px-4 text-sm font-bold text-[#278B45]">
-                      Đã gửi yêu cầu xác thực BĐS
-                    </span>
-                  ) : (
-                    <Button
-                      disabled={!isEditingListing || isEditingListingVerified}
-                      title={
-                        !isEditingListing
-                          ? "Hãy lưu tin trước, sau đó mở chỉnh sửa để tải giấy tờ xác thực."
-                          : isEditingListingVerified
-                            ? "Bất động sản đã được xác thực."
-                            : "Tải giấy tờ chứng minh quyền sở hữu hoặc quyền cho thuê."
-                      }
-                      variant="outline"
-                      onClick={() => setShowListingVerificationModal(true)}
-                    >
-                      <ShieldCheck className="size-4" />
-                      {isEditingListingVerified
-                        ? "Đã xác thực BĐS"
-                        : "Xác thực BĐS"}
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsListingPreviewOpen(true)}
+                  >
+                    <Eye className="size-4" />
+                    Xem trước
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -9535,6 +10004,396 @@ function ListingDetailMediaViewer({
   );
 }
 
+function ListingPropertyFeaturesSection({ items }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [columnCount, setColumnCount] = useState(
+    getPropertyFeatureGridColumnCount,
+  );
+  const visibleLimit = columnCount * 3;
+  const shouldShowToggle = items.length > visibleLimit;
+  const visibleItems =
+    shouldShowToggle && !isExpanded ? items.slice(0, visibleLimit) : items;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function updateColumnCount() {
+      setColumnCount(getPropertyFeatureGridColumnCount());
+    }
+
+    updateColumnCount();
+    window.addEventListener("resize", updateColumnCount);
+
+    return () => {
+      window.removeEventListener("resize", updateColumnCount);
+    };
+  }, []);
+
+  return (
+    <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+      <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+        Đặc điểm bất động sản
+      </h2>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {visibleItems.map(({ icon: Icon, label, value }) => (
+          <div
+            key={label}
+            className="flex items-center gap-3 rounded-[18px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-3.5"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[#EEF8F0] text-[#35A554]">
+              <Icon className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8A919B]">
+                {label}
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-[#26303A]">
+                {value}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+      {shouldShowToggle ? (
+        <button
+          className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[#EF2417] transition hover:text-[#C81C12]"
+          type="button"
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          {isExpanded ? "Thu gọn" : "Hiển thị thêm"}
+          <ChevronDown
+            className={`size-4 transition ${isExpanded ? "rotate-180" : ""}`}
+          />
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ListingPreviewModal({ listing, onClose }) {
+  const detail = listing.detail ?? {};
+  const draft = listing.draft ?? defaultListingDraft;
+  const mediaItems = buildListingMediaItems(listing, detail, draft);
+  const amenities = getListingAmenityItems(draft.selectedAmenities);
+  const fullAddress = draft.formattedAddress || buildListingFullAddress(draft);
+  const detailMapLocation = getListingDetailMapLocation(
+    draft,
+    detail,
+    fullAddress,
+  );
+  const featureItems = getListingPropertyFeatureItems(listing, draft, detail);
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [mediaViewerIndex, setMediaViewerIndex] = useState(null);
+  const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
+
+  function showPreviousMedia() {
+    setActiveMediaIndex((current) =>
+      current === 0 ? mediaItems.length - 1 : current - 1,
+    );
+  }
+
+  function showNextMedia() {
+    setActiveMediaIndex((current) =>
+      current === mediaItems.length - 1 ? 0 : current + 1,
+    );
+  }
+
+  const showPreviousViewerMedia = useCallback(() => {
+    setMediaViewerIndex((current) =>
+      current === null || current === 0 ? mediaItems.length - 1 : current - 1,
+    );
+  }, [mediaItems.length]);
+
+  const showNextViewerMedia = useCallback(() => {
+    setMediaViewerIndex((current) =>
+      current === null || current === mediaItems.length - 1 ? 0 : current + 1,
+    );
+  }, [mediaItems.length]);
+
+  return (
+    <Modal
+      className="max-h-[calc(100vh-32px)] max-w-[980px]"
+      contentClassName="max-h-[calc(100vh-116px)] overflow-y-auto bg-[#F5F7F4] px-4 pb-5 pt-4 sm:px-5"
+      headerVariant="brand"
+      overlayClassName="!z-[3000]"
+      size="xl"
+      title="Xem trước tin đăng"
+      onClose={onClose}
+    >
+      {mediaViewerIndex !== null ? (
+        <ListingDetailMediaViewer
+          key={mediaItems[mediaViewerIndex]?.key ?? mediaViewerIndex}
+          activeIndex={mediaViewerIndex}
+          listingTitle={listing.title}
+          mediaItems={mediaItems}
+          onClose={() => setMediaViewerIndex(null)}
+          onNext={showNextViewerMedia}
+          onPrevious={showPreviousViewerMedia}
+          onSelect={setMediaViewerIndex}
+        />
+      ) : null}
+
+      <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
+          <section className="space-y-3">
+            <div className="relative overflow-hidden rounded-[22px] bg-black">
+              {activeMedia?.type === "video" ? (
+                activeMedia.embedUrl ? (
+                  <iframe
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="h-[240px] w-full sm:h-[330px] xl:h-[420px]"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    src={activeMedia.embedUrl}
+                    title={`${listing.title} video`}
+                  />
+                ) : (
+                  <div className="flex h-[240px] w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,#F7FAF7_0%,#EEF5EF_100%)] px-6 text-center sm:h-[330px] xl:h-[420px]">
+                    <span className="flex size-16 items-center justify-center rounded-full bg-white text-[#35A554] shadow-sm">
+                      <Video className="size-7" />
+                    </span>
+                    <div>
+                      <p className="text-lg font-bold text-[#1F252D]">
+                        Video tham quan thực tế
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[#68717C]">
+                        Link video sẽ hiển thị cùng gallery khi tin được đăng.
+                      </p>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <ListingDetailHeroImage
+                  key={activeMedia?.src ?? listing.image}
+                  alt={`${listing.title} - ${activeMedia?.title ?? "ảnh hiển thị"}`}
+                  onClick={() => setMediaViewerIndex(activeMediaIndex)}
+                  src={activeMedia?.src ?? listing.image}
+                />
+              )}
+
+              {mediaItems.length > 1 ? (
+                <>
+                  <button
+                    aria-label="Xem media trước"
+                    className="absolute left-4 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl bg-white/95 text-[#37414B] shadow-[0_8px_22px_rgba(31,37,45,0.12)] transition hover:bg-white"
+                    type="button"
+                    onClick={showPreviousMedia}
+                  >
+                    <ArrowRight className="size-5 rotate-180" />
+                  </button>
+                  <button
+                    aria-label="Xem media tiếp theo"
+                    className="absolute right-4 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl bg-white/95 text-[#37414B] shadow-[0_8px_22px_rgba(31,37,45,0.12)] transition hover:bg-white"
+                    type="button"
+                    onClick={showNextMedia}
+                  >
+                    <ArrowRight className="size-5" />
+                  </button>
+                </>
+              ) : null}
+
+              <div className="absolute bottom-4 right-4 rounded-xl bg-[#1F252D]/78 px-3 py-1.5 text-sm font-semibold text-white backdrop-blur-sm">
+                {activeMediaIndex + 1}/{mediaItems.length}
+              </div>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {mediaItems.map((item, index) => {
+                const isActive = index === activeMediaIndex;
+
+                return (
+                  <button
+                    key={item.key}
+                    aria-label={item.title}
+                    className={`relative h-20 w-28 shrink-0 overflow-hidden rounded-[14px] border transition ${
+                      isActive
+                        ? "border-[#35A554] ring-2 ring-[#35A554]/20"
+                        : "border-[#E4E9E5]"
+                    }`}
+                    type="button"
+                    onClick={() => setActiveMediaIndex(index)}
+                  >
+                    <img
+                      alt={item.title}
+                      className="h-full w-full object-cover"
+                      src={item.thumb}
+                    />
+                    {item.type === "video" ? (
+                      <span className="absolute inset-0 flex items-center justify-center bg-[#1F252D]/38 text-white">
+                        <span className="flex items-center gap-1 rounded-full bg-white/18 px-2 py-1 text-[11px] font-semibold backdrop-blur-sm">
+                          <Video className="size-3.5" />
+                          Video
+                        </span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+            <div className="max-w-[880px]">
+              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#35A554]">
+                {draft.projectName || draft.propertyType || "Tin đăng WeRent"}
+              </p>
+              <h1 className="mt-3 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
+                {listing.title}
+              </h1>
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
+                <span className="flex items-center gap-2">
+                  <MapPin className="size-4 text-[#35A554]" />
+                  {listing.location}
+                </span>
+                <span className="flex items-center gap-2">
+                  <CalendarDays className="size-4 text-[#35A554]" />
+                  Đăng ngày {detail.publishedAt}
+                </span>
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-[#35A554]" />
+                  Hết hạn {detail.expiresAt}
+                </span>
+              </div>
+              <div className="mt-5 max-w-[220px] rounded-[18px] border border-[#E6ECE8] bg-[#FCFDFC] px-4 py-3">
+                <p className="text-sm text-[#7E8792]">Khoảng giá</p>
+                <p className="mt-1 text-xl font-bold text-[#1F252D]">
+                  {formatCompactMonthlyRent(draft.rentPrice, listing.price)}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <ListingPropertyFeaturesSection items={featureItems} />
+
+          <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+            <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+              Mô tả tin đăng
+            </h2>
+            <p className="mt-4 whitespace-pre-line text-sm leading-7 text-[#505A66]">
+              {draft.description || "Người đăng chưa nhập mô tả."}
+            </p>
+            {draft.locationNote ? (
+              <div className="mt-4 rounded-[20px] border border-[#E6EEDC] bg-[#F7FBF3] px-4 py-4 text-sm leading-6 text-[#56626C]">
+                <p className="font-semibold text-[#2E9C4D]">
+                  Điểm nổi bật khu vực
+                </p>
+                <p className="mt-1">{draft.locationNote}</p>
+              </div>
+            ) : null}
+          </section>
+
+          {amenities.length ? (
+            <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+              <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+                Tiện ích đi kèm
+              </h2>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {amenities.map((amenity) => {
+                  const Icon = amenity.icon;
+
+                  return (
+                    <div
+                      key={amenity.key}
+                      className="flex items-center gap-3 rounded-[20px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-4"
+                    >
+                      <span className="flex size-10 items-center justify-center rounded-2xl bg-[#EEF8F0] text-[#35A554]">
+                        <Icon className="size-5" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-[#26303A]">
+                          {amenity.label}
+                        </p>
+                        <p className="text-xs text-[#83909B]">
+                          Đã có sẵn trong tin
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+            <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+              Vị trí & khu vực
+            </h2>
+            <p className="mt-4 flex items-start gap-2 text-sm leading-6 text-[#505A66]">
+              <MapPin className="mt-0.5 size-4 shrink-0 text-[#35A554]" />
+              <span>{fullAddress || "Đang cập nhật địa chỉ"}</span>
+            </p>
+            {hasValidCoordinates(detailMapLocation) ? (
+              <ListingDetailMap location={detailMapLocation} />
+            ) : (
+              <ListingPreviewMapPlaceholder />
+            )}
+          </section>
+        </div>
+
+        <aside className="space-y-5">
+          <section className="flex flex-col gap-5 rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#E9F7EC,#CDE9D4)] text-lg font-bold text-[#2F9C50]">
+                {detail.ownerName?.slice(0, 1) ?? "W"}
+              </span>
+              <div className="min-w-0">
+                <p className="text-lg font-bold text-[#1F252D]">
+                  {detail.ownerName}
+                </p>
+                <p className="text-sm text-[#6F7984]">{detail.ownerLabel}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap lg:justify-end">
+              <button
+                className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-xl bg-[#35A554] px-4 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(53,165,84,0.22)]"
+                type="button"
+              >
+                <Phone className="size-4" />
+                {formatMaskedContactPhone(
+                  normalizeContactPhone(detail.ownerPhone),
+                )}
+              </button>
+              <button
+                className="flex h-12 min-w-[190px] items-center justify-center gap-2 rounded-xl border border-[#D6E2FF] bg-[#F3F7FF] px-4 text-sm font-semibold text-[#2457C5]"
+                type="button"
+              >
+                <ZaloMark className="size-5" />
+                Nhắn tin qua Zalo
+              </button>
+              <button
+                className="flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-xl border border-[#D8EEDD] px-4 text-sm font-semibold text-[#2FA14E]"
+                type="button"
+              >
+                <MessageSquare className="size-4" />
+                Nhắn qua WeRent
+              </button>
+            </div>
+          </section>
+
+          {draft.videoLink ? (
+            <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
+              <h2 className="text-lg font-bold text-[#1F252D]">
+                Video tham quan
+              </h2>
+              <button
+                className="mt-4 flex w-full items-center gap-3 rounded-[20px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-4 text-left text-sm font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
+                type="button"
+                onClick={() => setActiveMediaIndex(mediaItems.length - 1)}
+              >
+                <Video className="size-4" />
+                Xem video ngay trong gallery
+              </button>
+            </section>
+          ) : null}
+        </aside>
+      </div>
+    </Modal>
+  );
+}
+
 function ListingDetailPage({
   accessToken,
   backView,
@@ -9564,27 +10423,53 @@ function ListingDetailPage({
   const [listingVerificationError, setListingVerificationError] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);
   const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
+  const [isContactPhoneVisible, setIsContactPhoneVisible] = useState(false);
+  const [isContactPhoneCopied, setIsContactPhoneCopied] = useState(false);
+  const [isZaloContactModalOpen, setIsZaloContactModalOpen] = useState(false);
+  const contactPhoneCopiedTimerRef = useRef(null);
   const activeMedia = mediaItems[activeMediaIndex] ?? mediaItems[0];
 
   useEffect(() => {
-    if (!accessToken || !listing.id || !/^[a-f\d]{24}$/i.test(String(listing.id))) return;
+    if (
+      !accessToken ||
+      !listing.id ||
+      !/^[a-f\d]{24}$/i.test(String(listing.id))
+    )
+      return;
     let active = true;
-    listFavorites(accessToken).then((response) => {
-      if (active) setIsFavorite((response.data?.items ?? []).some((item) => String(item.property?._id) === String(listing.id)));
-    }).catch(() => {});
-    return () => { active = false; };
+    listFavorites(accessToken)
+      .then((response) => {
+        if (active)
+          setIsFavorite(
+            (response.data?.items ?? []).some(
+              (item) => String(item.property?._id) === String(listing.id),
+            ),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [accessToken, listing.id]);
 
   async function handleFavoriteToggle() {
-    if (!currentUser) { onNavigate("favorites"); return; }
+    if (!currentUser) {
+      onNavigate("favorites");
+      return;
+    }
     setIsUpdatingFavorite(true);
     try {
       if (isFavorite) await removeFavorite(accessToken, listing.id);
       else await addFavorite(accessToken, listing.id);
       setIsFavorite((current) => !current);
     } catch (error) {
-      onNotify(error.message || "Không thể cập nhật tin yêu thích. Vui lòng thử lại.", "error");
-    } finally { setIsUpdatingFavorite(false); }
+      onNotify(
+        error.message || "Không thể cập nhật tin yêu thích. Vui lòng thử lại.",
+        "error",
+      );
+    } finally {
+      setIsUpdatingFavorite(false);
+    }
   }
   const fullAddress =
     draft.formattedAddress ||
@@ -9625,47 +10510,85 @@ function ListingDetailPage({
       listing.rejectionReason ||
       "Tin này đang ở trạng thái vi phạm và cần chỉnh sửa trước khi hiển thị lại.",
   }[listing.status];
-  const overviewItems = [
-    { icon: Ruler, label: "Diện tích", value: `${draft.area} m²` },
-    { icon: BedDouble, label: "Phòng ngủ", value: `${draft.bedrooms} phòng` },
-    { icon: Bath, label: "Phòng tắm", value: `${draft.bathrooms} phòng` },
-    { icon: Home, label: "Loại hình", value: draft.propertyType },
-    { icon: Sofa, label: "Nội thất", value: draft.furnishing },
-    {
-      icon: Ruler,
-      label: "Mặt tiền",
-      value: draft.frontage ? `${draft.frontage} m` : null,
-    },
-  ].filter((item) => item.value);
-  const propertyFacts = [
-    { label: "Nhận nhà dự kiến", value: detail.availableFrom },
-    { label: "Hướng nhà", value: draft.orientation },
-    {
-      label: "Tầng hiện tại",
-      value: draft.floor ? `Tầng ${draft.floor}` : null,
-    },
-    {
-      label: "Tổng số tầng",
-      value: draft.totalFloors ? `${draft.totalFloors} tầng` : null,
-    },
-    {
-      label: "Đường vào",
-      value: draft.accessRoad ? `${draft.accessRoad} m` : null,
-    },
-    {
-      label: "Mã tin",
-      value: listing.id,
-    },
-  ].filter((item) => item.value);
+  const featureItems = getListingPropertyFeatureItems(listing, draft, detail);
   const compactRentPrice = formatCompactMonthlyRent(
     draft.rentPrice,
     listing.price,
   );
+  const contactPhone = normalizeContactPhone(detail.ownerPhone);
+  const contactPhoneLabel = isContactPhoneVisible
+    ? formatContactPhone(contactPhone)
+    : formatMaskedContactPhone(contactPhone);
 
   function showPreviousMedia() {
     setActiveMediaIndex((current) =>
       current === 0 ? mediaItems.length - 1 : current - 1,
     );
+  }
+
+  async function handleContactPhoneClick() {
+    if (!contactPhone) {
+      onNotify(
+        "Tin đăng này chưa có số điện thoại hợp lệ để liên hệ.",
+        "error",
+      );
+      return;
+    }
+
+    if (!isContactPhoneVisible) {
+      setIsContactPhoneCopied(false);
+      setIsContactPhoneVisible(true);
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(contactPhone);
+      if (contactPhoneCopiedTimerRef.current) {
+        window.clearTimeout(contactPhoneCopiedTimerRef.current);
+      }
+
+      setIsContactPhoneCopied(true);
+      contactPhoneCopiedTimerRef.current = window.setTimeout(() => {
+        setIsContactPhoneCopied(false);
+        contactPhoneCopiedTimerRef.current = null;
+      }, 2000);
+    } catch {
+      onNotify("Không thể sao chép số điện thoại. Vui lòng thử lại.", "error");
+    }
+  }
+
+  function handleZaloContactClick() {
+    if (!contactPhone) {
+      onNotify(
+        "Tin đăng này chưa có số điện thoại hợp lệ để mở Zalo.",
+        "error",
+      );
+      return;
+    }
+
+    setIsZaloContactModalOpen(true);
+  }
+
+  function handleOpenZaloContact() {
+    if (!contactPhone) {
+      setIsZaloContactModalOpen(false);
+      onNotify(
+        "Tin đăng này chưa có số điện thoại hợp lệ để mở Zalo.",
+        "error",
+      );
+      return;
+    }
+
+    const zaloWebUrl = `https://zalo.me/${contactPhone}`;
+    const zaloAppUrl = `zalo://conversation?phone=${contactPhone}`;
+
+    setIsZaloContactModalOpen(false);
+    window.location.href = zaloAppUrl;
+    window.setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        window.open(zaloWebUrl, "_blank", "noopener,noreferrer");
+      }
+    }, 900);
   }
 
   function showNextMedia() {
@@ -9715,6 +10638,14 @@ function ListingDetailPage({
       window.removeEventListener("keydown", handleViewerKeyDown);
     };
   }, [mediaViewerIndex, showNextViewerMedia, showPreviousViewerMedia]);
+
+  useEffect(() => {
+    return () => {
+      if (contactPhoneCopiedTimerRef.current) {
+        window.clearTimeout(contactPhoneCopiedTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!accessToken || !isOwnerViewer) {
@@ -9799,6 +10730,43 @@ function ListingDetailPage({
                 : "Xác thực bất động sản"
           }
         />
+      ) : null}
+      {isZaloContactModalOpen ? (
+        <Modal
+          footer={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setIsZaloContactModalOpen(false)}
+              >
+                Hủy
+              </Button>
+              <Button variant="primary" onClick={handleOpenZaloContact}>
+                Mở Zalo
+              </Button>
+            </>
+          }
+          size="sm"
+          title="Nhắn tin qua Zalo"
+          onClose={() => setIsZaloContactModalOpen(false)}
+        >
+          <div className="space-y-3">
+            <img
+              alt=""
+              aria-hidden="true"
+              className="mx-auto size-14"
+              src={zaloIcon}
+            />
+            <div className="rounded-2xl border border-[#D6E2FF] bg-[#F3F7FF] px-4 py-4">
+              <div className="text-center">
+                <p className="text-sm font-semibold leading-6 text-[#24324A]">
+                  Bạn sẽ được chuyển sang ứng dụng Zalo để nhắn tin với người
+                  đăng tin.
+                </p>
+              </div>
+            </div>
+          </div>
+        </Modal>
       ) : null}
       <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
         <AppHeader
@@ -9975,8 +10943,15 @@ function ListingDetailPage({
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
-                    <button className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`} disabled={isUpdatingFavorite} type="button" onClick={handleFavoriteToggle}>
-                      <Heart className={`size-5 ${isFavorite ? "fill-current" : ""}`} />
+                    <button
+                      className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`}
+                      disabled={isUpdatingFavorite}
+                      type="button"
+                      onClick={handleFavoriteToggle}
+                    >
+                      <Heart
+                        className={`size-5 ${isFavorite ? "fill-current" : ""}`}
+                      />
                       {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
                     </button>
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
@@ -10022,31 +10997,7 @@ function ListingDetailPage({
                   </div>
                 </section>
 
-                <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
-                  <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
-                    Đặc điểm bất động sản
-                  </h2>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {overviewItems.map(({ icon: Icon, label, value }) => (
-                      <div
-                        key={label}
-                        className="flex items-center gap-3 rounded-[18px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-3.5"
-                      >
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[#EEF8F0] text-[#35A554]">
-                          <Icon className="size-5" />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8A919B]">
-                            {label}
-                          </p>
-                          <p className="mt-1 truncate text-sm font-semibold text-[#26303A]">
-                            {value}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                <ListingPropertyFeaturesSection items={featureItems} />
 
                 <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
                   <h2 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
@@ -10125,15 +11076,45 @@ function ListingDetailPage({
 
                   <div className="mt-5 space-y-3">
                     <button
+                      aria-label={
+                        isContactPhoneVisible
+                          ? "Sao chép số điện thoại"
+                          : "Hiện số điện thoại"
+                      }
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#35A554] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(53,165,84,0.22)] transition hover:bg-[#2C9349]"
                       type="button"
+                      onClick={handleContactPhoneClick}
                     >
                       <Phone className="size-4" />
-                      {detail.ownerPhone}
+                      <span>{contactPhoneLabel}</span>
+                      {isContactPhoneVisible && contactPhone ? (
+                        <span className="relative ml-1 flex size-5 shrink-0 items-center justify-center">
+                          <Copy
+                            aria-hidden="true"
+                            className={`absolute size-4 text-white transition-all duration-200 ease-out ${
+                              isContactPhoneCopied
+                                ? "scale-75 rotate-45 opacity-0"
+                                : "scale-100 rotate-0 opacity-100"
+                            }`}
+                          />
+                          <Check
+                            aria-hidden="true"
+                            className={`absolute size-4 text-white transition-all duration-200 ease-out ${
+                              isContactPhoneCopied
+                                ? "scale-100 rotate-0 opacity-100"
+                                : "scale-75 -rotate-45 opacity-0"
+                            }`}
+                          />
+                        </span>
+                      ) : null}
+                      {!isContactPhoneVisible && contactPhone ? (
+                        <span aria-hidden="true">· Hiện số</span>
+                      ) : null}
                     </button>
                     <button
                       className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D6E2FF] bg-[#F3F7FF] px-4 py-3 text-sm font-semibold text-[#2457C5] transition hover:bg-[#EAF1FF]"
                       type="button"
+                      onClick={handleZaloContactClick}
                     >
                       <ZaloMark className="size-5" />
                       Nhắn tin qua Zalo
@@ -10233,25 +11214,6 @@ function ListingDetailPage({
                     ) : null}
                   </section>
                 ) : null}
-
-                <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
-                  <h2 className="text-lg font-bold text-[#1F252D]">
-                    Thông tin bổ sung
-                  </h2>
-                  <div className="mt-5 space-y-3">
-                    {propertyFacts.map((item) => (
-                      <div
-                        key={item.label}
-                        className="flex items-start justify-between gap-4 rounded-[18px] border border-[#E7ECE8] bg-[#FCFDFC] px-4 py-3 text-sm"
-                      >
-                        <span className="text-[#7B8792]">{item.label}</span>
-                        <span className="text-right font-semibold text-[#26303A]">
-                          {item.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
 
                 {draft.videoLink ? (
                   <section className="rounded-[26px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_28px_rgba(46,72,54,0.045)] sm:p-6">
@@ -11633,10 +12595,12 @@ function HomePage() {
     }
 
     if (accessToken) {
-      window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, accessToken);
+      window.sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, accessToken);
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       return;
     }
 
+    window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
     window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
   }, [accessToken]);
 
@@ -11977,6 +12941,8 @@ function HomePage() {
     }
 
     const comingSoonViews = [
+      "news",
+      "statistics",
       "messages",
       "support",
       "about",
@@ -12118,7 +13084,7 @@ function HomePage() {
         ? "Lưu nháp tin đăng thành công. Bạn có thể tiếp tục chỉnh sửa trong Tin đăng của tôi."
         : isUpdate
           ? "Cập nhật tin thành công. Danh sách tin đăng của bạn đã được làm mới."
-          : "Đăng tin thành công. Tin đang hiển thị trên trang chủ và có thể tìm kiếm.",
+          : "Tin đăng của bạn đang được kiểm duyệt và sẽ được hiển thị và có thể tìm kiếm khi sau được duyệt.",
     );
   }
 
@@ -12368,8 +13334,16 @@ function HomePage() {
   }
 
   if (currentView === "favorites" && currentUser) {
-    return (
-      <FavoritesPage accessToken={accessToken} headerSearchContent={basicHeaderSearchContent} onLogout={handleLogout} onNavigate={navigateTo} onViewListing={(listing) => openListingDetail(listing, "favorites")} user={currentUser} />
+    return renderWithViewportNotice(
+      <FavoritesPage
+        accessToken={accessToken}
+        favoriteCount={searchFavoritePropertyIds.length}
+        headerSearchContent={basicHeaderSearchContent}
+        onLogout={handleLogout}
+        onNavigate={navigateTo}
+        onViewListing={(listing) => openListingDetail(listing, "favorites")}
+        user={currentUser}
+      />,
     );
   }
 
@@ -12440,6 +13414,7 @@ function HomePage() {
           onSignup={() => setAuthModal("signup")}
           onUserClick={() => navigateTo("profile")}
           searchContent={basicHeaderSearchContent}
+          showSearch={currentView === "search"}
         />
 
         {currentView === "search" ? (

@@ -100,6 +100,12 @@ function AppHeader({
   const actionNavItems = navItems.filter(
     (item) => item.iconOnly || item.actionGroup,
   );
+  const guestPostListingItem = !currentUser
+    ? primaryNavItems.find((item) => item.key === "postListing")
+    : null;
+  const visiblePrimaryNavItems = guestPostListingItem
+    ? primaryNavItems.filter((item) => item.key !== "postListing")
+    : primaryNavItems;
 
   useEffect(() => {
     if (!isMenuOpen) {
@@ -229,8 +235,8 @@ function AppHeader({
           </div>
         ) : null}
 
-        <nav className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[#404651] lg:flex-nowrap lg:justify-start lg:gap-4">
-          {primaryNavItems.map((item) => {
+        <nav className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[#404651] lg:ml-2 lg:flex-nowrap lg:justify-start lg:gap-4">
+          {visiblePrimaryNavItems.map((item) => {
             const isActive = item.key === activeNav;
 
             return (
@@ -368,19 +374,29 @@ function AppHeader({
         ) : (
           <div className="flex items-center gap-3 self-end lg:ml-auto lg:self-auto">
             <button
-              className="cursor-pointer rounded-xl border border-[#E7EAE7] px-4 py-2.5 text-sm font-semibold text-[#2D313A]"
+              className="cursor-pointer px-1 py-2.5 text-sm font-semibold text-[#111827] transition hover:text-[#35A554]"
               type="button"
               onClick={onLogin}
             >
               Đăng nhập
             </button>
+            <span className="h-5 w-px bg-[#E1E5E0]" aria-hidden="true" />
             <button
-              className="cursor-pointer rounded-xl bg-[#35A554] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(53,165,84,0.24)]"
+              className="cursor-pointer px-1 py-2.5 text-sm font-semibold text-[#111827] transition hover:text-[#35A554]"
               type="button"
               onClick={onSignup}
             >
               Đăng ký
             </button>
+            {guestPostListingItem ? (
+              <button
+                className="cursor-pointer rounded-xl bg-[#35A554] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(53,165,84,0.24)] transition hover:bg-[#2F954B]"
+                type="button"
+                onClick={() => onNavigate?.(guestPostListingItem.key)}
+              >
+                {guestPostListingItem.label}
+              </button>
+            ) : null}
           </div>
         )}
       </div>
