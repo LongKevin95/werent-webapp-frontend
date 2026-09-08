@@ -114,9 +114,10 @@ function normalizeVietnameseText(value = "") {
 
 function isPropertySearchQuestion(content) {
   const normalizedContent = normalizeVietnameseText(content);
-  const hasSearchIntent = /\b(tim|kiem|thue|can thue|muon thue|muon tim|can tim|search)\b/.test(
-    normalizedContent,
-  );
+  const hasSearchIntent =
+    /\b(tim|kiem|thue|can thue|muon thue|muon tim|can tim|search)\b/.test(
+      normalizedContent,
+    );
   const hasPropertyTerm =
     /\b(can ho|chung cu|phong tro|nha tro|nha rieng|nha nguyen can|mat bang|van phong|biet thu|noi o|cho o|nha|phong|tro|2pn|3pn|phong ngu)\b/.test(
       normalizedContent,
@@ -316,7 +317,10 @@ function mergeSearchCriteriaPatch(criteria = {}, patch = {}) {
     districts: mergeUniqueValues(criteria.districts, patch.districts),
     keywords: mergeUniqueValues(criteria.keywords, patch.keywords),
     nearbyPlaces: mergeUniqueValues(criteria.nearbyPlaces, patch.nearbyPlaces),
-    propertyTypes: mergeUniqueValues(criteria.propertyTypes, patch.propertyTypes),
+    propertyTypes: mergeUniqueValues(
+      criteria.propertyTypes,
+      patch.propertyTypes,
+    ),
     requiredAmenities: mergeUniqueValues(
       criteria.requiredAmenities,
       patch.requiredAmenities,
@@ -325,6 +329,14 @@ function mergeSearchCriteriaPatch(criteria = {}, patch = {}) {
 }
 
 function getSearchCriteriaForRefinement(criteria, option) {
+  if (Array.isArray(option)) {
+    return option.reduce(
+      (currentCriteria, item) =>
+        getSearchCriteriaForRefinement(currentCriteria, item),
+      criteria,
+    );
+  }
+
   if (typeof option === "string") {
     return criteria;
   }
@@ -338,6 +350,22 @@ function getSearchCriteriaForRefinement(criteria, option) {
   }
 
   return criteria;
+}
+
+function buildMultiSelectRefinementMessage(prompt, options) {
+  const values = options
+    .map((option) => option?.value ?? option?.label ?? "")
+    .filter(Boolean);
+
+  if (!values.length) {
+    return "";
+  }
+
+  if (prompt?.messagePrefix) {
+    return `${prompt.messagePrefix}${values.join(", ")}.`;
+  }
+
+  return getRefinementOptionMessage(options[0]);
 }
 
 function mergeListingResults(currentListings = [], nextListings = []) {
@@ -393,33 +421,94 @@ function RecognizedCriteriaPanel({ criteriaLabels, recognizedCriteria }) {
   );
 }
 
+const REFINEMENT_OPTION_CLASS =
+  "rounded-full border px-2.5 py-1 text-left text-[11px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#BDE8C7] disabled:cursor-not-allowed disabled:opacity-60";
+
 function SearchRefinementPanel({ disabled, onSelectRefinement, prompt }) {
+  const [selectedLabels, setSelectedLabels] = useState([]);
+
   if (!prompt?.question) {
     return null;
+  }
+
+  const options = Array.isArray(prompt.options) ? prompt.options : [];
+  const visibleOptions = prompt.multiSelect
+    ? options.slice(0, 8)
+    : options.slice(0, 5);
+  const selectedOptions = visibleOptions.filter((option) =>
+    selectedLabels.includes(getRefinementOptionLabel(option)),
+  );
+
+  function toggleOption(option) {
+    const label = getRefinementOptionLabel(option);
+
+    setSelectedLabels((current) =>
+      current.includes(label)
+        ? current.filter((item) => item !== label)
+        : [...current, label],
+    );
+  }
+
+  function handleMultiSelectSubmit() {
+    if (!selectedOptions.length) {
+      return;
+    }
+
+    onSelectRefinement(
+      selectedOptions,
+      buildMultiSelectRefinementMessage(prompt, selectedOptions),
+    );
   }
 
   return (
     <div className="rounded-2xl bg-[#F1F8F2] px-3 py-2.5 text-[#2C6338]">
       <p className="text-[13px] font-semibold leading-5">{prompt.question}</p>
-      {Array.isArray(prompt.options) && prompt.options.length ? (
+      {visibleOptions.length ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {prompt.options.slice(0, 5).map((option) => {
+          {visibleOptions.map((option) => {
             const label = getRefinementOptionLabel(option);
             const message = getRefinementOptionMessage(option);
+            const isMultiSelectable = prompt.multiSelect && !option?.exclusive;
+            const isSelected =
+              isMultiSelectable && selectedLabels.includes(label);
 
             return (
               <button
-                className="rounded-full border border-[#B7D9BE] bg-white px-2.5 py-1 text-left text-[11px] font-semibold text-[#286E36] transition hover:border-[#8BC79A] hover:bg-[#F8FFF8] focus:outline-none focus:ring-2 focus:ring-[#BDE8C7] disabled:cursor-not-allowed disabled:opacity-60"
+                aria-pressed={isMultiSelectable ? isSelected : undefined}
+                className={`${REFINEMENT_OPTION_CLASS} ${
+                  isSelected
+                    ? "border-[#247D38] bg-[#247D38] text-white hover:bg-[#1F6F31]"
+                    : "border-[#B7D9BE] bg-white text-[#286E36] hover:border-[#8BC79A] hover:bg-[#F8FFF8]"
+                }`}
                 disabled={disabled || !message}
                 key={label}
                 type="button"
-                onClick={() => onSelectRefinement(option)}
+                onClick={() =>
+                  isMultiSelectable
+                    ? toggleOption(option)
+                    : onSelectRefinement(option)
+                }
               >
+                {isSelected ? (
+                  <CheckCheck className="mr-1 inline size-3" />
+                ) : null}
                 {label}
               </button>
             );
           })}
         </div>
+      ) : null}
+      {prompt.multiSelect ? (
+        <button
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#247D38] px-3 py-2 text-[12px] font-bold text-white transition hover:bg-[#1F6F31] focus:outline-none focus:ring-2 focus:ring-[#BDE8C7] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled || !selectedOptions.length}
+          type="button"
+          onClick={handleMultiSelectSubmit}
+        >
+          <Send className="size-3.5" />
+          {prompt.submitLabel ?? "Tìm với tiêu chí đã chọn"}
+          {selectedOptions.length ? ` (${selectedOptions.length})` : ""}
+        </button>
       ) : null}
     </div>
   );
@@ -458,9 +547,10 @@ function SearchResultContent({
   const blockingRefinementPrompt = refinementPrompt?.blocksSearch
     ? refinementPrompt
     : null;
-  const nextRefinementPrompt = refinementPrompt && !refinementPrompt.blocksSearch
-    ? refinementPrompt
-    : followUpPrompt;
+  const nextRefinementPrompt =
+    refinementPrompt && !refinementPrompt.blocksSearch
+      ? refinementPrompt
+      : followUpPrompt;
 
   return (
     <div className="space-y-3">
@@ -581,26 +671,29 @@ function InitialFaqSuggestions({ disabled, faqPage, onMore, onSelect }) {
   const items = getFaqItems(faqIds);
 
   return (
-      <div className="ml-11 w-[80%] rounded-[18px] border border-[#DDEEDD] bg-[#F1FAF2] px-4 py-3">
-        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#286E36]">
-          <Lightbulb className="size-4 text-[#E0A500]" />
-          Gợi ý cho bạn:
-        </div>
-        <div className="flex flex-col items-start gap-2">
-          {items.map((faq) => (
-            <FaqChip disabled={disabled} faq={faq} key={faq.id} onSelect={onSelect} />
-          ))}
-          <MoreFaqButton disabled={disabled} onClick={onMore} />
-        </div>
+    <div className="ml-11 w-[80%] rounded-[18px] border border-[#DDEEDD] bg-[#F1FAF2] px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#286E36]">
+        <Lightbulb className="size-4 text-[#E0A500]" />
+        Gợi ý cho bạn:
       </div>
+      <div className="flex flex-col items-start gap-2">
+        {items.map((faq) => (
+          <FaqChip
+            disabled={disabled}
+            faq={faq}
+            key={faq.id}
+            onSelect={onSelect}
+          />
+        ))}
+        <MoreFaqButton disabled={disabled} onClick={onMore} />
+      </div>
+    </div>
   );
 }
 
 function RelatedFaqSuggestions({ disabled, ids, onMore, onSelect, page }) {
   const faqIds =
-    page === 0
-      ? ids
-      : MORE_FAQ_GROUPS[(page - 1) % MORE_FAQ_GROUPS.length];
+    page === 0 ? ids : MORE_FAQ_GROUPS[(page - 1) % MORE_FAQ_GROUPS.length];
   const items = getFaqItems(faqIds).slice(0, 4);
 
   if (!items.length) {
@@ -608,18 +701,23 @@ function RelatedFaqSuggestions({ disabled, ids, onMore, onSelect, page }) {
   }
 
   return (
-      <div className="ml-11 w-[80%] rounded-[18px] border border-[#DDEEDD] bg-[#F1FAF2] px-4 py-3">
-        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#286E36]">
-          <Lightbulb className="size-4 text-[#E0A500]" />
-          Gợi ý cho bạn:
-        </div>
-        <div className="flex flex-col items-start gap-2">
-          {items.map((faq) => (
-            <FaqChip disabled={disabled} faq={faq} key={faq.id} onSelect={onSelect} />
-          ))}
-          <MoreFaqButton disabled={disabled} onClick={onMore} />
-        </div>
+    <div className="ml-11 w-[80%] rounded-[18px] border border-[#DDEEDD] bg-[#F1FAF2] px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#286E36]">
+        <Lightbulb className="size-4 text-[#E0A500]" />
+        Gợi ý cho bạn:
       </div>
+      <div className="flex flex-col items-start gap-2">
+        {items.map((faq) => (
+          <FaqChip
+            disabled={disabled}
+            faq={faq}
+            key={faq.id}
+            onSelect={onSelect}
+          />
+        ))}
+        <MoreFaqButton disabled={disabled} onClick={onMore} />
+      </div>
+    </div>
   );
 }
 
@@ -649,6 +747,7 @@ function AiChatWidget({ currentUser, currentView }) {
   const [faqPage, setFaqPage] = useState(0);
   const [relatedFaqPages, setRelatedFaqPages] = useState({});
   const [searchCriteriaContext, setSearchCriteriaContext] = useState(null);
+  const [isAwaitingSearchAnswer, setIsAwaitingSearchAnswer] = useState(false);
   const [messages, setMessages] = useState([INITIAL_ASSISTANT_MESSAGE]);
   const scrollRef = useRef(null);
   const scrollTargetMessageIdRef = useRef("");
@@ -714,11 +813,16 @@ function AiChatWidget({ currentUser, currentView }) {
     const previousSearchCriteria =
       options.previousSearchCriteria ?? searchCriteriaContext ?? {};
     const selectedFaq = options.faqId ? getFaqById(options.faqId) : null;
+    const isAnsweringSearchQuestion =
+      isAwaitingSearchAnswer && !findFaqByQuestion(trimmedContent);
     const shouldSearchProperties =
       !selectedFaq &&
-      (options.forcePropertySearch || isPropertySearchQuestion(trimmedContent));
+      (options.forcePropertySearch ||
+        isAnsweringSearchQuestion ||
+        isPropertySearchQuestion(trimmedContent));
     const matchedFaq =
-      selectedFaq ?? (!shouldSearchProperties ? findFaqByQuestion(trimmedContent) : null);
+      selectedFaq ??
+      (!shouldSearchProperties ? findFaqByQuestion(trimmedContent) : null);
 
     setInput("");
     setMessages((current) =>
@@ -726,13 +830,18 @@ function AiChatWidget({ currentUser, currentView }) {
     );
 
     if (matchedFaq) {
-      const assistantMessage = createChatMessage("assistant", matchedFaq.question, {
-        answer: matchedFaq.answer,
-        relatedQuestionIds: matchedFaq.related,
-        source: "faq",
-      });
+      const assistantMessage = createChatMessage(
+        "assistant",
+        matchedFaq.question,
+        {
+          answer: matchedFaq.answer,
+          relatedQuestionIds: matchedFaq.related,
+          source: "faq",
+        },
+      );
 
       setSearchCriteriaContext(null);
+      setIsAwaitingSearchAnswer(false);
       scrollTargetMessageIdRef.current = assistantMessage.id;
       setMessages((current) =>
         [...current, assistantMessage].slice(-MAX_VISIBLE_HISTORY),
@@ -772,6 +881,9 @@ function AiChatWidget({ currentUser, currentView }) {
         if (result.criteria) {
           setSearchCriteriaContext(result.criteria);
         }
+        setIsAwaitingSearchAnswer(
+          Boolean(result.refinementPrompt?.blocksSearch),
+        );
         scrollTargetMessageIdRef.current = assistantMessage.id;
         setMessages((current) =>
           [...current, assistantMessage].slice(-MAX_VISIBLE_HISTORY),
@@ -808,6 +920,7 @@ function AiChatWidget({ currentUser, currentView }) {
       });
       const reply = response.data?.reply?.trim();
       setSearchCriteriaContext(null);
+      setIsAwaitingSearchAnswer(false);
 
       setMessages((current) =>
         [
@@ -899,9 +1012,7 @@ function AiChatWidget({ currentUser, currentView }) {
             request: {
               message: searchMessage,
               previousCriteria:
-                searchRequest.previousCriteria ??
-                searchResult.criteria ??
-                {},
+                searchRequest.previousCriteria ?? searchResult.criteria ?? {},
             },
             reply: result.reply || currentSearchResult.reply,
           };
@@ -958,12 +1069,16 @@ function AiChatWidget({ currentUser, currentView }) {
     }));
   }
 
-  function handleSearchRefinementSelect(option) {
-    const nextMessage = getRefinementOptionMessage(option);
+  function handleSearchRefinementSelect(option, combinedMessage) {
+    const nextMessage = combinedMessage || getRefinementOptionMessage(option);
     const nextSearchCriteria = getSearchCriteriaForRefinement(
       searchCriteriaContext ?? {},
       option,
     );
+
+    if (!nextMessage) {
+      return;
+    }
 
     submitMessage(nextMessage, "property-search-refine", {
       forcePropertySearch: true,
@@ -1058,7 +1173,9 @@ function AiChatWidget({ currentUser, currentView }) {
                   >
                     {message.searchResult ? (
                       <SearchResultContent
-                        disabled={isSending || Boolean(loadingMoreSearchMessageId)}
+                        disabled={
+                          isSending || Boolean(loadingMoreSearchMessageId)
+                        }
                         isLoadingMore={
                           loadingMoreSearchMessageId === message.id
                         }
