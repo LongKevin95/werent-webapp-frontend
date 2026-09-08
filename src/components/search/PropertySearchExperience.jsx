@@ -497,6 +497,31 @@ function getPropertyTypeLabel(value) {
   );
 }
 
+function getSearchTitlePropertyType(value) {
+  const normalizedValue = String(value ?? "").trim();
+  const label = getPropertyTypeLabel(normalizedValue);
+
+  return label === "Loại BĐS" ? normalizedValue : label;
+}
+
+function buildSearchResultsTitle(searchState = {}) {
+  const normalizedState = normalizePropertySearchState(searchState);
+
+  if (normalizedState.propertyType) {
+    return `${getSearchTitlePropertyType(normalizedState.propertyType)} cho thuê`;
+  }
+
+  if (normalizedState.keyword.trim()) {
+    return `Tìm kiếm "${normalizedState.keyword.trim()}"`;
+  }
+
+  const hasGenericFilters = Object.entries(normalizedState).some(
+    ([key, value]) => key !== "keyword" && Boolean(String(value ?? "").trim()),
+  );
+
+  return hasGenericFilters ? "Kết quả tìm kiếm" : "Bất động sản cho thuê";
+}
+
 function getTierKey(listing) {
   return listing?.draft?.selectedTier || "standard";
 }
@@ -2585,6 +2610,10 @@ export function PropertySearchResultsPage({
     () => buildActiveSearchChips(appliedSearchState),
     [appliedSearchState],
   );
+  const resultsTitle = useMemo(
+    () => buildSearchResultsTitle(appliedSearchState),
+    [appliedSearchState],
+  );
   const sortedListings = useMemo(() => {
     const baseListings = [...listings];
 
@@ -3111,7 +3140,7 @@ export function PropertySearchResultsPage({
           <div className="space-y-3">
             <div>
               <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#1F252D]">
-                Kết quả tìm kiếm
+                {resultsTitle}
               </h1>
             </div>
 

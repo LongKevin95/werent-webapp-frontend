@@ -643,13 +643,49 @@ const authenticatedHeaderNavItems = [
 ];
 
 const categories = [
-  { icon: House, title: "Phòng trọ", count: "1.520 tin" },
-  { icon: Building2, title: "Chung cư", count: "680 tin" },
-  { icon: Home, title: "Nhà riêng", count: "230 tin" },
-  { icon: BedDouble, title: "Ký túc xá", count: "120 tin" },
-  { icon: Landmark, title: "Văn phòng", count: "98 tin" },
-  { icon: Store, title: "Mặt bằng", count: "76 tin" },
+  {
+    icon: House,
+    searchState: { propertyType: "Phòng trọ" },
+    title: "Phòng trọ",
+  },
+  {
+    icon: Building2,
+    searchState: { propertyType: "Căn hộ chung cư" },
+    title: "Chung cư",
+  },
+  {
+    icon: Home,
+    searchState: { propertyType: "Nhà riêng" },
+    title: "Nhà riêng",
+  },
+  {
+    icon: House,
+    searchState: { propertyType: "Nhà mặt phố" },
+    title: "Nhà mặt phố",
+  },
+  {
+    icon: Landmark,
+    searchState: { propertyType: "Văn phòng" },
+    title: "Văn phòng",
+  },
+  {
+    icon: Store,
+    searchState: { propertyType: "Mặt bằng kinh doanh" },
+    title: "Mặt bằng",
+  },
 ];
+
+function getCategoryKey(category) {
+  return category.title;
+}
+
+function formatCategoryCount(count) {
+  if (typeof count !== "number") {
+    return "Đang tải";
+  }
+
+  return `${count.toLocaleString("vi-VN")} tin`;
+}
 
 const featuredListings = [
   {
@@ -1146,11 +1182,12 @@ function SectionHeading({ title }) {
   );
 }
 
-function CategoryCard({ icon: Icon, title, count }) {
+function CategoryCard({ count, icon: Icon, onSelect, title }) {
   return (
     <button
       className="group rounded-[18px] border border-[#F0F1F3] bg-white p-4 text-center shadow-[0_8px_30px_rgba(38,58,53,0.06)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(38,58,53,0.1)]"
       type="button"
+      onClick={onSelect}
     >
       <span className="mx-auto flex size-[72px] items-center justify-center rounded-[20px] bg-[radial-gradient(circle_at_top,_#f0faf2,_#daf0df)] shadow-inner">
         <Icon className="size-9 text-[#5CA26A]" />
@@ -12998,6 +13035,7 @@ function HomePage() {
     defaultPropertySearchState,
   );
   const [apiListings, setApiListings] = useState([]);
+  const [categoryListingCounts, setCategoryListingCounts] = useState({});
   const [searchApiListings, setSearchApiListings] = useState([]);
   const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
   const [hasFetchedSearchProperties, setHasFetchedSearchProperties] =
@@ -13461,6 +13499,41 @@ function HomePage() {
   }, [propertyRefreshKey]);
 
   useEffect(() => {
+    let isActive = true;
+
+    Promise.all(
+      categories.map(async (category) => {
+        const response = await listProperties({
+          ...buildPropertySearchListParams(category.searchState),
+          limit: 1,
+          page: 1,
+        });
+
+        return [
+          getCategoryKey(category),
+          response.data?.pagination?.total ?? 0,
+        ];
+      }),
+    )
+      .then((entries) => {
+        if (!isActive) {
+          return;
+        }
+
+        setCategoryListingCounts(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (isActive) {
+          setCategoryListingCounts({});
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [propertyRefreshKey]);
+
+  useEffect(() => {
     const hasActiveSearch = hasActivePropertySearchState(appliedPropertySearch);
 
     if (!hasActiveSearch) {
@@ -13730,6 +13803,13 @@ function HomePage() {
     setCurrentView("search");
   }
 
+  function handleFeaturedCategorySelect(category) {
+    handleApplyPropertySearch({
+      ...defaultPropertySearchState,
+      ...category.searchState,
+    });
+  }
+
   function handleListingCreated(property, options = {}) {
     const isUpdate = options.mode === "update";
     const isDraft = options.mode === "draft";
@@ -13884,6 +13964,16 @@ function HomePage() {
   const visibleLatestListings = shouldUseApiListings
     ? apiListings
     : latestListings;
+  const visibleCategories = useMemo(
+    () =>
+      categories.map((category) => ({
+        ...category,
+        count: formatCategoryCount(
+          categoryListingCounts[getCategoryKey(category)],
+        ),
+      })),
+    [categoryListingCounts],
+  );
   const homeFavoritePropertyIdSet = useMemo(
     () => new Set(searchFavoritePropertyIds.map(String)),
     [searchFavoritePropertyIds],
@@ -14239,8 +14329,12 @@ function HomePage() {
             <section className="mt-8">
               <SectionHeading title="Danh mục nổi bật" />
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-                {categories.map((category) => (
-                  <CategoryCard key={category.title} {...category} />
+                {visibleCategories.map((category) => (
+                  <CategoryCard
+                    key={category.title}
+                    {...category}
+                    onSelect={() => handleFeaturedCategorySelect(category)}
+                  />
                 ))}
               </div>
             </section>
