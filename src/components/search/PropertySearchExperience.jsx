@@ -46,6 +46,10 @@ const defaultPropertySearchState = Object.freeze({
 });
 
 const keywordSearchCarryoverFields = [
+  "propertyType",
+  "city",
+  "district",
+  "ward",
   "minPrice",
   "maxPrice",
   "minArea",
@@ -1438,9 +1442,12 @@ function SearchResultsListItem({
   listing,
   onToggleFavorite,
   onViewListing,
+  showFavoriteAction = true,
+  showUserActions = true,
 }) {
   const tags = getResultItemTags(listing);
   const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
+  const canShowFavoriteAction = showFavoriteAction && showUserActions;
 
   async function handleToggleFavorite() {
     if (isFavoriteBusy) {
@@ -1477,6 +1484,7 @@ function SearchResultsListItem({
             {getTierLabel(listing)}
           </span>
         </button>
+        {canShowFavoriteAction ? (
         <button
           aria-label={isFavorite ? "Bỏ lưu tin" : "Lưu tin"}
           className={`absolute right-3 top-3 flex size-10 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
@@ -1488,6 +1496,7 @@ function SearchResultsListItem({
         >
           <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
         </button>
+        ) : null}
       </div>
 
       <div className="min-w-0">
@@ -1564,12 +1573,14 @@ function SearchResultsListItem({
           >
             Xem chi tiết
           </button>
+          {showUserActions ? (
           <button
             className="h-11 rounded-xl bg-[#35A554] px-4 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(53,165,84,0.2)] transition hover:bg-[#2E934C]"
             type="button"
           >
             Liên hệ
           </button>
+          ) : null}
         </div>
       </div>
     </article>
@@ -2540,6 +2551,8 @@ export function PropertySearchResultsPage({
   onToggleFavorite,
   onViewListing,
   searchState = defaultPropertySearchState,
+  showFavoriteAction = true,
+  showUserActions = true,
 }) {
   const [sortMode, setSortMode] = useState("priority");
   const [pageSize, setPageSize] = useState(10);
@@ -3095,47 +3108,45 @@ export function PropertySearchResultsPage({
 
       <div className="min-w-0">
         <div className="rounded-[28px] border border-[#E7ECE8] bg-white p-5 shadow-[0_14px_36px_rgba(43,64,51,0.06)] sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-3">
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-sm text-[#7B8590]">
-                <span>Trang chủ</span>
-                <ChevronRight className="size-4" />
-                <span className="font-semibold text-[#2A313A]">Tìm kiếm</span>
-              </div>
-              <h1 className="mt-2 text-[32px] font-bold tracking-[-0.03em] text-[#1F252D]">
+              <h1 className="text-[32px] font-bold tracking-[-0.03em] text-[#1F252D]">
                 Kết quả tìm kiếm
               </h1>
-              <p className="mt-1 text-sm text-[#6D7681]">
-                {sortedListings.length.toLocaleString("vi-VN")} tin đăng phù hợp
-              </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <select
-                className="h-11 rounded-xl border border-[#DFE5E0] bg-white px-4 text-sm text-[#2B3540] outline-none focus:border-[#35A554]"
-                value={sortMode}
-                onChange={(event) => {
-                  setSortMode(event.target.value);
-                  setCurrentPage(1);
-                }}
-              >
-                <option value="priority">Ưu tiên gói tin</option>
-                <option value="latest">Mới nhất</option>
-                <option value="priceAsc">Giá thấp đến cao</option>
-                <option value="priceDesc">Giá cao đến thấp</option>
-              </select>
-              <select
-                className="h-11 rounded-xl border border-[#DFE5E0] bg-white px-4 text-sm text-[#2B3540] outline-none focus:border-[#35A554]"
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={10}>Hiển thị 10/trang</option>
-                <option value={20}>Hiển thị 20/trang</option>
-                <option value={30}>Hiển thị 30/trang</option>
-              </select>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <p className="text-base font-semibold text-[#53606C]">
+                {sortedListings.length.toLocaleString("vi-VN")} tin đăng phù hợp
+              </p>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <select
+                  className="h-9 rounded-lg border border-[#DFE5E0] bg-white px-3 text-sm text-[#2B3540] outline-none focus:border-[#35A554]"
+                  value={sortMode}
+                  onChange={(event) => {
+                    setSortMode(event.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="priority">Ưu tiên gói tin</option>
+                  <option value="latest">Mới nhất</option>
+                  <option value="priceAsc">Giá thấp đến cao</option>
+                  <option value="priceDesc">Giá cao đến thấp</option>
+                </select>
+                <select
+                  className="h-9 rounded-lg border border-[#DFE5E0] bg-white px-3 text-sm text-[#2B3540] outline-none focus:border-[#35A554]"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={10}>Hiển thị 10/trang</option>
+                  <option value={20}>Hiển thị 20/trang</option>
+                  <option value={30}>Hiển thị 30/trang</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -3178,6 +3189,8 @@ export function PropertySearchResultsPage({
                 listing={listing}
                 onToggleFavorite={onToggleFavorite}
                 onViewListing={onViewListing}
+                showFavoriteAction={showFavoriteAction}
+                showUserActions={showUserActions}
               />
             ))
           ) : (

@@ -84,6 +84,63 @@ button:not(:disabled) {
   }
 }
 
+.werent-ai-shimmer {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.werent-ai-shimmer > svg {
+  position: relative;
+  z-index: 1;
+}
+
+.werent-ai-shimmer::after {
+  position: absolute;
+  inset: -45%;
+  z-index: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.18) 43%,
+    rgba(255, 255, 255, 0.82) 50%,
+    rgba(255, 255, 255, 0.2) 57%,
+    transparent 65%
+  );
+  content: "";
+  pointer-events: none;
+  transform: translateX(-90%) rotate(10deg);
+  animation: werent-ai-shimmer 2.1s ease-in-out infinite;
+}
+
+@keyframes werent-ai-shimmer {
+  0%,
+  30% {
+    opacity: 0;
+    transform: translateX(-90%) rotate(10deg);
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  86% {
+    opacity: 1;
+    transform: translateX(90%) rotate(10deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(90%) rotate(10deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .werent-ai-shimmer::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 .leaflet-container {
   font-family: "Inter", "Geist Variable", sans-serif;
 }

@@ -13,8 +13,40 @@ export class ApiRequestError extends Error {
     super(message);
     this.name = "ApiRequestError";
     this.status = options.status;
+    this.code = options.code;
     this.errors = options.errors;
     this.retryAfter = options.retryAfter;
+  }
+}
+
+const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504]);
+const GATEWAY_RETRY_DELAYS_MS = [1500, 3000, 5000];
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithGatewayRetry(url, init, retries) {
+  for (let attempt = 0; ; attempt += 1) {
+    const canRetry = attempt < retries;
+
+    try {
+      const response = await fetch(url, init);
+
+      if (!canRetry || !GATEWAY_ERROR_STATUSES.has(response.status)) {
+        return response;
+      }
+    } catch (error) {
+      if (!canRetry || error?.name === "AbortError") {
+        throw error;
+      }
+    }
+
+    await wait(
+      GATEWAY_RETRY_DELAYS_MS[
+        Math.min(attempt, GATEWAY_RETRY_DELAYS_MS.length - 1)
+      ],
+    );
   }
 }
 
@@ -29,15 +61,19 @@ async function request(path, options = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body
-      ? isFormData
-        ? options.body
-        : JSON.stringify(options.body)
-      : undefined,
-  });
+  const response = await fetchWithGatewayRetry(
+    `${API_BASE_URL}${path}`,
+    {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body
+        ? isFormData
+          ? options.body
+          : JSON.stringify(options.body)
+        : undefined,
+    },
+    options.retries ?? GATEWAY_RETRY_DELAYS_MS.length,
+  );
 
   const payload = await response.json().catch(() => null);
 
@@ -46,10 +82,13 @@ async function request(path, options = {}) {
     const fallbackMessage =
       response.status === 429
         ? "Bạn thao tác quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
-        : `Yêu cầu thất bại với mã ${response.status}.`;
+        : GATEWAY_ERROR_STATUSES.has(response.status)
+          ? "Máy chủ đang khởi động, vui lòng thử lại sau ít giây."
+          : `Yêu cầu thất bại với mã ${response.status}.`;
 
     throw new ApiRequestError(payload?.message || fallbackMessage, {
       status: response.status,
+      code: payload?.code,
       errors: payload?.errors,
       retryAfter,
     });
@@ -135,4 +174,12 @@ export function getAccountKyc(token) {
 
 export function getApiBaseUrl() {
   return API_BASE_URL;
+}
+
+export function warmUpApi() {
+  return fetchWithGatewayRetry(
+    `${API_BASE_URL}/api/health`,
+    { method: "GET" },
+    GATEWAY_RETRY_DELAYS_MS.length,
+  ).catch(() => null);
 }

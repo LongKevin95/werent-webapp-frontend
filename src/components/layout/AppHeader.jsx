@@ -33,6 +33,13 @@ const DEFAULT_USER_MENU_ITEMS = [
   { key: "support", label: "Trung tâm trợ giúp", icon: HelpCircle },
 ];
 
+const ADMIN_BLOCKED_NAV_KEYS = new Set([
+  "favorites",
+  "postListing",
+  "rentalAppointments",
+  "wallet",
+]);
+
 function AppHeader({
   activeNav,
   currentUser,
@@ -77,11 +84,21 @@ function AppHeader({
           badgeClassName: "border-[#F6D0D0] bg-[#FFF6F6] text-[#C44B4B]",
           label: "Tài khoản tạm khóa",
         }
-      : (kycAccountStatusMap[currentUser?.kycStatus] ?? {
+      : isAdmin
+        ? {
+            badgeClassName: "border-[#DCEFE0] bg-[#F3FBF5] text-[#269148]",
+            label: "Quản trị viên",
+          }
+        : (kycAccountStatusMap[currentUser?.kycStatus] ?? {
           badgeClassName: "border-[#F3D7A2] bg-[#FFF7E7] text-[#A26A11]",
           label: "Chưa xác thực",
         });
 
+  const regularUserMenuItems = isAdmin
+    ? DEFAULT_USER_MENU_ITEMS.filter(
+        (item) => !ADMIN_BLOCKED_NAV_KEYS.has(item.key),
+      )
+    : DEFAULT_USER_MENU_ITEMS;
   const userMenuItems = [
     ...(isAdmin
       ? [
@@ -92,7 +109,7 @@ function AppHeader({
           },
         ]
       : []),
-    ...DEFAULT_USER_MENU_ITEMS,
+    ...regularUserMenuItems,
   ];
   const primaryNavItems = navItems.filter(
     (item) => !item.iconOnly && !item.actionGroup,
@@ -103,9 +120,14 @@ function AppHeader({
   const guestPostListingItem = !currentUser
     ? primaryNavItems.find((item) => item.key === "postListing")
     : null;
-  const visiblePrimaryNavItems = guestPostListingItem
-    ? primaryNavItems.filter((item) => item.key !== "postListing")
-    : primaryNavItems;
+  const visiblePrimaryNavItems = (
+    guestPostListingItem
+      ? primaryNavItems.filter((item) => item.key !== "postListing")
+      : primaryNavItems
+  ).filter((item) => !isAdmin || !ADMIN_BLOCKED_NAV_KEYS.has(item.key));
+  const visibleActionNavItems = actionNavItems.filter(
+    (item) => !isAdmin || !ADMIN_BLOCKED_NAV_KEYS.has(item.key),
+  );
 
   useEffect(() => {
     if (!isMenuOpen) {
@@ -261,9 +283,9 @@ function AppHeader({
 
         {currentUser ? (
           <div className="flex flex-wrap items-center justify-end gap-2 self-end lg:ml-auto lg:self-auto">
-            {actionNavItems.length || showNotification ? (
+            {visibleActionNavItems.length || showNotification ? (
               <div className="flex items-center gap-1">
-                {actionNavItems.map(renderActionButton)}
+                {visibleActionNavItems.map(renderActionButton)}
                 {showNotification ? (
                   <NotificationInbox subscriberId={notificationSubscriberId} />
                 ) : null}
@@ -283,6 +305,7 @@ function AppHeader({
                   <img
                     alt={`Ảnh đại diện của ${currentUser.fullName}`}
                     className="size-9 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
                     src={currentUser.avatarUrl}
                   />
                 ) : (
@@ -311,6 +334,7 @@ function AppHeader({
                         <img
                           alt={`Ảnh đại diện của ${currentUser.fullName}`}
                           className="size-[64px] rounded-full object-cover"
+                          referrerPolicy="no-referrer"
                           src={currentUser.avatarUrl}
                         />
                       ) : (
