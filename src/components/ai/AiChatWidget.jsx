@@ -119,17 +119,44 @@ function isPropertySearchQuestion(content) {
       normalizedContent,
     );
   const hasPropertyTerm =
-    /\b(can ho|chung cu|phong tro|nha tro|nha rieng|nha nguyen can|mat bang|van phong|biet thu|noi o|cho o|nha|phong|tro|2pn|3pn|phong ngu)\b/.test(
+    /\b(can ho|can ho dich vu|can ho mini|chung cu|chung cu mini|studio|phong tro|nha tro|nha rieng|nha nguyen can|nha pho|nha mat pho|nha mat tien|mat bang|van phong|biet thu|villa|noi o|cho o|nha|phong|tro|2pn|3pn|phong ngu)\b/.test(
       normalizedContent,
     );
   const hasLocationOrBudget =
-    /\b(quan|q\d+|thu duc|binh thanh|binh tan|go vap|phu nhuan|tan binh|tan phu|nha be|binh chanh|kcn|khu cong nghiep|tan tao|landmark|vinhomes|duoi|toi da|tu|den|trieu|gia re|gan|sat|lan can|an ninh|dien nuoc)\b/.test(
+    /\b(quan|q\d+|thu duc|binh thanh|binh tan|go vap|phu nhuan|tan binh|tan phu|nha be|binh chanh|kcn|khu cong nghiep|tan tao|landmark|vinhomes|duoi|toi da|tu|den|trieu|gia re|gia sinh vien|tiet kiem|gan|sat|lan can|an ninh|dien nuoc)\b/.test(
       normalizedContent,
     );
 
   return (
     (hasSearchIntent && (hasPropertyTerm || hasLocationOrBudget)) ||
     (hasPropertyTerm && hasLocationOrBudget)
+  );
+}
+
+function hasActiveSearchCriteria(criteria = {}) {
+  return Boolean(
+    criteria?.amenities?.length ||
+      criteria?.city ||
+      criteria?.districts?.length ||
+      criteria?.keywords?.length ||
+      criteria?.maxArea ||
+      criteria?.maxPrice ||
+      criteria?.minArea ||
+      criteria?.minBathrooms ||
+      criteria?.minBedrooms ||
+      criteria?.minPrice ||
+      criteria?.nearbyPlaces?.length ||
+      criteria?.noAmenityPreference ||
+      criteria?.propertyTypes?.length ||
+      criteria?.requiredAmenities?.length,
+  );
+}
+
+function isPropertySearchFollowUpQuestion(content) {
+  const normalizedContent = normalizeVietnameseText(content);
+
+  return /\b(thi sao|con|doi|doi sang|chuyen|chuyen sang|khu vuc|quan|q\d+|thu duc|binh thanh|binh tan|go vap|phu nhuan|tan binh|tan phu|nha be|binh chanh|landmark|vinhomes|kcn|khu cong nghiep|duoi|toi da|tu|den|trieu|gia re|gia sinh vien|tiet kiem|ngan sach|can ho|can ho dich vu|can ho mini|chung cu|chung cu mini|studio|phong tro|nha tro|nha rieng|nha nguyen can|nha pho|nha mat pho|nha mat tien|mat bang|biet thu|villa|may lanh|wifi|noi that|bao ve|camera|bai xe|cho de xe)\b/.test(
+    normalizedContent,
   );
 }
 
@@ -167,6 +194,354 @@ function getListingAmenityLabel(value) {
   }
 
   return LISTING_AMENITY_LABELS[rawValue] ?? rawValue;
+}
+
+function formatCriteriaMonthlyPrice(price) {
+  const numericPrice = Number(price);
+
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+    return "";
+  }
+
+  const millionValue = numericPrice / 1_000_000;
+  const formattedValue = Number.isInteger(millionValue)
+    ? String(millionValue)
+    : millionValue.toFixed(1).replace(/\.0$/, "");
+
+  return `${formattedValue} triệu/tháng`;
+}
+
+function formatCriteriaPriceMillions(price) {
+  const numericPrice = Number(price);
+
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+    return "";
+  }
+
+  const millionValue = numericPrice / 1_000_000;
+
+  return Number.isInteger(millionValue)
+    ? String(millionValue)
+    : millionValue.toFixed(1).replace(/\.0$/, "");
+}
+
+function buildCriteriaBudgetLabel(criteria = {}) {
+  const minPrice = formatCriteriaMonthlyPrice(criteria.minPrice);
+  const maxPrice = formatCriteriaMonthlyPrice(criteria.maxPrice);
+
+  if (minPrice && maxPrice) {
+    return `${minPrice} - ${maxPrice}`;
+  }
+
+  if (maxPrice) {
+    return `dưới ${maxPrice}`;
+  }
+
+  if (minPrice) {
+    return `từ ${minPrice}`;
+  }
+
+  return "";
+}
+
+function buildCriteriaBudgetSearchPhrase(criteria = {}) {
+  const minPrice = formatCriteriaPriceMillions(criteria.minPrice);
+  const maxPrice = formatCriteriaPriceMillions(criteria.maxPrice);
+
+  if (minPrice && maxPrice) {
+    return `từ ${minPrice} đến ${maxPrice} triệu`;
+  }
+
+  if (maxPrice) {
+    return `dưới ${maxPrice} triệu`;
+  }
+
+  if (minPrice) {
+    return `từ ${minPrice} triệu`;
+  }
+
+  return "";
+}
+
+function getNormalizedCriteriaValue(value) {
+  return normalizeVietnameseText(value).trim();
+}
+
+function getRecognizedCriteriaChips(criteria = {}) {
+  const chips = [];
+
+  const addArrayChips = (criteriaKey, values = [], buildLabel, tone) => {
+    values.filter(Boolean).forEach((value) => {
+      const label = buildLabel(value);
+
+      if (!label) {
+        return;
+      }
+
+      chips.push({
+        criteriaKey,
+        key: `${criteriaKey}-${value}`,
+        label,
+        tone,
+        value,
+      });
+    });
+  };
+
+  addArrayChips(
+    "propertyTypes",
+    criteria.propertyTypes,
+    (value) => value,
+    "required",
+  );
+  addArrayChips("districts", criteria.districts, (value) => value, "required");
+  addArrayChips(
+    "keywords",
+    criteria.keywords,
+    (value) => `Trong ${value}`,
+    "required",
+  );
+  addArrayChips(
+    "nearbyPlaces",
+    criteria.nearbyPlaces,
+    (value) => `Gần ${value}`,
+    "required",
+  );
+
+  const budgetLabel = buildCriteriaBudgetLabel(criteria);
+
+  if (budgetLabel) {
+    chips.push({
+      criteriaKey: "budget",
+      key: "budget",
+      label: budgetLabel,
+      tone: "required",
+    });
+  }
+
+  if (criteria.minBedrooms) {
+    chips.push({
+      criteriaKey: "minBedrooms",
+      key: "minBedrooms",
+      label: `Từ ${criteria.minBedrooms} phòng ngủ`,
+      tone: "required",
+    });
+  }
+
+  if (criteria.minBathrooms) {
+    chips.push({
+      criteriaKey: "minBathrooms",
+      key: "minBathrooms",
+      label: `Từ ${criteria.minBathrooms} WC`,
+      tone: "required",
+    });
+  }
+
+  if (criteria.minArea) {
+    chips.push({
+      criteriaKey: "minArea",
+      key: "minArea",
+      label: `Từ ${criteria.minArea}m²`,
+      tone: "required",
+    });
+  }
+
+  if (criteria.maxArea) {
+    chips.push({
+      criteriaKey: "maxArea",
+      key: "maxArea",
+      label: `Dưới ${criteria.maxArea}m²`,
+      tone: "required",
+    });
+  }
+
+  addArrayChips(
+    "requiredAmenities",
+    criteria.requiredAmenities,
+    (value) => `Cần ${getListingAmenityLabel(value)}`,
+    "required",
+  );
+  addArrayChips(
+    "amenities",
+    criteria.amenities,
+    (value) => `Ưu tiên ${getListingAmenityLabel(value)}`,
+    "preference",
+  );
+
+  return chips.slice(0, 12);
+}
+
+function getSelectedSearchAmenities(criteria = {}) {
+  const seen = new Set();
+  const groups = [
+    {
+      criteriaKey: "requiredAmenities",
+      prefix: "Cần có",
+      values: criteria.requiredAmenities ?? [],
+    },
+    {
+      criteriaKey: "amenities",
+      prefix: "Ưu tiên",
+      values: criteria.amenities ?? [],
+    },
+  ];
+
+  return groups.flatMap((group) =>
+    group.values
+      .map((value) => {
+        const normalizedValue = getNormalizedCriteriaValue(value);
+
+        if (!normalizedValue || seen.has(normalizedValue)) {
+          return null;
+        }
+
+        seen.add(normalizedValue);
+
+        return {
+          criteriaKey: group.criteriaKey,
+          label: getListingAmenityLabel(value),
+          prefix: group.prefix,
+          value,
+        };
+      })
+      .filter(Boolean),
+  );
+}
+
+function removeSelectedSearchAmenity(criteria = {}, selection = {}) {
+  const normalizedValue = getNormalizedCriteriaValue(selection.value);
+  const amenities = (criteria.amenities ?? []).filter(
+    (value) => getNormalizedCriteriaValue(value) !== normalizedValue,
+  );
+  const requiredAmenities = (criteria.requiredAmenities ?? []).filter(
+    (value) => getNormalizedCriteriaValue(value) !== normalizedValue,
+  );
+  const hasRemainingAmenities = amenities.length || requiredAmenities.length;
+
+  return {
+    ...criteria,
+    amenities,
+    noAmenityPreference: hasRemainingAmenities
+      ? criteria.noAmenityPreference
+      : true,
+    requiredAmenities,
+  };
+}
+
+function hasLocationCriteria(criteria = {}) {
+  return Boolean(
+    criteria?.districts?.length ||
+      criteria?.keywords?.length ||
+      criteria?.nearbyPlaces?.length,
+  );
+}
+
+function removeSearchCriterion(criteria = {}, criterion = {}) {
+  const criteriaKey = criterion.criteriaKey;
+
+  if (criteriaKey === "budget") {
+    return {
+      ...criteria,
+      maxPrice: undefined,
+      minPrice: undefined,
+    };
+  }
+
+  if (
+    ["minBedrooms", "minBathrooms", "minArea", "maxArea"].includes(
+      criteriaKey,
+    )
+  ) {
+    return {
+      ...criteria,
+      [criteriaKey]: undefined,
+    };
+  }
+
+  if (["amenities", "requiredAmenities"].includes(criteriaKey)) {
+    return removeSelectedSearchAmenity(criteria, criterion);
+  }
+
+  if (
+    ["propertyTypes", "districts", "keywords", "nearbyPlaces"].includes(
+      criteriaKey,
+    )
+  ) {
+    const normalizedValue = getNormalizedCriteriaValue(criterion.value);
+    const nextCriteria = {
+      ...criteria,
+      [criteriaKey]: (criteria[criteriaKey] ?? []).filter(
+        (value) => getNormalizedCriteriaValue(value) !== normalizedValue,
+      ),
+    };
+
+    if (
+      ["districts", "keywords", "nearbyPlaces"].includes(criteriaKey) &&
+      !hasLocationCriteria(nextCriteria)
+    ) {
+      nextCriteria.city = "";
+    }
+
+    return nextCriteria;
+  }
+
+  return criteria;
+}
+
+function buildSearchCriteriaMessage(criteria = {}) {
+  const propertyTypes = (criteria.propertyTypes ?? []).filter(Boolean);
+  const subject = propertyTypes.length
+    ? propertyTypes.join(" hoặc ").toLowerCase()
+    : "tin đăng";
+  const parts = [];
+
+  if (criteria.districts?.length) {
+    parts.push(`ở ${criteria.districts.join(", ")}`);
+  }
+
+  if (criteria.keywords?.length) {
+    parts.push(`trong ${criteria.keywords.join(", ")}`);
+  }
+
+  if (criteria.nearbyPlaces?.length) {
+    parts.push(`gần ${criteria.nearbyPlaces.join(", ")}`);
+  }
+
+  const budgetLabel = buildCriteriaBudgetSearchPhrase(criteria);
+
+  if (budgetLabel) {
+    parts.push(`ngân sách ${budgetLabel}`);
+  }
+
+  if (criteria.minBedrooms) {
+    parts.push(`từ ${criteria.minBedrooms} phòng ngủ`);
+  }
+
+  if (criteria.minBathrooms) {
+    parts.push(`từ ${criteria.minBathrooms} WC`);
+  }
+
+  if (criteria.minArea) {
+    parts.push(`từ ${criteria.minArea}m²`);
+  }
+
+  if (criteria.maxArea) {
+    parts.push(`dưới ${criteria.maxArea}m²`);
+  }
+
+  if (criteria.requiredAmenities?.length) {
+    parts.push(`cần ${criteria.requiredAmenities.join(", ")}`);
+  }
+
+  if (criteria.amenities?.length) {
+    parts.push(`ưu tiên ${criteria.amenities.join(", ")}`);
+  }
+
+  if (parts.length) {
+    return `Tìm lại ${subject} ${parts.join(", ")}.`;
+  }
+
+  return "Tìm lại tin đăng với ít tiêu chí hơn.";
 }
 
 function SearchListingCard({ listing }) {
@@ -309,18 +684,35 @@ function mergeUniqueValues(values = [], nextValues = []) {
   );
 }
 
+function hasPatchValue(patch = {}, key) {
+  return Object.prototype.hasOwnProperty.call(patch, key);
+}
+
+function getPatchArrayValue(patch = {}, key) {
+  return Array.isArray(patch[key]) ? patch[key].filter(Boolean) : [];
+}
+
 function mergeSearchCriteriaPatch(criteria = {}, patch = {}) {
+  const replacesLocation =
+    hasPatchValue(patch, "city") || hasPatchValue(patch, "districts");
+  const replacesPropertyType = hasPatchValue(patch, "propertyTypes");
+
   return {
     ...criteria,
     ...patch,
     amenities: mergeUniqueValues(criteria.amenities, patch.amenities),
-    districts: mergeUniqueValues(criteria.districts, patch.districts),
-    keywords: mergeUniqueValues(criteria.keywords, patch.keywords),
-    nearbyPlaces: mergeUniqueValues(criteria.nearbyPlaces, patch.nearbyPlaces),
-    propertyTypes: mergeUniqueValues(
-      criteria.propertyTypes,
-      patch.propertyTypes,
-    ),
+    districts: replacesLocation
+      ? getPatchArrayValue(patch, "districts")
+      : mergeUniqueValues(criteria.districts, patch.districts),
+    keywords: replacesLocation
+      ? getPatchArrayValue(patch, "keywords")
+      : mergeUniqueValues(criteria.keywords, patch.keywords),
+    nearbyPlaces: replacesLocation
+      ? getPatchArrayValue(patch, "nearbyPlaces")
+      : mergeUniqueValues(criteria.nearbyPlaces, patch.nearbyPlaces),
+    propertyTypes: replacesPropertyType
+      ? getPatchArrayValue(patch, "propertyTypes")
+      : mergeUniqueValues(criteria.propertyTypes, patch.propertyTypes),
     requiredAmenities: mergeUniqueValues(
       criteria.requiredAmenities,
       patch.requiredAmenities,
@@ -383,13 +775,26 @@ function mergeListingResults(currentListings = [], nextListings = []) {
   });
 }
 
-function RecognizedCriteriaPanel({ criteriaLabels, recognizedCriteria }) {
+function getCriteriaChipClass(tone) {
+  return tone === "preference"
+    ? "border border-[#B7D9BE] bg-white text-[#2F6E3A] hover:border-[#8BC79A] hover:bg-[#F3FBF4]"
+    : "border border-transparent bg-[#E4F5E7] text-[#286E36] hover:border-[#B7D9BE] hover:bg-[#D9F0DE]";
+}
+
+function RecognizedCriteriaPanel({
+  criteria,
+  criteriaLabels,
+  disabled,
+  onRemoveCriterion,
+  recognizedCriteria,
+}) {
+  const criteriaChips = getRecognizedCriteriaChips(criteria);
   const requiredCriteria = recognizedCriteria?.required?.length
     ? recognizedCriteria.required
     : criteriaLabels;
   const preferences = recognizedCriteria?.preferences ?? [];
 
-  if (!requiredCriteria.length && !preferences.length) {
+  if (!criteriaChips.length && !requiredCriteria.length && !preferences.length) {
     return null;
   }
 
@@ -400,22 +805,39 @@ function RecognizedCriteriaPanel({ criteriaLabels, recognizedCriteria }) {
         AI đã ghi nhận
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {requiredCriteria.slice(0, 8).map((label) => (
-          <span
-            className="rounded-full bg-[#E4F5E7] px-2.5 py-1 text-[11px] font-semibold text-[#286E36]"
-            key={`required-${label}`}
-          >
-            {label}
-          </span>
-        ))}
-        {preferences.slice(0, 4).map((label) => (
-          <span
-            className="rounded-full border border-[#B7D9BE] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2F6E3A]"
-            key={`preference-${label}`}
-          >
-            Ưu tiên {label}
-          </span>
-        ))}
+        {criteriaChips.length
+          ? criteriaChips.map((chip) => (
+              <button
+                aria-label={`Bỏ tiêu chí ${chip.label}`}
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-left text-[11px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#BDE8C7] disabled:cursor-not-allowed disabled:opacity-60 ${getCriteriaChipClass(chip.tone)}`}
+                disabled={disabled}
+                key={chip.key}
+                title={`Bỏ ${chip.label}`}
+                type="button"
+                onClick={() => onRemoveCriterion?.(chip)}
+              >
+                <span className="truncate">{chip.label}</span>
+                <X className="size-3 shrink-0" />
+              </button>
+            ))
+          : requiredCriteria.slice(0, 8).map((label) => (
+              <span
+                className="rounded-full bg-[#E4F5E7] px-2.5 py-1 text-[11px] font-semibold text-[#286E36]"
+                key={`required-${label}`}
+              >
+                {label}
+              </span>
+            ))}
+        {!criteriaChips.length
+          ? preferences.slice(0, 4).map((label) => (
+              <span
+                className="rounded-full border border-[#B7D9BE] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2F6E3A]"
+                key={`preference-${label}`}
+              >
+                Ưu tiên {label}
+              </span>
+            ))
+          : null}
       </div>
     </div>
   );
@@ -514,6 +936,40 @@ function SearchRefinementPanel({ disabled, onSelectRefinement, prompt }) {
   );
 }
 
+function SelectedAmenityRelaxationPanel({
+  amenities,
+  disabled,
+  onRemoveAmenity,
+}) {
+  if (!amenities.length) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#FFF8EC] px-3 py-2.5 text-[#76521B]">
+      <p className="text-[13px] font-bold leading-5">Tiện ích đang chọn</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {amenities.map((amenity) => (
+          <button
+            aria-label={`Bỏ tiện ích ${amenity.label}`}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#E6C88B] bg-white px-2.5 py-1 text-left text-[11px] font-semibold text-[#76521B] transition hover:border-[#D8A947] hover:bg-[#FFF3D6] focus:outline-none focus:ring-2 focus:ring-[#F2C15B] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={disabled}
+            key={`${amenity.criteriaKey}-${amenity.value}`}
+            title={`Bỏ ${amenity.label}`}
+            type="button"
+            onClick={() => onRemoveAmenity(amenity)}
+          >
+            <span className="truncate">
+              {amenity.prefix} {amenity.label}
+            </span>
+            <X className="size-3 shrink-0" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LoadMoreListingsButton({ disabled, isLoading, onClick }) {
   return (
     <button
@@ -536,6 +992,8 @@ function SearchResultContent({
   disabled,
   isLoadingMore,
   onLoadMoreListings,
+  onRemoveAmenity,
+  onRemoveCriterion,
   onSelectRefinement,
   result,
 }) {
@@ -551,15 +1009,35 @@ function SearchResultContent({
     refinementPrompt && !refinementPrompt.blocksSearch
       ? refinementPrompt
       : followUpPrompt;
+  const selectedAmenities = getSelectedSearchAmenities(result?.criteria);
+  const hasBudgetCriteria = Boolean(
+    result?.criteria?.maxPrice || result?.criteria?.minPrice,
+  );
+  const showAmenityRelaxation =
+    !listings.length &&
+    !blockingRefinementPrompt &&
+    hasBudgetCriteria &&
+    selectedAmenities.length;
 
   return (
     <div className="space-y-3">
       <p className="whitespace-pre-line">{result?.reply}</p>
 
       <RecognizedCriteriaPanel
+        criteria={result?.criteria}
         criteriaLabels={criteriaLabels}
+        disabled={disabled}
+        onRemoveCriterion={onRemoveCriterion}
         recognizedCriteria={result?.recognizedCriteria}
       />
+
+      {showAmenityRelaxation ? (
+        <SelectedAmenityRelaxationPanel
+          amenities={selectedAmenities}
+          disabled={disabled}
+          onRemoveAmenity={onRemoveAmenity}
+        />
+      ) : null}
 
       <SearchRefinementPanel
         disabled={disabled}
@@ -813,13 +1291,15 @@ function AiChatWidget({ currentUser, currentView }) {
     const previousSearchCriteria =
       options.previousSearchCriteria ?? searchCriteriaContext ?? {};
     const selectedFaq = options.faqId ? getFaqById(options.faqId) : null;
+    const hasSearchContext = hasActiveSearchCriteria(previousSearchCriteria);
     const isAnsweringSearchQuestion =
       isAwaitingSearchAnswer && !findFaqByQuestion(trimmedContent);
     const shouldSearchProperties =
       !selectedFaq &&
       (options.forcePropertySearch ||
         isAnsweringSearchQuestion ||
-        isPropertySearchQuestion(trimmedContent));
+        isPropertySearchQuestion(trimmedContent) ||
+        (hasSearchContext && isPropertySearchFollowUpQuestion(trimmedContent)));
     const matchedFaq =
       selectedFaq ??
       (!shouldSearchProperties ? findFaqByQuestion(trimmedContent) : null);
@@ -1086,6 +1566,38 @@ function AiChatWidget({ currentUser, currentView }) {
     });
   }
 
+  function handleRemoveSearchCriterion(result, criterion) {
+    const nextSearchCriteria = removeSearchCriterion(
+      result?.criteria ?? searchCriteriaContext ?? {},
+      criterion,
+    );
+
+    submitMessage(
+      buildSearchCriteriaMessage(nextSearchCriteria),
+      "property-search-refine",
+      {
+        forcePropertySearch: true,
+        previousSearchCriteria: nextSearchCriteria,
+      },
+    );
+  }
+
+  function handleRemoveSearchAmenity(result, selection) {
+    const nextSearchCriteria = removeSelectedSearchAmenity(
+      result?.criteria ?? searchCriteriaContext ?? {},
+      selection,
+    );
+
+    submitMessage(
+      buildSearchCriteriaMessage(nextSearchCriteria),
+      "property-search-refine",
+      {
+        forcePropertySearch: true,
+        previousSearchCriteria: nextSearchCriteria,
+      },
+    );
+  }
+
   function handleInputKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -1182,6 +1694,18 @@ function AiChatWidget({ currentUser, currentView }) {
                         result={message.searchResult}
                         onLoadMoreListings={() =>
                           handleLoadMoreSearchListings(message)
+                        }
+                        onRemoveCriterion={(criterion) =>
+                          handleRemoveSearchCriterion(
+                            message.searchResult,
+                            criterion,
+                          )
+                        }
+                        onRemoveAmenity={(selection) =>
+                          handleRemoveSearchAmenity(
+                            message.searchResult,
+                            selection,
+                          )
                         }
                         onSelectRefinement={handleSearchRefinementSelect}
                       />
