@@ -110,11 +110,36 @@ function AdminSidebar({
   propertyStatus,
 }) {
   const propertyItems = [
-    { key: "", label: "Tất cả tin đăng", count: propertyCounts.all, tone: "gray" },
-    { key: "pending", label: "Chờ phê duyệt", count: propertyCounts.pending, tone: "amber" },
-    { key: "active", label: "Đã đăng", count: propertyCounts.active, tone: "green" },
-    { key: "rejected", label: "Bị từ chối", count: propertyCounts.rejected, tone: "red" },
-    { key: "hidden", label: "Đã ẩn", count: propertyCounts.hidden, tone: "gray" },
+    {
+      key: "",
+      label: "Tất cả tin đăng",
+      count: propertyCounts.all,
+      tone: "gray",
+    },
+    {
+      key: "pending",
+      label: "Chờ phê duyệt",
+      count: propertyCounts.pending,
+      tone: "amber",
+    },
+    {
+      key: "active",
+      label: "Đã đăng",
+      count: propertyCounts.active,
+      tone: "green",
+    },
+    {
+      key: "rejected",
+      label: "Bị từ chối",
+      count: propertyCounts.rejected,
+      tone: "red",
+    },
+    {
+      key: "hidden",
+      label: "Đã ẩn",
+      count: propertyCounts.hidden,
+      tone: "gray",
+    },
   ];
   const menuItems = [
     { key: "kyc", icon: ShieldCheck, label: "Quản lý xác thực (KYC)" },
@@ -131,7 +156,9 @@ function AdminSidebar({
   }
 
   return (
-    <aside className={`border-b border-[#E5EAE6] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[242px] lg:border-b-0 lg:border-r ${isSidebarOpen ? "lg:block" : "lg:hidden"}`}>
+    <aside
+      className={`border-b border-[#E5EAE6] bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[242px] lg:border-b-0 lg:border-r ${isSidebarOpen ? "lg:block" : "lg:hidden"}`}
+    >
       <div className="flex h-full flex-col">
         <button
           className="flex items-center gap-3 px-5 py-5 text-left"
@@ -150,22 +177,101 @@ function AdminSidebar({
         </button>
 
         <nav className="flex gap-2 overflow-x-auto px-3 pb-4 lg:block lg:flex-1 lg:overflow-y-auto lg:pb-5">
-          <button className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "overview" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("overview")}><LayoutDashboard className="size-4" />Tổng quan</button>
-          <button className={`mt-1 flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "users" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => onSectionChange("users")}><Users className="size-4" /><span className="flex-1">Quản lý người dùng</span><ChevronDown className="size-3.5" /></button>
+          <button
+            className={`flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "overview" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`}
+            type="button"
+            onClick={() => onSectionChange("overview")}
+          >
+            <LayoutDashboard className="size-4" />
+            Tổng quan
+          </button>
+          <button
+            className={`mt-1 flex min-w-max items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "users" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`}
+            type="button"
+            onClick={() => onSectionChange("users")}
+          >
+            <Users className="size-4" />
+            <span className="flex-1">Quản lý người dùng</span>
+            <ChevronDown className="size-3.5" />
+          </button>
 
           <div className="mt-1 min-w-max lg:min-w-0">
-            <button className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "properties" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`} type="button" onClick={() => selectPropertyStatus(propertyStatus)}><Building2 className="size-4" /><span className="flex-1">Quản lý tin đăng</span><ChevronDown className={`size-3.5 transition ${activeSection === "properties" ? "rotate-180" : ""}`} /></button>
-            {activeSection === "properties" ? <div className="ml-1 mt-1 border-l border-[#DDE8DF] pl-3">{propertyItems.map((item) => <button key={item.label} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] ${propertyStatus === item.key ? "bg-[#F0F8F2] font-semibold text-[#168B40]" : "text-[#53606D] hover:bg-[#F7F9F7]"}`} type="button" onClick={() => selectPropertyStatus(item.key)}><span className="flex-1">{item.label}</span>{Number.isFinite(item.count) ? <span className={`min-w-7 rounded-full border px-1.5 py-0.5 text-center text-[10px] font-semibold ${item.tone === "amber" ? "border-[#FFD08B] bg-[#FFF7E8] text-[#C46F00]" : item.tone === "green" ? "border-[#BCE4C6] bg-[#ECF8EF] text-[#16883B]" : item.tone === "red" ? "border-[#FFC2C8] bg-[#FFF0F1] text-[#DB3342]" : "border-[#D8DEE5] bg-[#F2F4F6] text-[#596674]"}`}>{item.count}</span> : null}</button>)}</div> : null}
+            <button
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition lg:w-full ${activeSection === "properties" ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : "text-[#3E4B59] hover:bg-[#F5F8F5]"}`}
+              type="button"
+              onClick={() => selectPropertyStatus(propertyStatus)}
+            >
+              <Building2 className="size-4" />
+              <span className="flex-1">Quản lý tin đăng</span>
+              <ChevronDown
+                className={`size-3.5 transition ${activeSection === "properties" ? "rotate-180" : ""}`}
+              />
+            </button>
+            {activeSection === "properties" ? (
+              <div className="ml-1 mt-1 border-l border-[#DDE8DF] pl-3">
+                {propertyItems.map((item) => (
+                  <button
+                    key={item.label}
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] ${propertyStatus === item.key ? "bg-[#F0F8F2] font-semibold text-[#168B40]" : "text-[#53606D] hover:bg-[#F7F9F7]"}`}
+                    type="button"
+                    onClick={() => selectPropertyStatus(item.key)}
+                  >
+                    <span className="flex-1">{item.label}</span>
+                    {Number.isFinite(item.count) ? (
+                      <span
+                        className={`min-w-7 rounded-full border px-1.5 py-0.5 text-center text-[10px] font-semibold ${item.tone === "amber" ? "border-[#FFD08B] bg-[#FFF7E8] text-[#C46F00]" : item.tone === "green" ? "border-[#BCE4C6] bg-[#ECF8EF] text-[#16883B]" : item.tone === "red" ? "border-[#FFC2C8] bg-[#FFF0F1] text-[#DB3342]" : "border-[#D8DEE5] bg-[#F2F4F6] text-[#596674]"}`}
+                      >
+                        {item.count}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-2 space-y-1">
-            {menuItems.map(({ key, icon: Icon, label }) => <button key={label} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] ${key && activeSection === key ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : key ? "text-[#3E4B59] hover:bg-[#F5F8F5]" : "cursor-not-allowed text-[#3E4B59] opacity-55"}`} disabled={!key} type="button" onClick={() => key && onSectionChange(key)}><Icon className="size-4" />{label}</button>)}
+            {menuItems.map(({ key, icon: Icon, label }) => (
+              <button
+                key={label}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] ${key && activeSection === key ? "bg-[#EAF6ED] font-semibold text-[#178E42]" : key ? "text-[#3E4B59] hover:bg-[#F5F8F5]" : "cursor-not-allowed text-[#3E4B59] opacity-55"}`}
+                disabled={!key}
+                type="button"
+                onClick={() => key && onSectionChange(key)}
+              >
+                <Icon className="size-4" />
+                {label}
+              </button>
+            ))}
           </div>
         </nav>
 
         <div className="hidden p-4 lg:block">
-          <button className="flex w-full items-center gap-3 rounded-xl border border-[#DDE4DE] p-3 text-left hover:bg-[#F8FAF8]" type="button"><span className="flex size-9 items-center justify-center rounded-full bg-[#EEF3F8] text-[#53657A]"><Headphones className="size-4" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-[#34404C]">Trung tâm hỗ trợ</span><span className="mt-1 block text-[10px] text-[#7A858F]">Hỗ trợ giải đáp thắc mắc</span></span><ChevronRight className="size-4 text-[#607087]" /></button>
-          <button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs text-[#7A858F] hover:bg-[#F5F7F5]" type="button" onClick={onLogout}><LogOut className="size-3.5" />Đăng xuất {currentUser.fullName}</button>
+          <button
+            className="flex w-full items-center gap-3 rounded-xl border border-[#DDE4DE] p-3 text-left hover:bg-[#F8FAF8]"
+            type="button"
+          >
+            <span className="flex size-9 items-center justify-center rounded-full bg-[#EEF3F8] text-[#53657A]">
+              <Headphones className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-[#34404C]">
+                Trung tâm hỗ trợ
+              </span>
+              <span className="mt-1 block text-[10px] text-[#7A858F]">
+                Hỗ trợ giải đáp thắc mắc
+              </span>
+            </span>
+            <ChevronRight className="size-4 text-[#607087]" />
+          </button>
+          <button
+            className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs text-[#7A858F] hover:bg-[#F5F7F5]"
+            type="button"
+            onClick={onLogout}
+          >
+            <LogOut className="size-3.5" />
+            Đăng xuất {currentUser.fullName}
+          </button>
         </div>
       </div>
     </aside>
@@ -176,7 +282,9 @@ function StatCard({ icon: Icon, label, value, color }) {
   return (
     <article className="rounded-2xl border border-[#E9EDE9] bg-white p-4 shadow-[0_8px_26px_rgba(45,70,51,0.04)] sm:p-5">
       <div className="flex items-center gap-4">
-        <span className={`flex size-12 shrink-0 items-center justify-center rounded-2xl ${color}`}>
+        <span
+          className={`flex size-12 shrink-0 items-center justify-center rounded-2xl ${color}`}
+        >
           <Icon className="size-6" />
         </span>
         <div>
@@ -190,8 +298,21 @@ function StatCard({ icon: Icon, label, value, color }) {
   );
 }
 
-const trafficValues = [1250, 1610, 1180, 1420, 1210, 1510, 1290, 1980, 1400, 1760];
-const trafficLabels = ["01/07", "02/07", "03/07", "04/07", "05/07", "06/07", "07/07", "08/07", "09/07", "10/07"];
+const trafficValues = [
+  1250, 1610, 1180, 1420, 1210, 1510, 1290, 1980, 1400, 1760,
+];
+const trafficLabels = [
+  "01/07",
+  "02/07",
+  "03/07",
+  "04/07",
+  "05/07",
+  "06/07",
+  "07/07",
+  "08/07",
+  "09/07",
+  "10/07",
+];
 
 function TrafficChart() {
   const canvasRef = useRef(null);
@@ -233,7 +354,14 @@ function TrafficChart() {
         }
         const previous = points[index - 1];
         const midX = (previous.x + point.x) / 2;
-        context.bezierCurveTo(midX, previous.y, midX, point.y, point.x, point.y);
+        context.bezierCurveTo(
+          midX,
+          previous.y,
+          midX,
+          point.y,
+          point.x,
+          point.y,
+        );
       });
       context.lineTo(points.at(-1).x, height);
       context.closePath();
@@ -248,7 +376,14 @@ function TrafficChart() {
         }
         const previous = points[index - 1];
         const midX = (previous.x + point.x) / 2;
-        context.bezierCurveTo(midX, previous.y, midX, point.y, point.x, point.y);
+        context.bezierCurveTo(
+          midX,
+          previous.y,
+          midX,
+          point.y,
+          point.x,
+          point.y,
+        );
       });
       context.strokeStyle = "#329F4F";
       context.lineWidth = 2.2;
@@ -285,7 +420,9 @@ function TrafficChart() {
           <canvas ref={canvasRef} className="absolute inset-0 size-full" />
         </div>
         <div className="mt-2 grid grid-cols-10 text-center text-[10px] text-[#65707A]">
-          {trafficLabels.map((label) => <span key={label}>{label}</span>)}
+          {trafficLabels.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
         </div>
       </div>
     </div>
@@ -296,7 +433,9 @@ function DashboardStatCard({ icon: Icon, label, value, change, color }) {
   return (
     <article className="rounded-xl border border-[#E5EAE5] bg-white px-5 py-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
       <div className="flex items-center gap-4">
-        <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${color}`}>
+        <span
+          className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${color}`}
+        >
           <Icon className="size-6" />
         </span>
         <div className="min-w-0">
@@ -305,9 +444,13 @@ function DashboardStatCard({ icon: Icon, label, value, change, color }) {
             <p className="text-[26px] font-bold leading-none text-[#17202A]">
               {Number(value ?? 0).toLocaleString("vi-VN")}
             </p>
-            <span className="pb-0.5 text-[11px] font-semibold text-[#2FA250]">↑ {change}</span>
+            <span className="pb-0.5 text-[11px] font-semibold text-[#2FA250]">
+              ↑ {change}
+            </span>
           </div>
-          <p className="mt-2 text-[10px] text-[#7A848E]">So với 23/06 - 30/06</p>
+          <p className="mt-2 text-[10px] text-[#7A848E]">
+            So với 23/06 - 30/06
+          </p>
         </div>
       </div>
     </article>
@@ -315,38 +458,117 @@ function DashboardStatCard({ icon: Icon, label, value, change, color }) {
 }
 
 const latestProperties = [
-  { title: "Căn hộ 2PN Vinhomes Ocean Park", location: "Quận Gia Lâm, Hà Nội", date: "10/07/2025", status: "Đã duyệt", tone: "green", position: "33% center" },
-  { title: "Nhà nguyên căn hẻm 5m", location: "Quận Tân Bình, TP.HCM", date: "10/07/2025", status: "Chờ duyệt", tone: "yellow", position: "58% center" },
-  { title: "Căn hộ studio đầy đủ nội thất", location: "Quận Bình Thạnh, TP.HCM", date: "09/07/2025", status: "Đã duyệt", tone: "green", position: "73% center" },
-  { title: "Phòng trọ gần ĐH Bách Khoa", location: "Quận Hai Bà Trưng, Hà Nội", date: "09/07/2025", status: "Từ chối", tone: "red", position: "86% center" },
+  {
+    title: "Căn hộ 2PN Vinhomes Ocean Park",
+    location: "Quận Gia Lâm, Hà Nội",
+    date: "10/07/2025",
+    status: "Đã duyệt",
+    tone: "green",
+    position: "33% center",
+  },
+  {
+    title: "Nhà nguyên căn hẻm 5m",
+    location: "Quận Tân Bình, TP.HCM",
+    date: "10/07/2025",
+    status: "Chờ duyệt",
+    tone: "yellow",
+    position: "58% center",
+  },
+  {
+    title: "Căn hộ studio đầy đủ nội thất",
+    location: "Quận Bình Thạnh, TP.HCM",
+    date: "09/07/2025",
+    status: "Đã duyệt",
+    tone: "green",
+    position: "73% center",
+  },
+  {
+    title: "Phòng trọ gần ĐH Bách Khoa",
+    location: "Quận Hai Bà Trưng, Hà Nội",
+    date: "09/07/2025",
+    status: "Từ chối",
+    tone: "red",
+    position: "86% center",
+  },
 ];
 
 const viewingRequests = [
-  { name: "Trần Minh Tuấn", property: "Căn hộ 2PN Vinhomes Ocean Park", date: "10/07/2025 - 14:30", initials: "TT" },
-  { name: "Lê Hoàng Anh", property: "Nhà nguyên căn hẻm 5m", date: "10/07/2025 - 10:15", initials: "LA" },
-  { name: "Phạm Quỳnh Chi", property: "Căn hộ studio đầy đủ nội thất", date: "09/07/2025 - 16:45", initials: "PC" },
-  { name: "Nguyễn Văn Nam", property: "Phòng trọ gần ĐH Bách Khoa", date: "09/07/2025 - 09:20", initials: "NN" },
+  {
+    name: "Trần Minh Tuấn",
+    property: "Căn hộ 2PN Vinhomes Ocean Park",
+    date: "10/07/2025 - 14:30",
+    initials: "TT",
+  },
+  {
+    name: "Lê Hoàng Anh",
+    property: "Nhà nguyên căn hẻm 5m",
+    date: "10/07/2025 - 10:15",
+    initials: "LA",
+  },
+  {
+    name: "Phạm Quỳnh Chi",
+    property: "Căn hộ studio đầy đủ nội thất",
+    date: "09/07/2025 - 16:45",
+    initials: "PC",
+  },
+  {
+    name: "Nguyễn Văn Nam",
+    property: "Phòng trọ gần ĐH Bách Khoa",
+    date: "09/07/2025 - 09:20",
+    initials: "NN",
+  },
 ];
 
 function DashboardOverview({ summary }) {
   const cards = [
-    { icon: Users, label: "Người dùng", value: summary.totalUsers, change: "12.5%", color: "bg-[#E6F4E8] text-[#2E9C4C]" },
-    { icon: Building2, label: "Tin đăng", value: summary.totalProperties, change: "8.3%", color: "bg-[#E7F1FC] text-[#3E88DD]" },
-    { icon: CalendarDays, label: "Yêu cầu xem phòng", value: 596, change: "15.6%", color: "bg-[#FFF2DD] text-[#EE991C]" },
-    { icon: CreditCard, label: "Giao dịch thành công", value: summary.totalPayments, change: "10.2%", color: "bg-[#F0EAFE] text-[#7C55DF]" },
+    {
+      icon: Users,
+      label: "Người dùng",
+      value: summary.totalUsers,
+      change: "12.5%",
+      color: "bg-[#E6F4E8] text-[#2E9C4C]",
+    },
+    {
+      icon: Building2,
+      label: "Tin đăng",
+      value: summary.totalProperties,
+      change: "8.3%",
+      color: "bg-[#E7F1FC] text-[#3E88DD]",
+    },
+    {
+      icon: CalendarDays,
+      label: "Yêu cầu xem phòng",
+      value: 596,
+      change: "15.6%",
+      color: "bg-[#FFF2DD] text-[#EE991C]",
+    },
+    {
+      icon: CreditCard,
+      label: "Giao dịch thành công",
+      value: summary.totalPayments,
+      change: "10.2%",
+      color: "bg-[#F0EAFE] text-[#7C55DF]",
+    },
   ];
 
   return (
     <div className="space-y-4">
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => <DashboardStatCard key={card.label} {...card} />)}
+        {cards.map((card) => (
+          <DashboardStatCard key={card.label} {...card} />
+        ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.28fr_1fr]">
         <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <h2 className="text-[15px] font-bold text-[#242B33]">Lượt truy cập</h2>
-            <button className="flex h-9 items-center gap-2 rounded-lg border border-[#DFE5DF] px-3 text-xs text-[#57616B]" type="button">
+            <h2 className="text-[15px] font-bold text-[#242B33]">
+              Lượt truy cập
+            </h2>
+            <button
+              className="flex h-9 items-center gap-2 rounded-lg border border-[#DFE5DF] px-3 text-xs text-[#57616B]"
+              type="button"
+            >
               7 ngày qua <ChevronRight className="size-3.5 rotate-90" />
             </button>
           </div>
@@ -355,12 +577,22 @@ function DashboardOverview({ summary }) {
 
         <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[15px] font-bold text-[#242B33]">Tin đăng mới nhất</h2>
-            <button className="text-xs font-semibold text-[#2E9D4D]" type="button">Xem tất cả</button>
+            <h2 className="text-[15px] font-bold text-[#242B33]">
+              Tin đăng mới nhất
+            </h2>
+            <button
+              className="text-xs font-semibold text-[#2E9D4D]"
+              type="button"
+            >
+              Xem tất cả
+            </button>
           </div>
           <div className="mt-4 divide-y divide-[#EDF0ED]">
             {latestProperties.map((property) => (
-              <div key={property.title} className="flex items-center gap-3 py-2.5 first:pt-0">
+              <div
+                key={property.title}
+                className="flex items-center gap-3 py-2.5 first:pt-0"
+              >
                 <img
                   alt=""
                   className="h-11 w-14 shrink-0 rounded-lg object-cover"
@@ -368,18 +600,24 @@ function DashboardOverview({ summary }) {
                   style={{ objectPosition: property.position }}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-semibold text-[#313942]">{property.title}</p>
-                  <p className="mt-1 truncate text-[10px] text-[#79838D]">{property.location}</p>
+                  <p className="truncate text-xs font-semibold text-[#313942]">
+                    {property.title}
+                  </p>
+                  <p className="mt-1 truncate text-[10px] text-[#79838D]">
+                    {property.location}
+                  </p>
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-[10px] text-[#69737D]">{property.date}</p>
-                  <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${
-                    property.tone === "green"
-                      ? "bg-[#EAF7ED] text-[#2E9149]"
-                      : property.tone === "yellow"
-                        ? "bg-[#FFF3DF] text-[#C77B0E]"
-                        : "bg-[#FFF0F0] text-[#D04C4C]"
-                  }`}>
+                  <span
+                    className={`mt-1 inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${
+                      property.tone === "green"
+                        ? "bg-[#EAF7ED] text-[#2E9149]"
+                        : property.tone === "yellow"
+                          ? "bg-[#FFF3DF] text-[#C77B0E]"
+                          : "bg-[#FFF0F0] text-[#D04C4C]"
+                    }`}
+                  >
                     {property.status}
                   </span>
                 </div>
@@ -392,35 +630,61 @@ function DashboardOverview({ summary }) {
       <section className="grid gap-4 xl:grid-cols-[1.28fr_1fr]">
         <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[15px] font-bold text-[#242B33]">Yêu cầu xem phòng mới</h2>
-            <button className="text-xs font-semibold text-[#2E9D4D]" type="button">Xem tất cả</button>
+            <h2 className="text-[15px] font-bold text-[#242B33]">
+              Yêu cầu xem phòng mới
+            </h2>
+            <button
+              className="text-xs font-semibold text-[#2E9D4D]"
+              type="button"
+            >
+              Xem tất cả
+            </button>
           </div>
           <div className="mt-3 divide-y divide-[#EDF0ED]">
             {viewingRequests.map((request, index) => (
-              <div key={request.name} className="grid grid-cols-[minmax(0,1fr)_150px_76px] items-center gap-3 py-2.5">
+              <div
+                key={request.name}
+                className="grid grid-cols-[minmax(0,1fr)_150px_76px] items-center gap-3 py-2.5"
+              >
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${index % 2 === 0 ? "bg-[#E1F1E5] text-[#2E9149]" : "bg-[#E7EFF8] text-[#3D74A8]"}`}>
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${index % 2 === 0 ? "bg-[#E1F1E5] text-[#2E9149]" : "bg-[#E7EFF8] text-[#3D74A8]"}`}
+                  >
                     {request.initials}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-[#303840]">{request.name}</p>
-                    <p className="mt-1 truncate text-[10px] text-[#79838D]">{request.property}</p>
+                    <p className="truncate text-xs font-semibold text-[#303840]">
+                      {request.name}
+                    </p>
+                    <p className="mt-1 truncate text-[10px] text-[#79838D]">
+                      {request.property}
+                    </p>
                   </div>
                 </div>
                 <p className="text-[10px] text-[#57616B]">{request.date}</p>
-                <span className="rounded-md bg-[#EAF3FF] px-2 py-1 text-center text-[9px] font-semibold text-[#3474B6]">Chờ xử lý</span>
+                <span className="rounded-md bg-[#EAF3FF] px-2 py-1 text-center text-[9px] font-semibold text-[#3474B6]">
+                  Chờ xử lý
+                </span>
               </div>
             ))}
           </div>
         </article>
 
         <article className="rounded-xl border border-[#E5EAE5] bg-white p-5 shadow-[0_5px_18px_rgba(39,58,44,0.035)]">
-          <h2 className="text-[15px] font-bold text-[#242B33]">Thống kê theo danh mục</h2>
+          <h2 className="text-[15px] font-bold text-[#242B33]">
+            Thống kê theo danh mục
+          </h2>
           <div className="mt-6 grid items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-[160px_minmax(0,1fr)]">
             <div className="relative mx-auto size-40 rounded-full bg-[conic-gradient(#2F9E4D_0_39.9%,#3C85DD_39.9%_65.1%,#F5A11D_65.1%_85%,#F04E43_85%_95%,#D9DEE1_95%_100%)]">
               <div className="absolute inset-[25px] flex flex-col items-center justify-center rounded-full bg-white">
-                <span className="text-[22px] font-bold text-[#1E252D]">{Number(summary.totalProperties ?? 1284).toLocaleString("vi-VN")}</span>
-                <span className="mt-1 text-[10px] text-[#6C7680]">Tin đăng</span>
+                <span className="text-[22px] font-bold text-[#1E252D]">
+                  {Number(summary.totalProperties ?? 1284).toLocaleString(
+                    "vi-VN",
+                  )}
+                </span>
+                <span className="mt-1 text-[10px] text-[#6C7680]">
+                  Tin đăng
+                </span>
               </div>
             </div>
             <div className="space-y-3">
@@ -431,8 +695,14 @@ function DashboardOverview({ summary }) {
                 ["#F04E43", "Nhà mặt phố", "128 (10.0%)"],
                 ["#D9DEE1", "Khác", "64 (5.0%)"],
               ].map(([color, label, value]) => (
-                <div key={label} className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2 text-[10px] text-[#4D5761]">
-                  <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
+                <div
+                  key={label}
+                  className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2 text-[10px] text-[#4D5761]"
+                >
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: color }}
+                  />
                   <span>{label}</span>
                   <span>{value}</span>
                 </div>
@@ -541,7 +811,10 @@ function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 id="admin-user-form-title" className="text-xl font-bold text-[#242A32]">
+            <h2
+              id="admin-user-form-title"
+              className="text-xl font-bold text-[#242A32]"
+            >
               {isEditing ? "Chỉnh sửa tài khoản" : "Thêm tài khoản mới"}
             </h2>
             <p className="mt-1 text-sm text-[#78818B]">
@@ -569,7 +842,9 @@ function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <label className="sm:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Họ và tên *</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Họ và tên *
+            </span>
             <input
               autoFocus
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
@@ -610,14 +885,18 @@ function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
               autoComplete="new-password"
               className="h-11 w-full rounded-xl border border-[#DEE4DE] px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               name="password"
-              placeholder={isEditing ? "Để trống nếu không đổi" : "Tối thiểu 8 ký tự"}
+              placeholder={
+                isEditing ? "Để trống nếu không đổi" : "Tối thiểu 8 ký tự"
+              }
               type="password"
               value={form.password}
               onChange={updateField}
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium text-[#4A535D]">Vai trò *</span>
+            <span className="mb-2 block text-sm font-medium text-[#4A535D]">
+              Vai trò *
+            </span>
             <select
               className="h-11 w-full rounded-xl border border-[#DEE4DE] bg-white px-4 text-sm outline-none transition focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
               name="role"
@@ -632,8 +911,12 @@ function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
 
         <label className="mt-5 flex items-center justify-between gap-4 rounded-xl bg-[#F6F8F6] px-4 py-3">
           <span>
-            <span className="block text-sm font-semibold text-[#3D464F]">Tài khoản hoạt động</span>
-            <span className="mt-0.5 block text-xs text-[#7C858F]">Cho phép người dùng đăng nhập vào hệ thống.</span>
+            <span className="block text-sm font-semibold text-[#3D464F]">
+              Tài khoản hoạt động
+            </span>
+            <span className="mt-0.5 block text-xs text-[#7C858F]">
+              Cho phép người dùng đăng nhập vào hệ thống.
+            </span>
           </span>
           <input
             checked={form.isActive}
@@ -658,8 +941,14 @@ function UserFormModal({ onNotify = () => {}, user, onClose, onSubmit }) {
             disabled={isSubmitting}
             type="submit"
           >
-            {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : null}
-            {isSubmitting ? "Đang lưu..." : isEditing ? "Lưu thay đổi" : "Tạo tài khoản"}
+            {isSubmitting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : null}
+            {isSubmitting
+              ? "Đang lưu..."
+              : isEditing
+                ? "Lưu thay đổi"
+                : "Tạo tài khoản"}
           </button>
         </div>
       </form>
@@ -692,9 +981,12 @@ function DeleteConfirmModal({ onNotify = () => {}, user, onClose, onConfirm }) {
         <span className="flex size-12 items-center justify-center rounded-full bg-[#FFF0F0] text-[#D65050]">
           <Trash2 className="size-5" />
         </span>
-        <h2 className="mt-4 text-xl font-bold text-[#252B33]">Xóa tài khoản?</h2>
+        <h2 className="mt-4 text-xl font-bold text-[#252B33]">
+          Xóa tài khoản?
+        </h2>
         <p className="mt-2 text-sm leading-6 text-[#6D7680]">
-          Tài khoản <strong className="text-[#353D46]">{user.fullName}</strong> sẽ bị xóa khỏi hệ thống. Thao tác này không thể hoàn tác.
+          Tài khoản <strong className="text-[#353D46]">{user.fullName}</strong>{" "}
+          sẽ bị xóa khỏi hệ thống. Thao tác này không thể hoàn tác.
         </p>
         {error ? <p className="mt-3 text-sm text-[#B43E3E]">{error}</p> : null}
         <div className="mt-6 flex justify-end gap-3">
@@ -712,7 +1004,9 @@ function DeleteConfirmModal({ onNotify = () => {}, user, onClose, onConfirm }) {
             type="button"
             onClick={handleDelete}
           >
-            {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            {isDeleting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : null}
             {isDeleting ? "Đang xóa..." : "Xóa tài khoản"}
           </button>
         </div>
@@ -721,14 +1015,23 @@ function DeleteConfirmModal({ onNotify = () => {}, user, onClose, onConfirm }) {
   );
 }
 
-export default function AdminPage({ accessToken, currentUser, onBack, onLogout }) {
+export default function AdminPage({
+  accessToken,
+  currentUser,
+  onBack,
+  onLogout,
+}) {
   const [activeSection, setActiveSection] = useState("overview");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [propertyStatus, setPropertyStatus] = useState("");
   const [propertyCounts, setPropertyCounts] = useState({});
   const [users, setUsers] = useState([]);
   const [summary, setSummary] = useState({});
-  const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    total: 0,
+    totalPages: 1,
+  });
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [role, setRole] = useState("");
@@ -747,10 +1050,30 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
 
   const stats = useMemo(
     () => [
-      { icon: Users, label: "Tổng người dùng", value: summary.totalUsers, color: "bg-[#E5F4E8] text-[#2E9D4D]" },
-      { icon: UserRoundCheck, label: "Đang hoạt động", value: summary.activeUsers, color: "bg-[#E8F2FF] text-[#397FD0]" },
-      { icon: ShieldCheck, label: "Quản trị viên", value: summary.adminUsers, color: "bg-[#F0EAFE] text-[#7954D8]" },
-      { icon: Plus, label: "Mới trong tháng", value: summary.newUsersThisMonth, color: "bg-[#FFF2DD] text-[#D98A17]" },
+      {
+        icon: Users,
+        label: "Tổng người dùng",
+        value: summary.totalUsers,
+        color: "bg-[#E5F4E8] text-[#2E9D4D]",
+      },
+      {
+        icon: UserRoundCheck,
+        label: "Đang hoạt động",
+        value: summary.activeUsers,
+        color: "bg-[#E8F2FF] text-[#397FD0]",
+      },
+      {
+        icon: ShieldCheck,
+        label: "Quản trị viên",
+        value: summary.adminUsers,
+        color: "bg-[#F0EAFE] text-[#7954D8]",
+      },
+      {
+        icon: Plus,
+        label: "Mới trong tháng",
+        value: summary.newUsersThisMonth,
+        color: "bg-[#FFF2DD] text-[#D98A17]",
+      },
     ],
     [summary],
   );
@@ -785,7 +1108,9 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       })
       .catch((requestError) => {
         if (requestError.name !== "AbortError") {
-          setError(requestError.message || "Không thể tải danh sách người dùng.");
+          setError(
+            requestError.message || "Không thể tải danh sách người dùng.",
+          );
         }
       })
       .finally(() => {
@@ -793,7 +1118,15 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
       });
 
     return () => controller.abort();
-  }, [accessToken, activeSection, debouncedSearch, page, refreshVersion, role, status]);
+  }, [
+    accessToken,
+    activeSection,
+    debouncedSearch,
+    page,
+    refreshVersion,
+    role,
+    status,
+  ]);
 
   const closeAdminToast = useCallback(() => {
     if (adminToastTimerRef.current) {
@@ -912,30 +1245,37 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
         <header className="border-b border-[#E9EDE9] bg-white px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-[1500px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-4">
-              <button aria-label={isSidebarOpen ? "Thu gọn menu" : "Mở menu"} className="mt-0.5 hidden size-9 items-center justify-center rounded-lg text-[#435572] hover:bg-[#F3F6F4] lg:flex" type="button" onClick={() => setIsSidebarOpen((value) => !value)}><Menu className="size-5" /></button>
+              <button
+                aria-label={isSidebarOpen ? "Thu gọn menu" : "Mở menu"}
+                className="mt-0.5 hidden size-9 items-center justify-center rounded-lg text-[#435572] hover:bg-[#F3F6F4] lg:flex"
+                type="button"
+                onClick={() => setIsSidebarOpen((value) => !value)}
+              >
+                <Menu className="size-5" />
+              </button>
               <div>
-              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">
-                {activeSection === "overview"
-                  ? "Tổng quan"
-                  : activeSection === "users"
-                    ? "Quản lý người dùng"
-                    : activeSection === "properties"
-                      ? "Quản lý tin đăng"
-                      : activeSection === "kyc"
-                        ? "Quản lý xác thực (KYC)"
-                        : "Quản lý nạp tiền"}
-              </h1>
-              <p className="mt-1 text-sm text-[#747D87]">
-                {activeSection === "overview"
-                  ? "Theo dõi hoạt động và hiệu suất của hệ thống."
-                  : activeSection === "users"
-                    ? "Quản lý tài khoản và quyền truy cập trên hệ thống."
-                    : activeSection === "properties"
-                      ? "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."
-                      : activeSection === "kyc"
-                        ? "Đối chiếu và duyệt hồ sơ tài khoản, hồ sơ bất động sản."
-                        : "Theo dõi giao dịch nạp tiền, khuyến mãi và điều chỉnh số dư."}
-              </p>
+                <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#1F252D]">
+                  {activeSection === "overview"
+                    ? "Tổng quan"
+                    : activeSection === "users"
+                      ? "Quản lý người dùng"
+                      : activeSection === "properties"
+                        ? "Quản lý tin đăng"
+                        : activeSection === "kyc"
+                          ? "Quản lý xác thực (KYC)"
+                          : "Quản lý nạp tiền"}
+                </h1>
+                <p className="mt-1 text-sm text-[#747D87]">
+                  {activeSection === "overview"
+                    ? "Theo dõi hoạt động và hiệu suất của hệ thống."
+                    : activeSection === "users"
+                      ? "Quản lý tài khoản và quyền truy cập trên hệ thống."
+                      : activeSection === "properties"
+                        ? "Quản lý và kiểm duyệt tất cả tin đăng trên hệ thống."
+                        : activeSection === "kyc"
+                          ? "Đối chiếu và duyệt hồ sơ tài khoản, hồ sơ bất động sản."
+                          : "Theo dõi giao dịch nạp tiền, khuyến mãi và điều chỉnh số dư."}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -948,11 +1288,17 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
               </button>
               {activeSection === "overview" ? (
                 <>
-                  <button className="flex h-11 items-center gap-2 rounded-xl border border-[#DDE3DD] bg-white px-4 text-sm text-[#4F5963]" type="button">
+                  <button
+                    className="flex h-11 items-center gap-2 rounded-xl border border-[#DDE3DD] bg-white px-4 text-sm text-[#4F5963]"
+                    type="button"
+                  >
                     <CalendarDays className="size-4" /> 01/07/2025 - 10/07/2025
                     <ChevronRight className="size-3.5 rotate-90" />
                   </button>
-                  <button className="flex h-11 items-center gap-2 rounded-xl border border-[#A8D5B2] bg-white px-4 text-sm font-semibold text-[#2E9149]" type="button">
+                  <button
+                    className="flex h-11 items-center gap-2 rounded-xl border border-[#A8D5B2] bg-white px-4 text-sm font-semibold text-[#2E9149]"
+                    type="button"
+                  >
                     <Download className="size-4" /> Xuất báo cáo
                   </button>
                 </>
@@ -986,166 +1332,248 @@ export default function AdminPage({ accessToken, currentUser, onBack, onLogout }
           ) : activeSection === "kyc" ? (
             <AdminKycPage accessToken={accessToken} onNotify={showAdminToast} />
           ) : activeSection === "payments" ? (
-            <AdminPaymentsPage accessToken={accessToken} onNotify={showAdminToast} />
+            <AdminPaymentsPage
+              accessToken={accessToken}
+              onNotify={showAdminToast}
+            />
           ) : (
             <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
-          </section>
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {stats.map((stat) => (
+                  <StatCard key={stat.label} {...stat} />
+                ))}
+              </section>
 
-          <section className="overflow-hidden rounded-2xl border border-[#E7EBE7] bg-white shadow-[0_10px_35px_rgba(40,61,46,0.045)]">
-            <div className="border-b border-[#E9EDE9] p-4 sm:p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-[#262D35]">Danh sách tài khoản</h2>
-                  <p className="mt-1 text-xs text-[#808892]">{pagination.total ?? 0} tài khoản phù hợp</p>
+              <section className="overflow-hidden rounded-2xl border border-[#E7EBE7] bg-white shadow-[0_10px_35px_rgba(40,61,46,0.045)]">
+                <div className="border-b border-[#E9EDE9] p-4 sm:p-5">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h2 className="text-lg font-bold text-[#262D35]">
+                        Danh sách tài khoản
+                      </h2>
+                      <p className="mt-1 text-xs text-[#808892]">
+                        {pagination.total ?? 0} tài khoản phù hợp
+                      </p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_150px]">
+                      <label className="relative">
+                        <span className="sr-only">Tìm kiếm người dùng</span>
+                        <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#98A0A9]" />
+                        <input
+                          className="h-10 w-full rounded-xl border border-[#E0E5E0] pl-10 pr-3 text-sm outline-none focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
+                          placeholder="Tên, email, số điện thoại..."
+                          type="search"
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                        />
+                      </label>
+                      <select
+                        aria-label="Lọc theo vai trò"
+                        className="h-10 rounded-xl border border-[#E0E5E0] bg-white px-3 text-sm text-[#535D67] outline-none focus:border-[#36A255]"
+                        value={role}
+                        onChange={(event) => {
+                          setRole(event.target.value);
+                          setPage(1);
+                        }}
+                      >
+                        <option value="">Tất cả vai trò</option>
+                        <option value="user">Người dùng</option>
+                        <option value="admin">Quản trị viên</option>
+                      </select>
+                      <select
+                        aria-label="Lọc theo trạng thái"
+                        className="h-10 rounded-xl border border-[#E0E5E0] bg-white px-3 text-sm text-[#535D67] outline-none focus:border-[#36A255]"
+                        value={status}
+                        onChange={(event) => {
+                          setStatus(event.target.value);
+                          setPage(1);
+                        }}
+                      >
+                        <option value="">Tất cả trạng thái</option>
+                        <option value="active">Đang hoạt động</option>
+                        <option value="inactive">Đã khóa</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_150px]">
-                  <label className="relative">
-                    <span className="sr-only">Tìm kiếm người dùng</span>
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#98A0A9]" />
-                    <input
-                      className="h-10 w-full rounded-xl border border-[#E0E5E0] pl-10 pr-3 text-sm outline-none focus:border-[#36A255] focus:ring-2 focus:ring-[#36A255]/15"
-                      placeholder="Tên, email, số điện thoại..."
-                      type="search"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                    />
-                  </label>
-                  <select
-                    aria-label="Lọc theo vai trò"
-                    className="h-10 rounded-xl border border-[#E0E5E0] bg-white px-3 text-sm text-[#535D67] outline-none focus:border-[#36A255]"
-                    value={role}
-                    onChange={(event) => { setRole(event.target.value); setPage(1); }}
-                  >
-                    <option value="">Tất cả vai trò</option>
-                    <option value="user">Người dùng</option>
-                    <option value="admin">Quản trị viên</option>
-                  </select>
-                  <select
-                    aria-label="Lọc theo trạng thái"
-                    className="h-10 rounded-xl border border-[#E0E5E0] bg-white px-3 text-sm text-[#535D67] outline-none focus:border-[#36A255]"
-                    value={status}
-                    onChange={(event) => { setStatus(event.target.value); setPage(1); }}
-                  >
-                    <option value="">Tất cả trạng thái</option>
-                    <option value="active">Đang hoạt động</option>
-                    <option value="inactive">Đã khóa</option>
-                  </select>
-                </div>
-              </div>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse text-left">
-                <thead className="bg-[#F8FAF8] text-[11px] font-bold uppercase tracking-[0.05em] text-[#7C858E]">
-                  <tr>
-                    <th className="px-5 py-3.5">Người dùng</th>
-                    <th className="px-5 py-3.5">Liên hệ</th>
-                    <th className="px-5 py-3.5">Vai trò</th>
-                    <th className="px-5 py-3.5">Trạng thái</th>
-                    <th className="px-5 py-3.5">Ngày tạo</th>
-                    <th className="px-5 py-3.5 text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EDF0ED]">
-                  {isLoading ? (
-                    <tr><td className="px-5 py-16 text-center" colSpan="6"><LoaderCircle className="mx-auto size-6 animate-spin text-[#31A451]" /><p className="mt-2 text-sm text-[#7B848D]">Đang tải dữ liệu...</p></td></tr>
-                  ) : users.length === 0 ? (
-                    <tr><td className="px-5 py-16 text-center" colSpan="6"><Users className="mx-auto size-8 text-[#A9B1AA]" /><p className="mt-3 text-sm font-medium text-[#59636D]">Không tìm thấy tài khoản phù hợp.</p></td></tr>
-                  ) : users.map((user) => {
-                    const userId = user.id ?? user._id ?? "";
-                    const currentUserId = currentUser.id ?? currentUser._id ?? "";
-                    const isSelf = userId === currentUserId;
-                    return (
-                      <tr key={userId} className="transition hover:bg-[#FBFCFB]">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            {user.avatarUrl ? (
-                              <img alt="" className="size-10 rounded-full object-cover" src={user.avatarUrl} />
-                            ) : (
-                              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#E4F3E7] text-xs font-bold text-[#2E984A]">{getInitials(user.fullName)}</span>
-                            )}
-                            <div>
-                              <p className="font-semibold text-[#313942]">{user.fullName}</p>
-                              <p className="mt-0.5 text-[11px] text-[#9198A1]">ID: {userId ? userId.slice(-8) : "—"}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-xs text-[#626C76]">
-                          {user.email ? <p className="flex items-center gap-1.5"><Mail className="size-3.5" />{user.email}</p> : null}
-                          {user.phone ? <p className="mt-1.5 flex items-center gap-1.5"><CircleUserRound className="size-3.5" />{user.phone}</p> : null}
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.roles?.includes("admin") ? "bg-[#EFE9FD] text-[#6F4BC3]" : "bg-[#EAF4FF] text-[#3678BC]"}`}>
-                            {user.roles?.includes("admin") ? "Quản trị viên" : "Người dùng"}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.isActive === false ? "bg-[#FFF0F0] text-[#C84C4C]" : "bg-[#E9F7EC] text-[#2E9149]"}`}>
-                            <span className={`size-1.5 rounded-full ${user.isActive === false ? "bg-[#D75858]" : "bg-[#35A554]"}`} />
-                            {user.isActive === false ? "Đã khóa" : "Hoạt động"}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-xs text-[#66707A]">{formatDate(user.createdAt)}</td>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              aria-label={`Chỉnh sửa ${user.fullName}`}
-                              className="flex size-9 items-center justify-center rounded-lg border border-[#E1E6E1] text-[#5F6973] transition hover:border-[#BFDCC5] hover:bg-[#F0F8F1] hover:text-[#2E974B]"
-                              type="button"
-                              onClick={() => { setFormUser(user); setShowForm(true); }}
-                            >
-                              <Pencil className="size-4" />
-                            </button>
-                            <button
-                              aria-label={`Xóa ${user.fullName}`}
-                              className="flex size-9 items-center justify-center rounded-lg border border-[#E1E6E1] text-[#A84A4A] transition hover:border-[#F0CACA] hover:bg-[#FFF4F4] disabled:cursor-not-allowed disabled:opacity-35"
-                              disabled={isSelf}
-                              title={isSelf ? "Không thể tự xóa tài khoản" : "Xóa tài khoản"}
-                              type="button"
-                              onClick={() => setDeleteUser(user)}
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] border-collapse text-left">
+                    <thead className="bg-[#F8FAF8] text-[11px] font-bold uppercase tracking-[0.05em] text-[#7C858E]">
+                      <tr>
+                        <th className="px-5 py-3.5">Người dùng</th>
+                        <th className="px-5 py-3.5">Liên hệ</th>
+                        <th className="px-5 py-3.5">Vai trò</th>
+                        <th className="px-5 py-3.5">Trạng thái</th>
+                        <th className="px-5 py-3.5">Ngày tạo</th>
+                        <th className="px-5 py-3.5 text-right">Thao tác</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-[#EDF0ED]">
+                      {isLoading ? (
+                        <tr>
+                          <td className="px-5 py-16 text-center" colSpan="6">
+                            <LoaderCircle className="mx-auto size-6 animate-spin text-[#31A451]" />
+                            <p className="mt-2 text-sm text-[#7B848D]">
+                              Đang tải dữ liệu...
+                            </p>
+                          </td>
+                        </tr>
+                      ) : users.length === 0 ? (
+                        <tr>
+                          <td className="px-5 py-16 text-center" colSpan="6">
+                            <Users className="mx-auto size-8 text-[#A9B1AA]" />
+                            <p className="mt-3 text-sm font-medium text-[#59636D]">
+                              Không tìm thấy tài khoản phù hợp.
+                            </p>
+                          </td>
+                        </tr>
+                      ) : (
+                        users.map((user) => {
+                          const userId = user.id ?? user._id ?? "";
+                          const currentUserId =
+                            currentUser.id ?? currentUser._id ?? "";
+                          const isSelf = userId === currentUserId;
+                          return (
+                            <tr
+                              key={userId}
+                              className="transition hover:bg-[#FBFCFB]"
+                            >
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-3">
+                                  {user.avatarUrl ? (
+                                    <img
+                                      alt=""
+                                      className="size-10 rounded-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                      src={user.avatarUrl}
+                                    />
+                                  ) : (
+                                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#E4F3E7] text-xs font-bold text-[#2E984A]">
+                                      {getInitials(user.fullName)}
+                                    </span>
+                                  )}
+                                  <div>
+                                    <p className="font-semibold text-[#313942]">
+                                      {user.fullName}
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-[#9198A1]">
+                                      ID: {userId ? userId.slice(-8) : "—"}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-xs text-[#626C76]">
+                                {user.email ? (
+                                  <p className="flex items-center gap-1.5">
+                                    <Mail className="size-3.5" />
+                                    {user.email}
+                                  </p>
+                                ) : null}
+                                {user.phone ? (
+                                  <p className="mt-1.5 flex items-center gap-1.5">
+                                    <CircleUserRound className="size-3.5" />
+                                    {user.phone}
+                                  </p>
+                                ) : null}
+                              </td>
+                              <td className="px-5 py-4">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.roles?.includes("admin") ? "bg-[#EFE9FD] text-[#6F4BC3]" : "bg-[#EAF4FF] text-[#3678BC]"}`}
+                                >
+                                  {user.roles?.includes("admin")
+                                    ? "Quản trị viên"
+                                    : "Người dùng"}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.isActive === false ? "bg-[#FFF0F0] text-[#C84C4C]" : "bg-[#E9F7EC] text-[#2E9149]"}`}
+                                >
+                                  <span
+                                    className={`size-1.5 rounded-full ${user.isActive === false ? "bg-[#D75858]" : "bg-[#35A554]"}`}
+                                  />
+                                  {user.isActive === false
+                                    ? "Đã khóa"
+                                    : "Hoạt động"}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 text-xs text-[#66707A]">
+                                {formatDate(user.createdAt)}
+                              </td>
+                              <td className="px-5 py-4">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    aria-label={`Chỉnh sửa ${user.fullName}`}
+                                    className="flex size-9 items-center justify-center rounded-lg border border-[#E1E6E1] text-[#5F6973] transition hover:border-[#BFDCC5] hover:bg-[#F0F8F1] hover:text-[#2E974B]"
+                                    type="button"
+                                    onClick={() => {
+                                      setFormUser(user);
+                                      setShowForm(true);
+                                    }}
+                                  >
+                                    <Pencil className="size-4" />
+                                  </button>
+                                  <button
+                                    aria-label={`Xóa ${user.fullName}`}
+                                    className="flex size-9 items-center justify-center rounded-lg border border-[#E1E6E1] text-[#A84A4A] transition hover:border-[#F0CACA] hover:bg-[#FFF4F4] disabled:cursor-not-allowed disabled:opacity-35"
+                                    disabled={isSelf}
+                                    title={
+                                      isSelf
+                                        ? "Không thể tự xóa tài khoản"
+                                        : "Xóa tài khoản"
+                                    }
+                                    type="button"
+                                    onClick={() => setDeleteUser(user)}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-            <div className="flex flex-col gap-3 border-t border-[#E9EDE9] px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-[#7B848D]">Trang {pagination.page ?? 1} / {pagination.totalPages ?? 1}</p>
-              <div className="flex items-center gap-2">
-                <button
-                  aria-label="Trang trước"
-                  className="flex size-9 items-center justify-center rounded-lg border border-[#DDE3DD] text-[#66707A] disabled:opacity-35"
-                  disabled={page <= 1 || isLoading}
-                  type="button"
-                  onClick={() => setPage((value) => value - 1)}
-                >
-                  <ChevronLeft className="size-4" />
-                </button>
-                <span className="flex size-9 items-center justify-center rounded-lg bg-[#31A451] text-xs font-semibold text-white">{page}</span>
-                <button
-                  aria-label="Trang sau"
-                  className="flex size-9 items-center justify-center rounded-lg border border-[#DDE3DD] text-[#66707A] disabled:opacity-35"
-                  disabled={page >= (pagination.totalPages ?? 1) || isLoading}
-                  type="button"
-                  onClick={() => setPage((value) => value + 1)}
-                >
-                  <ChevronRight className="size-4" />
-                </button>
-              </div>
-            </div>
-          </section>
+                <div className="flex flex-col gap-3 border-t border-[#E9EDE9] px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-[#7B848D]">
+                    Trang {pagination.page ?? 1} / {pagination.totalPages ?? 1}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      aria-label="Trang trước"
+                      className="flex size-9 items-center justify-center rounded-lg border border-[#DDE3DD] text-[#66707A] disabled:opacity-35"
+                      disabled={page <= 1 || isLoading}
+                      type="button"
+                      onClick={() => setPage((value) => value - 1)}
+                    >
+                      <ChevronLeft className="size-4" />
+                    </button>
+                    <span className="flex size-9 items-center justify-center rounded-lg bg-[#31A451] text-xs font-semibold text-white">
+                      {page}
+                    </span>
+                    <button
+                      aria-label="Trang sau"
+                      className="flex size-9 items-center justify-center rounded-lg border border-[#DDE3DD] text-[#66707A] disabled:opacity-35"
+                      disabled={
+                        page >= (pagination.totalPages ?? 1) || isLoading
+                      }
+                      type="button"
+                      onClick={() => setPage((value) => value + 1)}
+                    >
+                      <ChevronRight className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              </section>
 
-          <p className="flex items-center gap-2 text-xs text-[#858E97]">
-            <LockKeyhole className="size-3.5" /> Tài khoản quản trị hiện tại không thể tự khóa, gỡ quyền hoặc xóa.
-          </p>
+              <p className="flex items-center gap-2 text-xs text-[#858E97]">
+                <LockKeyhole className="size-3.5" /> Tài khoản quản trị hiện tại
+                không thể tự khóa, gỡ quyền hoặc xóa.
+              </p>
             </>
           )}
         </div>

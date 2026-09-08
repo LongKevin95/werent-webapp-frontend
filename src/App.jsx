@@ -1,5 +1,5 @@
 import L from "leaflet";
-import { GoogleLogin } from "@react-oauth/google";
+import { useGoogleOAuth } from "@react-oauth/google";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -15,6 +15,7 @@ import bannerImg from "./assets/banner-img.png";
 import zaloIcon from "./assets/zalo-icon.svg";
 import AppFooter from "./components/layout/AppFooter";
 import AppHeader from "./components/layout/AppHeader";
+import AiChatWidget from "./components/ai/AiChatWidget";
 import {
   PropertySearchHeaderBar,
   PropertySearchResultsPage,
@@ -38,6 +39,7 @@ import {
   register as registerRequest,
   updateProfile as updateProfileRequest,
   uploadAvatar as uploadAvatarRequest,
+  warmUpApi,
 } from "./lib/auth-client";
 import { INVALID_PHONE_MESSAGE, normalizeVietnamPhone } from "./lib/phone";
 import {
@@ -57,6 +59,7 @@ import {
 import {
   createPropertyListing,
   deletePropertyListing,
+  getProperty,
   getListingVerification,
   listAdministrativeDivisions,
   listMyProperties,
@@ -126,11 +129,15 @@ import {
 
 const AUTH_TOKEN_STORAGE_KEY = "werent.accessToken";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? "";
+let initializedGoogleClientId = "";
+let activeGoogleCredentialHandler = null;
 const ACCOUNT_KYC_SUBMITTED_MESSAGE =
   "Yêu cầu xác thực của bạn đã đươc gửi đi. Vui lòng chờ đợi quá trình phê duyệt!";
 const ACCOUNT_KYC_REJECTED_MESSAGE =
   "Vui lòng xem chi tiết và làm theo hướng dẫn bổ sung hồ sơ để được xét duyệt lại.";
 const LOGIN_REQUIRED_MESSAGE = "Vui lòng đăng nhập để sử dụng tính năng này.";
+const ADMIN_USER_ONLY_FEATURE_MESSAGE =
+  "Tài khoản admin không sử dụng tính năng dành cho người dùng thường.";
 const FRONTEND_ROUTES = Object.freeze({
   adminDashboard: "/admin",
   home: "/",
@@ -148,6 +155,15 @@ const FRONTEND_ROUTE_VIEWS = Object.freeze(
     Object.entries(FRONTEND_ROUTES).map(([view, path]) => [path, view]),
   ),
 );
+const USER_ONLY_VIEWS = new Set([
+  "favorites",
+  "myListings",
+  "postListing",
+  "wallet",
+  "walletMomoMock",
+  "walletTopUp",
+]);
+const LISTING_DETAIL_ROUTE_PATTERN = /^\/listing\/([a-f\d]{24})$/i;
 const DEFAULT_PROPERTY_LOCATION = { lat: 10.7721, lng: 106.6983 };
 const MAP_SEARCH_DEBOUNCE_MS = 250;
 const MAP_SEARCH_MIN_LENGTH = 3;
@@ -184,6 +200,10 @@ const PROPERTY_MARKER_ICON = L.divIcon({
 });
 
 function App() {
+  useEffect(() => {
+    warmUpApi();
+  }, []);
+
   return <HomePage />;
 }
 
@@ -202,7 +222,25 @@ function getNormalizedRoutePath(pathname = "/") {
 
 function getViewFromRoutePath(pathname) {
   const normalizedPath = getNormalizedRoutePath(pathname);
+
+  if (LISTING_DETAIL_ROUTE_PATTERN.test(normalizedPath)) {
+    return "listingDetail";
+  }
+
   return FRONTEND_ROUTE_VIEWS[normalizedPath] ?? "home";
+}
+
+function getListingIdFromRoutePath(pathname) {
+  const normalizedPath = getNormalizedRoutePath(pathname);
+  const match = normalizedPath.match(LISTING_DETAIL_ROUTE_PATTERN);
+
+  return match?.[1] ?? "";
+}
+
+function getListingDetailPath(propertyId) {
+  const normalizedId = String(propertyId ?? "").trim();
+
+  return /^[a-f\d]{24}$/i.test(normalizedId) ? `/listing/${normalizedId}` : "";
 }
 
 function getInitialViewFromRoute() {
@@ -234,11 +272,45 @@ function updateFrontendRoute(view, options = {}) {
   window.history[historyMethod]({ view }, "", nextPath);
 }
 
+function updateListingDetailRoute(propertyId, options = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextPath = getListingDetailPath(propertyId);
+
+  if (!nextPath) {
+    return;
+  }
+
+  const currentPath = getNormalizedRoutePath(window.location.pathname);
+
+  if (currentPath === nextPath) {
+    return;
+  }
+
+  const historyMethod = options.replace ? "replaceState" : "pushState";
+  window.history[historyMethod](
+    { view: "listingDetail", propertyId },
+    "",
+    nextPath,
+  );
+}
+
 function canUserPostListing(user) {
   return Boolean(
-    user?.roles?.includes("admin") ||
-    (user?.canPostListing && user?.kycStatus === "verified"),
+    isRegularUser(user) &&
+      user?.canPostListing &&
+      user?.kycStatus === "verified",
   );
+}
+
+function isAdminUser(user) {
+  return Boolean(user?.roles?.includes("admin"));
+}
+
+function isRegularUser(user) {
+  return Boolean(user && !isAdminUser(user));
 }
 
 function getListingVerificationBadgeLabel(status) {
@@ -359,6 +431,199 @@ function GoogleIcon({ className = "size-5" }) {
         fill="#EA4335"
       />
     </svg>
+  );
+}
+
+function getCurrentOrigin() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.origin;
+}
+
+function getGoogleOAuthSetupMessage() {
+  const currentOrigin = getCurrentOrigin();
+  const originHint = currentOrigin ? ` (${currentOrigin})` : "";
+
+  return `Google OAuth chưa cho phép origin hiện tại${originHint}. Hãy thêm origin này vào Authorized JavaScript origins của OAuth Web client và bảo đảm VITE_GOOGLE_CLIENT_ID/GOOGLE_CLIENT_ID dùng cùng client ID.`;
+}
+
+function getGoogleCredentialInvalidMessage(message) {
+  const currentOrigin = getCurrentOrigin();
+  const originHint = currentOrigin ? ` Origin hiện tại: ${currentOrigin}.` : "";
+
+  return `${
+    message || "Google credential không hợp lệ."
+  } Hãy đồng bộ ngày giờ hệ thống, đăng nhập lại Google, rồi kiểm tra VITE_GOOGLE_CLIENT_ID/GOOGLE_CLIENT_ID và Authorized JavaScript origins nếu lỗi vẫn còn.${originHint}`;
+}
+
+function getGoogleLoginErrorMessage(error) {
+  const message = error?.message || "";
+
+  if (
+    error?.code === "GOOGLE_CREDENTIAL_INVALID" ||
+    message.toLowerCase().includes("google credential")
+  ) {
+    return getGoogleCredentialInvalidMessage(message);
+  }
+
+  return message || "Đăng nhập Google thất bại. Vui lòng thử lại.";
+}
+
+function ensureGoogleCredentialClient(clientId) {
+  const googleIdentity = window.google?.accounts?.id;
+
+  if (!googleIdentity || initializedGoogleClientId === clientId) {
+    return googleIdentity;
+  }
+
+  googleIdentity.initialize({
+    client_id: clientId,
+    callback(credentialResponse) {
+      activeGoogleCredentialHandler?.(credentialResponse);
+    },
+  });
+  initializedGoogleClientId = clientId;
+
+  return googleIdentity;
+}
+
+function GoogleCredentialButton({
+  disabled = false,
+  label,
+  onError,
+  onSuccess,
+  text,
+}) {
+  const buttonContainerRef = useRef(null);
+  const googleButtonRef = useRef(null);
+  const onErrorRef = useRef(onError);
+  const onSuccessRef = useRef(onSuccess);
+  const [isButtonRendered, setIsButtonRendered] = useState(false);
+  const { clientId, scriptLoadedSuccessfully } = useGoogleOAuth();
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onSuccessRef.current = onSuccess;
+  }, [onError, onSuccess]);
+
+  const handleCredential = useCallback(
+    (credentialResponse) => {
+      if (!credentialResponse?.credential) {
+        onErrorRef.current?.();
+        return;
+      }
+
+      onSuccessRef.current?.({
+        credential: credentialResponse.credential,
+        clientId:
+          credentialResponse.clientId ??
+          credentialResponse.client_id ??
+          clientId,
+        select_by: credentialResponse.select_by,
+      });
+    },
+    [clientId],
+  );
+
+  useEffect(() => {
+    if (!scriptLoadedSuccessfully || !clientId || !buttonContainerRef.current) {
+      return undefined;
+    }
+
+    const buttonContainer = buttonContainerRef.current;
+    const googleIdentity = ensureGoogleCredentialClient(clientId);
+
+    if (!googleIdentity) {
+      onErrorRef.current?.();
+      return undefined;
+    }
+
+    activeGoogleCredentialHandler = handleCredential;
+    buttonContainer.innerHTML = "";
+    googleButtonRef.current = null;
+    googleIdentity.renderButton(buttonContainer, {
+      shape: "circle",
+      size: "large",
+      text,
+      type: "icon",
+    });
+    googleButtonRef.current =
+      buttonContainer.querySelector('[role="button"]') ??
+      buttonContainer.firstElementChild;
+    setIsButtonRendered(buttonContainer.childElementCount > 0);
+
+    return () => {
+      if (activeGoogleCredentialHandler === handleCredential) {
+        activeGoogleCredentialHandler = null;
+      }
+
+      buttonContainer.innerHTML = "";
+      googleButtonRef.current = null;
+      setIsButtonRendered(false);
+    };
+  }, [clientId, handleCredential, scriptLoadedSuccessfully, text]);
+
+  function handleFallbackClick() {
+    if (disabled) {
+      return;
+    }
+
+    if (googleButtonRef.current) {
+      googleButtonRef.current.click();
+      return;
+    }
+
+    const googleIdentity = ensureGoogleCredentialClient(clientId);
+
+    if (!googleIdentity) {
+      onErrorRef.current?.();
+      return;
+    }
+
+    activeGoogleCredentialHandler = handleCredential;
+    googleIdentity.prompt((notification) => {
+      if (
+        notification?.isNotDisplayed?.() ||
+        notification?.isSkippedMoment?.()
+      ) {
+        onErrorRef.current?.();
+      }
+    });
+  }
+
+  return (
+    <div
+      className={`relative flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition ${
+        disabled
+          ? "pointer-events-none opacity-70"
+          : "cursor-pointer hover:bg-[#F8FAFC]"
+      }`}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onClick={handleFallbackClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleFallbackClick();
+        }
+      }}
+    >
+      <div className="relative flex size-8 items-center justify-center">
+        <GoogleIcon
+          className={`size-5 transition ${isButtonRendered ? "opacity-0" : ""}`}
+        />
+        <div
+          ref={buttonContainerRef}
+          className={`absolute inset-0 flex items-center justify-center overflow-hidden ${
+            isButtonRendered ? "" : "pointer-events-none opacity-0"
+          }`}
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -903,6 +1168,7 @@ function PropertyCard({
   listing,
   onToggleFavorite,
   onViewListing,
+  showFavoriteAction = true,
 }) {
   const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
   const handleOpen = () => onViewListing?.(listing);
@@ -994,6 +1260,7 @@ function PropertyCard({
             <Clock3 className="size-4 shrink-0 text-[#35A554]" />
             <span className="truncate">{publishedTimeLabel}</span>
           </div>
+          {showFavoriteAction ? (
           <button
             aria-label={
               isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"
@@ -1010,6 +1277,7 @@ function PropertyCard({
           >
             <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
           </button>
+          ) : null}
         </div>
       </div>
     </article>
@@ -1021,6 +1289,7 @@ function MiniPropertyCard({
   listing,
   onToggleFavorite,
   onViewListing,
+  showFavoriteAction = true,
 }) {
   const [isFavoriteBusy, setIsFavoriteBusy] = useState(false);
   const handleOpen = () => onViewListing?.(listing);
@@ -1059,6 +1328,7 @@ function MiniPropertyCard({
           className="h-[155px] w-full object-cover"
           src={listing.image}
         />
+        {showFavoriteAction ? (
         <button
           aria-label={isFavorite ? "Bỏ lưu tin yêu thích" : "Lưu tin yêu thích"}
           className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
@@ -1072,6 +1342,7 @@ function MiniPropertyCard({
         >
           <Heart className={`size-3.5 ${isFavorite ? "fill-current" : ""}`} />
         </button>
+        ) : null}
       </div>
       <div className="space-y-3 p-[18px]">
         {listing.isVerified ? (
@@ -1261,16 +1532,14 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
         }),
       );
     } catch (error) {
-      setSubmitError(
-        error.message || "Đăng nhập Google thất bại. Vui lòng thử lại.",
-      );
+      setSubmitError(getGoogleLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
   }
 
   function handleGoogleError() {
-    setSubmitError("Đăng nhập Google thất bại. Vui lòng thử lại.");
+    setSubmitError(getGoogleOAuthSetupMessage());
   }
 
   return (
@@ -1640,26 +1909,13 @@ function AuthModal({ mode, onClose, onSwitchMode }) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {GOOGLE_CLIENT_ID ? (
-              <div
-                className={`relative flex ${fieldHeightClassName} w-full items-center justify-center gap-3 overflow-hidden rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition ${isSubmitting ? "pointer-events-none opacity-70" : "hover:bg-[#F8FAFC]"}`}
-              >
-                <GoogleIcon />
-                <span>
-                  {isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
-                </span>
-                <div className="absolute inset-0 flex items-center justify-center opacity-0">
-                  <GoogleLogin
-                    logo_alignment="left"
-                    shape="rectangular"
-                    size="large"
-                    text={isLogin ? "signin_with" : "signup_with"}
-                    useOneTap={false}
-                    width="400"
-                    onError={handleGoogleError}
-                    onSuccess={handleGoogleSuccess}
-                  />
-                </div>
-              </div>
+              <GoogleCredentialButton
+                disabled={isSubmitting}
+                label={isLogin ? "Đăng nhập với Google" : "Đăng ký với Google"}
+                text={isLogin ? "signin_with" : "signup_with"}
+                onError={handleGoogleError}
+                onSuccess={handleGoogleSuccess}
+              />
             ) : (
               <button
                 className={`flex ${fieldHeightClassName} w-full items-center justify-center gap-3 rounded-xl border border-[#E7E9EE] bg-white text-sm font-semibold text-[#20252F] transition hover:bg-[#F8FAFC]`}
@@ -1769,6 +2025,19 @@ const dashboardSidebarSections = [
     ],
   },
 ];
+
+const ADMIN_BLOCKED_ACCOUNT_KEYS = new Set([
+  "appointments",
+  "favorites",
+  "messages",
+  "myListings",
+  "postListing",
+  "rentalAppointments",
+  "reports",
+  "reviews",
+  "servicePackages",
+  "wallet",
+]);
 
 const postListingSteps = [
   "Thông tin cơ bản",
@@ -2125,6 +2394,56 @@ const listingAmenityCatalog = [...indoorAmenities, ...areaAmenities];
 const listingAmenityMap = Object.fromEntries(
   listingAmenityCatalog.map((amenity) => [amenity.key, amenity]),
 );
+const listingAmenityAliases = Object.freeze({
+  "an ninh": "security",
+  "bai xe": "parkingBasement",
+  "bao ve": "security",
+  "bao ve 24/7": "security",
+  "ban an": "diningTable",
+  "ban lam viec": "desk",
+  bep: "kitchen",
+  camera: "camera",
+  "camera an ninh": "camera",
+  "cho de xe": "parkingBasement",
+  "cho de xe may": "parkingBasement",
+  "cong vien": "park",
+  "day du noi that": "bed",
+  "dieu hoa": "airConditioner",
+  "gac lung": "bed",
+  gara: "parkingBasement",
+  garage: "parkingBasement",
+  "gio giac tu do": "security",
+  giuong: "bed",
+  gym: "gym",
+  "ham de xe": "parkingBasement",
+  "ho boi": "pool",
+  "khu bbq": "bbq",
+  "may giat": "washingMachine",
+  "may lanh": "airConditioner",
+  "nong lanh": "waterHeater",
+  "phong gym": "gym",
+  "san choi tre em": "playground",
+  "tu lanh": "refrigerator",
+  "tu quan ao": "wardrobe",
+  wifi: "wifi",
+  "wi fi": "wifi",
+});
+function normalizeListingAmenityText(value = "") {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+
+const listingAmenityLabelMap = Object.fromEntries(
+  listingAmenityCatalog.map((amenity) => [
+    normalizeListingAmenityText(amenity.label),
+    amenity,
+  ]),
+);
 
 function getListingTierOptionByKey(key) {
   return (
@@ -2365,7 +2684,28 @@ function formatSchedulePart(value, shouldPad = false) {
 }
 
 function getListingAmenityItems(keys = []) {
-  return keys.map((key) => listingAmenityMap[key]).filter(Boolean);
+  const seen = new Set();
+
+  return keys
+    .map((key) => {
+      const normalizedKey = normalizeListingAmenityText(key);
+      const amenity =
+        listingAmenityMap[key] ??
+        listingAmenityMap[listingAmenityAliases[normalizedKey]] ??
+        listingAmenityLabelMap[normalizedKey];
+
+      if (!amenity) {
+        return null;
+      }
+
+      if (seen.has(amenity.key)) {
+        return null;
+      }
+
+      seen.add(amenity.key);
+      return amenity;
+    })
+    .filter(Boolean);
 }
 
 function getListingOverviewItems(draft) {
@@ -3723,6 +4063,37 @@ function mapApiPropertyToListingRecord(property, index = 0) {
   };
 }
 
+function getSearchNumberParam(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function hasActivePropertySearchState(searchState = {}) {
+  const normalizedState = normalizePropertySearchState(searchState);
+
+  return Object.keys(defaultPropertySearchState).some((key) =>
+    String(normalizedState[key] ?? "").trim(),
+  );
+}
+
+function buildPropertySearchListParams(searchState = {}) {
+  const normalizedState = normalizePropertySearchState(searchState);
+
+  return {
+    bathrooms: getSearchNumberParam(normalizedState.bathrooms),
+    bedrooms: getSearchNumberParam(normalizedState.bedrooms),
+    city: normalizedState.city,
+    district: normalizedState.district,
+    keyword: normalizedState.keyword.trim(),
+    limit: 100,
+    maxArea: getSearchNumberParam(normalizedState.maxArea),
+    maxPrice: getSearchNumberParam(normalizedState.maxPrice),
+    minArea: getSearchNumberParam(normalizedState.minArea),
+    minPrice: getSearchNumberParam(normalizedState.minPrice),
+    propertyType: normalizedState.propertyType,
+    ward: normalizedState.ward,
+  };
+}
+
 function ZaloMark({ className = "size-5" }) {
   return (
     <svg
@@ -4098,10 +4469,21 @@ function ChangePasswordModal({ accessToken, onClose, onSuccess }) {
   );
 }
 
-function AccountSidebar({ activeKey, onLogout, onNavigate }) {
+function AccountSidebar({ activeKey, onLogout, onNavigate, user }) {
+  const visibleSections = isAdminUser(user)
+    ? dashboardSidebarSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter(
+            (item) => !ADMIN_BLOCKED_ACCOUNT_KEYS.has(item.key),
+          ),
+        }))
+        .filter((section) => section.items.length > 0)
+    : dashboardSidebarSections;
+
   return (
     <aside className="h-fit rounded-[22px] border border-[#E9ECE8] bg-white p-3 shadow-[0_10px_30px_rgba(46,72,54,0.05)] lg:sticky lg:top-4">
-      {dashboardSidebarSections.map((section) => (
+      {visibleSections.map((section) => (
         <div key={section.title} className="first:mt-0 mt-4">
           <p className="px-3 pb-2 pt-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9097A0]">
             {section.title}
@@ -4279,6 +4661,7 @@ function AccountPageShell({
             activeKey={activeKey}
             onLogout={onLogout}
             onNavigate={onNavigate}
+            user={user}
           />
 
           <div className="min-w-0">{children}</div>
@@ -4667,6 +5050,7 @@ function WalletPage({
   headerSearchContent,
   onLogout,
   onNavigate,
+  onNotify = () => {},
   user,
 }) {
   const [walletData, setWalletData] = useState(null);
@@ -4676,6 +5060,7 @@ function WalletPage({
     getWalletReturnNoticeFromSearch(),
   );
   const [paymentOrders, setPaymentOrders] = useState([]);
+  const notifiedTopUpOrderCodesRef = useRef(new Set());
   const walletSummary = walletData?.summary ?? {
     availableBalance: 0,
     promotionBalance: 0,
@@ -4715,6 +5100,23 @@ function WalletPage({
       ) ?? null
     );
   }, [paymentOrders, walletReturnNotice]);
+  const showTopUpSuccessToast = useCallback(
+    (order) => {
+      const orderCode = order?.orderCode;
+
+      if (!orderCode || notifiedTopUpOrderCodesRef.current.has(orderCode)) {
+        return;
+      }
+
+      notifiedTopUpOrderCodesRef.current.add(orderCode);
+      const creditedAmount = Number(order.totalCredit || order.amount || 0);
+
+      onNotify(
+        `Nạp tiền thành công. Đã cộng ${formatWalletCurrency(creditedAmount)} vào ví WeRent.`,
+      );
+    },
+    [onNotify],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -4811,15 +5213,56 @@ function WalletPage({
     !highlightedTopUpOrder || highlightedTopUpOrder.status === "pending";
 
   useEffect(() => {
-    if (!walletReturnNotice?.orderCode || !isHighlightedTopUpPending) {
+    if (
+      walletReturnNotice?.type !== "success" ||
+      highlightedTopUpOrder?.status !== "paid"
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => getWalletOverview(accessToken))
+      .then((response) => {
+        if (isActive && response) {
+          setWalletData(response.data);
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!isActive) {
+          return;
+        }
+
+        showTopUpSuccessToast(highlightedTopUpOrder);
+        setWalletReturnNotice(null);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    accessToken,
+    highlightedTopUpOrder,
+    showTopUpSuccessToast,
+    walletReturnNotice?.type,
+  ]);
+
+  useEffect(() => {
+    if (
+      walletReturnNotice?.type !== "success" ||
+      !walletReturnNotice.orderCode ||
+      !isHighlightedTopUpPending
+    ) {
       return undefined;
     }
 
     let isActive = true;
     let attemptCount = 0;
     let timeoutId = null;
-    const maxAttempts = 8;
-    const pollDelay = 1000;
+    const maxAttempts = 60;
+    const pollDelay = 2000;
 
     async function syncTopUpStatus() {
       attemptCount += 1;
@@ -4856,11 +5299,16 @@ function WalletPage({
           return;
         }
 
+        if (matchedOrder.status === "paid") {
+          showTopUpSuccessToast(matchedOrder);
+          setWalletReturnNotice(null);
+          return;
+        }
+
         const resolvedNotice = getWalletReturnNoticeFromOrderStatus(
           matchedOrder.status,
           matchedOrder.orderCode,
         );
-
         if (resolvedNotice) {
           setWalletReturnNotice(resolvedNotice);
         }
@@ -4886,6 +5334,7 @@ function WalletPage({
   }, [
     accessToken,
     isHighlightedTopUpPending,
+    showTopUpSuccessToast,
     walletReturnNotice?.orderCode,
     walletReturnNotice?.type,
   ]);
@@ -4925,7 +5374,7 @@ function WalletPage({
           </div>
         ) : null}
 
-        {walletReturnNotice ? (
+        {walletReturnNotice && walletReturnNotice.type !== "success" ? (
           <section
             className={`rounded-[22px] border px-5 py-5 shadow-[0_12px_30px_rgba(46,72,54,0.05)] sm:px-6 ${
               walletReturnNotice.type === "success"
@@ -9634,6 +10083,7 @@ function PostListingPage({
             activeKey="postListing"
             onLogout={() => requestExitAction({ type: "logout" })}
             onNavigate={requestPostListingNavigation}
+            user={user}
           />
 
           <div className="min-w-0 space-y-5">
@@ -10432,6 +10882,7 @@ function ListingDetailPage({
   useEffect(() => {
     if (
       !accessToken ||
+      isAdminUser(currentUser) ||
       !listing.id ||
       !/^[a-f\d]{24}$/i.test(String(listing.id))
     )
@@ -10450,13 +10901,19 @@ function ListingDetailPage({
     return () => {
       active = false;
     };
-  }, [accessToken, listing.id]);
+  }, [accessToken, currentUser, listing.id]);
 
   async function handleFavoriteToggle() {
     if (!currentUser) {
       onNavigate("favorites");
       return;
     }
+
+    if (isAdminUser(currentUser)) {
+      onNotify(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+      return;
+    }
+
     setIsUpdatingFavorite(true);
     try {
       if (isFavorite) await removeFavorite(accessToken, listing.id);
@@ -10527,6 +10984,11 @@ function ListingDetailPage({
   }
 
   async function handleContactPhoneClick() {
+    if (isAdminUser(currentUser)) {
+      onNotify(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+      return;
+    }
+
     if (!contactPhone) {
       onNotify(
         "Tin đăng này chưa có số điện thoại hợp lệ để liên hệ.",
@@ -10558,6 +11020,11 @@ function ListingDetailPage({
   }
 
   function handleZaloContactClick() {
+    if (isAdminUser(currentUser)) {
+      onNotify(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+      return;
+    }
+
     if (!contactPhone) {
       onNotify(
         "Tin đăng này chưa có số điện thoại hợp lệ để mở Zalo.",
@@ -10570,6 +11037,12 @@ function ListingDetailPage({
   }
 
   function handleOpenZaloContact() {
+    if (isAdminUser(currentUser)) {
+      setIsZaloContactModalOpen(false);
+      onNotify(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+      return;
+    }
+
     if (!contactPhone) {
       setIsZaloContactModalOpen(false);
       onNotify(
@@ -10943,6 +11416,7 @@ function ListingDetailPage({
                     <h1 className="mt-3 line-clamp-2 break-words text-[28px] font-bold leading-tight text-[#1F252D] sm:text-[28px] lg:text-[30px]">
                       {listing.title}
                     </h1>
+                    {!isAdminViewer ? (
                     <button
                       className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`}
                       disabled={isUpdatingFavorite}
@@ -10954,6 +11428,7 @@ function ListingDetailPage({
                       />
                       {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
                     </button>
+                    ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
                       <span className="flex items-center gap-2">
                         <MapPin className="size-4 text-[#35A554]" />
@@ -11075,6 +11550,12 @@ function ListingDetailPage({
                   </div>
 
                   <div className="mt-5 space-y-3">
+                    {isAdminViewer ? (
+                      <div className="rounded-xl border border-[#E4E9E5] bg-[#F8FAF8] px-4 py-3 text-sm font-semibold text-[#60706A]">
+                        Tài khoản admin chỉ xem tin, không sử dụng kênh liên hệ chủ nhà.
+                      </div>
+                    ) : (
+                      <>
                     <button
                       aria-label={
                         isContactPhoneVisible
@@ -11126,6 +11607,8 @@ function ListingDetailPage({
                       <MessageSquare className="size-4" />
                       Nhắn qua WeRent
                     </button>
+                      </>
+                    )}
                   </div>
                 </section>
 
@@ -11262,6 +11745,7 @@ function MyListingsPage({
   onListingVisibilityChange,
   onLogout,
   onNavigate,
+  onNotify = () => {},
   onViewListing,
   user,
 }) {
@@ -11520,6 +12004,8 @@ function MyListingsPage({
     try {
       await deletePropertyListing(accessToken, listingToDelete.id);
 
+      onNotify("Đã xóa tin đăng thành công.");
+
       const nextTotal = Math.max(0, listingPagination.total - 1);
       const nextTotalPages = Math.max(
         1,
@@ -11561,6 +12047,7 @@ function MyListingsPage({
             activeKey="myListings"
             onLogout={onLogout}
             onNavigate={onNavigate}
+            user={user}
           />
 
           <div className="min-w-0 space-y-5">
@@ -11967,10 +12454,18 @@ function ProfilePage({
   const memberSince = user.createdAt
     ? new Intl.DateTimeFormat("vi-VN").format(new Date(user.createdAt))
     : "Chưa có dữ liệu";
-  const isRejectedAccountKyc = ["rejected", "need_more_info"].includes(
-    user.kycStatus,
-  );
-  const kycStatusDisplay = getKycStatusDisplay(user.kycStatus);
+  const isAdminProfile = isAdminUser(user);
+  const isRejectedAccountKyc =
+    !isAdminProfile &&
+    ["rejected", "need_more_info"].includes(user.kycStatus);
+  const kycStatusDisplay = isAdminProfile
+    ? {
+        badgeClassName: "bg-green-50 text-green-700",
+        iconClassName: "bg-green-50 text-green-600",
+        label: "Quản trị viên",
+        description: "Tài khoản admin không áp dụng KYC cá nhân.",
+      }
+    : getKycStatusDisplay(user.kycStatus);
   const formatProfileDate = (value) =>
     value ? new Intl.DateTimeFormat("vi-VN").format(new Date(value)) : "";
   const loadLatestAccountKyc = useCallback(async () => {
@@ -12066,6 +12561,7 @@ function ProfilePage({
     }
 
     const changesVerifiedIdentity =
+      !isAdminProfile &&
       user.kycStatus === "verified" &&
       (formValues.fullName.trim() !== user.fullName ||
         formValues.dateOfBirth !== formatProfileInputDate(user.dateOfBirth) ||
@@ -12150,7 +12646,7 @@ function ProfilePage({
           }
         />
       ) : null}
-      {showKycModal ? (
+      {showKycModal && !isAdminProfile ? (
         <KycAccountModal
           accessToken={accessToken}
           user={user}
@@ -12197,6 +12693,7 @@ function ProfilePage({
             activeKey="profile"
             onLogout={onLogout}
             onNavigate={onNavigate}
+            user={user}
           />
 
           <div className="min-w-0 space-y-5">
@@ -12208,6 +12705,7 @@ function ProfilePage({
                       <img
                         alt={`Ảnh đại diện của ${user.fullName}`}
                         className="size-24 rounded-full border-4 border-[#F0F6F1] object-cover sm:size-28"
+                        referrerPolicy="no-referrer"
                         src={user.avatarUrl}
                       />
                     ) : (
@@ -12410,7 +12908,7 @@ function ProfilePage({
                   </button>
                 </section>
 
-                {user.kycStatus !== "verified" ? (
+                {!isAdminProfile && user.kycStatus !== "verified" ? (
                   <section className="order-1 rounded-[22px] border border-[#E8ECE7] bg-white p-5 shadow-[0_10px_30px_rgba(46,72,54,0.045)]">
                     <h2 className="text-lg font-bold text-[#252C34]">
                       Xác thực tài khoản
@@ -12488,6 +12986,10 @@ function HomePage() {
   const [currentView, setCurrentView] = useState(getInitialViewFromRoute);
   const [editingListing, setEditingListing] = useState(null);
   const [selectedListingDetail, setSelectedListingDetail] = useState(null);
+  const [routeListingDetailState, setRouteListingDetailState] = useState({
+    error: "",
+    isLoading: false,
+  });
   const [listingDetailBackView, setListingDetailBackView] = useState("home");
   const [propertySearchDraft, setPropertySearchDraft] = useState(
     defaultPropertySearchState,
@@ -12496,9 +12998,14 @@ function HomePage() {
     defaultPropertySearchState,
   );
   const [apiListings, setApiListings] = useState([]);
+  const [searchApiListings, setSearchApiListings] = useState([]);
   const [hasFetchedProperties, setHasFetchedProperties] = useState(false);
+  const [hasFetchedSearchProperties, setHasFetchedSearchProperties] =
+    useState(false);
   const [, setIsLoadingProperties] = useState(false);
+  const [, setIsLoadingSearchProperties] = useState(false);
   const [propertyListError, setPropertyListError] = useState("");
+  const [searchPropertyListError, setSearchPropertyListError] = useState("");
   const [propertyRefreshKey, setPropertyRefreshKey] = useState(0);
   const [searchFavoritePropertyIds, setSearchFavoritePropertyIds] = useState(
     [],
@@ -12528,6 +13035,7 @@ function HomePage() {
       setCurrentView(nextView);
       setEditingListing(null);
       setSelectedListingDetail(null);
+      setRouteListingDetailState({ error: "", isLoading: false });
       setListingDetailBackView("home");
     }
 
@@ -12537,6 +13045,58 @@ function HomePage() {
       window.removeEventListener("popstate", handleRouteChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (currentView !== "listingDetail") {
+      return undefined;
+    }
+
+    const routePropertyId = getListingIdFromRoutePath(window.location.pathname);
+
+    if (!routePropertyId) {
+      return undefined;
+    }
+
+    if (String(selectedListingDetail?.id ?? "") === routePropertyId) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    getProperty(routePropertyId)
+      .then((response) => {
+        if (!isActive) {
+          return;
+        }
+
+        const property = response.data?.property;
+
+        if (!property) {
+          throw new Error("Không tìm thấy tin đăng.");
+        }
+
+        setSelectedListingDetail(mapApiPropertyToListingRecord(property));
+        setListingDetailBackView("search");
+        setRouteListingDetailState({ error: "", isLoading: false });
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setSelectedListingDetail(null);
+        setRouteListingDetailState({
+          error:
+            error.message ||
+            "Không thể tải tin đăng lúc này. Vui lòng thử lại sau.",
+          isLoading: false,
+        });
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentView, selectedListingDetail?.id]);
 
   useEffect(() => {
     if (!authModal) {
@@ -12660,8 +13220,16 @@ function HomePage() {
   }, [accessToken, currentUser]);
 
   useEffect(() => {
-    if (!accessToken || !currentUser) {
-      return undefined;
+    if (!accessToken || !isRegularUser(currentUser)) {
+      let isActive = true;
+      Promise.resolve().then(() => {
+        if (isActive) {
+          setSearchFavoritePropertyIds([]);
+        }
+      });
+      return () => {
+        isActive = false;
+      };
     }
 
     let isActive = true;
@@ -12795,8 +13363,34 @@ function HomePage() {
 
   useEffect(() => {
     if (
+      currentUser === undefined ||
+      currentUser === null ||
+      !isAdminUser(currentUser) ||
+      !USER_ONLY_VIEWS.has(currentView)
+    ) {
+      return undefined;
+    }
+
+    let isActive = true;
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      updateFrontendRoute("adminDashboard", { replace: true });
+      setCurrentView("adminDashboard");
+      showViewportNotice(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser, currentView, showViewportNotice]);
+
+  useEffect(() => {
+    if (
       currentView !== "postListing" ||
-      !currentUser ||
+      !isRegularUser(currentUser) ||
       canUserPostListing(currentUser)
     ) {
       return undefined;
@@ -12866,6 +13460,61 @@ function HomePage() {
     };
   }, [propertyRefreshKey]);
 
+  useEffect(() => {
+    const hasActiveSearch = hasActivePropertySearchState(appliedPropertySearch);
+
+    if (!hasActiveSearch) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!isActive) {
+          return null;
+        }
+
+        setIsLoadingSearchProperties(true);
+        setHasFetchedSearchProperties(false);
+        setSearchPropertyListError("");
+
+        return listProperties(
+          buildPropertySearchListParams(appliedPropertySearch),
+        );
+      })
+      .then((response) => {
+        if (!isActive || !response) {
+          return;
+        }
+
+        const items = response.data?.items ?? [];
+        setSearchApiListings(items.map(mapApiPropertyToListingRecord));
+        setHasFetchedSearchProperties(true);
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setSearchPropertyListError(
+          error.message ||
+            "ChÆ°a thá»ƒ táº£i káº¿t quáº£ tÃ¬m kiáº¿m tá»« server.",
+        );
+        setSearchApiListings([]);
+        setHasFetchedSearchProperties(false);
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingSearchProperties(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [appliedPropertySearch, propertyRefreshKey]);
+
   function handleLogout() {
     setAccessToken("");
     setCurrentUser(null);
@@ -12925,6 +13574,13 @@ function HomePage() {
         return;
       }
 
+      if (isAdminUser(currentUser) && USER_ONLY_VIEWS.has(view)) {
+        showViewportNotice(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+        updateFrontendRoute("adminDashboard");
+        setCurrentView("adminDashboard");
+        return;
+      }
+
       if (view === "postListing" && !canUserPostListing(currentUser)) {
         setViewportNotice(null);
         setIsPostListingVerificationModalOpen(true);
@@ -12937,6 +13593,11 @@ function HomePage() {
 
       updateFrontendRoute(view);
       setCurrentView(view);
+      return;
+    }
+
+    if (isAdminUser(currentUser) && ADMIN_BLOCKED_ACCOUNT_KEYS.has(view)) {
+      showViewportNotice(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
       return;
     }
 
@@ -12964,6 +13625,15 @@ function HomePage() {
     if (!currentUser || !accessToken) {
       showLoginRequiredNotice();
       setAuthModal("login");
+      return;
+    }
+
+    if (isAdminUser(currentUser)) {
+      setViewportNotice({
+        id: createNoticeId(),
+        type: "error",
+        message: ADMIN_USER_ONLY_FEATURE_MESSAGE,
+      });
       return;
     }
 
@@ -13018,10 +13688,14 @@ function HomePage() {
       return;
     }
 
-    if (
-      !currentUser.roles?.includes("admin") &&
-      (!currentUser.canPostListing || currentUser.kycStatus !== "verified")
-    ) {
+    if (isAdminUser(currentUser)) {
+      showViewportNotice(ADMIN_USER_ONLY_FEATURE_MESSAGE, "error");
+      updateFrontendRoute("adminDashboard");
+      setCurrentView("adminDashboard");
+      return;
+    }
+
+    if (!canUserPostListing(currentUser)) {
       showViewportNotice(
         "Bạn cần xác thực tài khoản trước khi sửa và gửi lại tin.",
         "error",
@@ -13039,6 +13713,7 @@ function HomePage() {
   function openListingDetail(listing, backView = "home") {
     setSelectedListingDetail(listing);
     setListingDetailBackView(backView);
+    updateListingDetailRoute(listing?.id);
     setCurrentView("listingDetail");
   }
 
@@ -13118,10 +13793,16 @@ function HomePage() {
   }
 
   const shouldUseApiListings = hasFetchedProperties && !propertyListError;
+  const shouldUseSearchApiListings =
+    hasActivePropertySearchState(appliedPropertySearch) &&
+    hasFetchedSearchProperties &&
+    !searchPropertyListError;
   const propertySearchListings = useMemo(() => {
-    const baseListings = shouldUseApiListings
-      ? apiListings
-      : [...featuredListings, ...latestListings];
+    const baseListings = shouldUseSearchApiListings
+      ? searchApiListings
+      : shouldUseApiListings
+        ? apiListings
+        : [...featuredListings, ...latestListings];
     const seenListingIds = new Set();
 
     return baseListings.reduce((results, listing, index) => {
@@ -13142,7 +13823,12 @@ function HomePage() {
       results.push(normalizedListing);
       return results;
     }, []);
-  }, [apiListings, shouldUseApiListings]);
+  }, [
+    apiListings,
+    searchApiListings,
+    shouldUseApiListings,
+    shouldUseSearchApiListings,
+  ]);
   const filteredSearchListings = useMemo(
     () =>
       filterListingsBySearchState(
@@ -13251,6 +13937,7 @@ function HomePage() {
           />
         ) : null}
         {content}
+        <AiChatWidget currentUser={currentUser} currentView={currentView} />
       </>
     );
   }
@@ -13272,6 +13959,7 @@ function HomePage() {
   if (
     currentView === "postListing" &&
     currentUser &&
+    isRegularUser(currentUser) &&
     canUserPostListing(currentUser)
   ) {
     return renderWithViewportNotice(
@@ -13306,7 +13994,84 @@ function HomePage() {
     );
   }
 
-  if (currentView === "myListings" && currentUser) {
+  if (currentView === "listingDetail") {
+    const isLoadingListingDetail =
+      routeListingDetailState.isLoading || !routeListingDetailState.error;
+
+    return renderWithViewportNotice(
+      <div className="min-h-screen bg-[linear-gradient(180deg,#fcfcf8_0%,#f7f9f4_100%)] text-[#20252F]">
+        {authModal ? (
+          <AuthModal
+            key={authModal}
+            mode={authModal}
+            onClose={() => setAuthModal(null)}
+            onSwitchMode={setAuthModal}
+          />
+        ) : null}
+
+        <div className="mx-auto max-w-[1360px] px-4 pb-4 pt-2 sm:px-6 sm:pt-3 lg:px-8">
+          <AppHeader
+            activeNav="search"
+            currentUser={currentUser}
+            navItems={
+              currentUser
+                ? authenticatedHeaderNavItemsWithFavoriteCount
+                : guestHeaderNavItems
+            }
+            onLogin={() => setAuthModal("login")}
+            onLogoClick={() => navigateTo("home")}
+            onLogout={handleLogout}
+            onNavigate={navigateTo}
+            onSignup={() => setAuthModal("signup")}
+            onUserClick={() => navigateTo("profile")}
+            searchContent={basicHeaderSearchContent}
+            showSearch={false}
+          />
+
+          <main className="flex min-h-[520px] items-center justify-center py-10">
+            <section className="w-full max-w-md rounded-[22px] border border-[#E3EAE3] bg-white px-6 py-7 text-center shadow-[0_18px_50px_rgba(35,58,43,0.09)]">
+              {isLoadingListingDetail ? (
+                <>
+                  <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#EEF8F0] text-[#35A554]">
+                    <LoaderCircle className="size-6 animate-spin" />
+                  </span>
+                  <h1 className="mt-4 text-xl font-bold text-[#1F2A24]">
+                    Đang tải tin đăng
+                  </h1>
+                  <p className="mt-2 text-sm leading-6 text-[#68736D]">
+                    WeRent đang lấy thông tin chi tiết của tin này.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#FFF4F0] text-[#D94A2B]">
+                    <Home className="size-6" />
+                  </span>
+                  <h1 className="mt-4 text-xl font-bold text-[#1F2A24]">
+                    Không mở được tin đăng
+                  </h1>
+                  <p className="mt-2 text-sm leading-6 text-[#68736D]">
+                    {routeListingDetailState.error}
+                  </p>
+                  <button
+                    className="mt-5 rounded-xl bg-[#247D38] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1F6F31]"
+                    type="button"
+                    onClick={() => navigateTo("search")}
+                  >
+                    Quay lại tìm kiếm
+                  </button>
+                </>
+              )}
+            </section>
+          </main>
+
+          <AppFooter />
+        </div>
+      </div>,
+    );
+  }
+
+  if (currentView === "myListings" && isRegularUser(currentUser)) {
     return renderWithViewportNotice(
       <MyListingsPage
         accessToken={accessToken}
@@ -13315,25 +14080,27 @@ function HomePage() {
         onListingVisibilityChange={handleListingVisibilityChange}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        onNotify={showViewportNotice}
         onViewListing={(listing) => openListingDetail(listing, "myListings")}
         user={currentUser}
       />,
     );
   }
 
-  if (currentView === "wallet" && currentUser) {
+  if (currentView === "wallet" && isRegularUser(currentUser)) {
     return renderWithViewportNotice(
       <WalletPage
         accessToken={accessToken}
         headerSearchContent={basicHeaderSearchContent}
         onLogout={handleLogout}
         onNavigate={navigateTo}
+        onNotify={showViewportNotice}
         user={currentUser}
       />,
     );
   }
 
-  if (currentView === "favorites" && currentUser) {
+  if (currentView === "favorites" && isRegularUser(currentUser)) {
     return renderWithViewportNotice(
       <FavoritesPage
         accessToken={accessToken}
@@ -13347,7 +14114,7 @@ function HomePage() {
     );
   }
 
-  if (currentView === "walletTopUp" && currentUser) {
+  if (currentView === "walletTopUp" && isRegularUser(currentUser)) {
     return renderWithViewportNotice(
       <TopUpPaymentPage
         accessToken={accessToken}
@@ -13360,7 +14127,7 @@ function HomePage() {
     );
   }
 
-  if (currentView === "walletMomoMock" && currentUser) {
+  if (currentView === "walletMomoMock" && isRegularUser(currentUser)) {
     return renderWithViewportNotice(
       <MomoMockCheckoutPage
         accessToken={accessToken}
@@ -13432,6 +14199,8 @@ function HomePage() {
               onToggleFavorite={handleSearchFavoriteToggle}
               onViewListing={(listing) => openListingDetail(listing, "search")}
               searchState={propertySearchDraft}
+              showFavoriteAction={isRegularUser(currentUser)}
+              showUserActions={isRegularUser(currentUser)}
             />
 
             <AppFooter />
@@ -13490,6 +14259,7 @@ function HomePage() {
                         listing={listing}
                         onToggleFavorite={handleSearchFavoriteToggle}
                         onViewListing={() => openListingDetail(listing)}
+                        showFavoriteAction={isRegularUser(currentUser)}
                       />
                     ))}
                   </div>
@@ -13520,6 +14290,7 @@ function HomePage() {
                       listing={listing}
                       onToggleFavorite={handleSearchFavoriteToggle}
                       onViewListing={() => openListingDetail(listing)}
+                      showFavoriteAction={isRegularUser(currentUser)}
                     />
                   ))}
                 </div>

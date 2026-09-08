@@ -19,20 +19,21 @@ const tierPriorityMap = {
   standard: 1,
 };
 
-const LISTING_PROPERTY_TYPES = new Set([
-  "Căn hộ chung cư",
-  "Phòng trọ",
-  "Căn hộ dịch vụ",
-  "Nhà riêng",
-  "Nhà mặt phố",
-  "Mặt bằng kinh doanh",
-].map(normalizeSearchText));
+const LISTING_PROPERTY_TYPES = new Set(
+  [
+    "Căn hộ chung cư",
+    "Phòng trọ",
+    "Căn hộ dịch vụ",
+    "Nhà riêng",
+    "Nhà mặt phố",
+    "Mặt bằng kinh doanh",
+  ].map(normalizeSearchText),
+);
 
 const LISTING_PROPERTY_TYPE_FILTER_MATCHERS = {
-  [normalizeSearchText("Căn hộ chung cư")]: [
-    "Căn hộ chung cư",
-    "Chung cư",
-  ].map(normalizeSearchText),
+  [normalizeSearchText("Căn hộ chung cư")]: ["Căn hộ chung cư", "Chung cư"].map(
+    normalizeSearchText,
+  ),
   [normalizeSearchText("Phòng trọ")]: [
     "Phòng trọ",
     "Phòng cho thuê",
@@ -43,10 +44,9 @@ const LISTING_PROPERTY_TYPE_FILTER_MATCHERS = {
     "Chung cư mini",
     "Studio",
   ].map(normalizeSearchText),
-  [normalizeSearchText("Nhà riêng")]: [
-    "Nhà riêng",
-    "Nhà nguyên căn",
-  ].map(normalizeSearchText),
+  [normalizeSearchText("Nhà riêng")]: ["Nhà riêng", "Nhà nguyên căn"].map(
+    normalizeSearchText,
+  ),
   [normalizeSearchText("Nhà mặt phố")]: [
     "Nhà mặt phố",
     "Nhà phố",
@@ -61,32 +61,13 @@ const LISTING_PROPERTY_TYPE_FILTER_MATCHERS = {
 const PROPERTY_TYPE_SEARCH_GROUPS = [
   {
     value: "Căn hộ chung cư",
-    aliases: [
-      "căn hộ chung cư",
-      "căn hộ",
-      "chung cư",
-      "apartment",
-    ],
-    matchers: [
-      "căn hộ chung cư",
-      "căn hộ",
-      "chung cư",
-    ],
+    aliases: ["căn hộ chung cư", "căn hộ", "chung cư", "apartment"],
+    matchers: ["căn hộ chung cư", "căn hộ", "chung cư"],
   },
   {
     value: "Căn hộ dịch vụ",
-    aliases: [
-      "căn hộ dịch vụ",
-      "chung cư mini",
-      "studio",
-      "căn hộ mini",
-    ],
-    matchers: [
-      "căn hộ dịch vụ",
-      "chung cư mini",
-      "studio",
-      "căn hộ mini",
-    ],
+    aliases: ["căn hộ dịch vụ", "chung cư mini", "studio", "căn hộ mini"],
+    matchers: ["căn hộ dịch vụ", "chung cư mini", "studio", "căn hộ mini"],
   },
   {
     value: "Phòng trọ",
@@ -109,7 +90,12 @@ const PROPERTY_TYPE_SEARCH_GROUPS = [
       "nguyên căn",
       "nhà",
     ],
-    matchers: ["nhà riêng", "nhà nguyên căn", "nhà thuê nguyên căn", "nguyên căn"],
+    matchers: [
+      "nhà riêng",
+      "nhà nguyên căn",
+      "nhà thuê nguyên căn",
+      "nguyên căn",
+    ],
   },
   {
     value: "Nhà mặt phố",
@@ -175,7 +161,15 @@ const PROJECT_SEARCH_GROUPS = [
 ].map(([label, ...aliases]) => ({ label, aliases: [label, ...aliases] }));
 
 const LOCATION_SEARCH_GROUPS = [
-  ["TP. Hồ Chí Minh", "tp hồ chí minh", "tp hcm", "tphcm", "hồ chí minh", "sài gòn", "saigon"],
+  [
+    "TP. Hồ Chí Minh",
+    "tp hồ chí minh",
+    "tp hcm",
+    "tphcm",
+    "hồ chí minh",
+    "sài gòn",
+    "saigon",
+  ],
   ["Hà Nội", "hà nội", "ha noi"],
   ["TP. Thủ Đức", "tp thủ đức", "thủ đức", "thu duc"],
   ["Quận 1", "quận 1", "q1"],
@@ -210,14 +204,62 @@ const HCMC_DISTRICT_SEARCH_GROUPS = [
   ["Quận 10", "quận 10", "q10", "quan 10", "district 10"],
   ["Quận 11", "quận 11", "q11", "quan 11", "district 11"],
   ["Quận 12", "quận 12", "q12", "quan 12", "district 12"],
-  ["Quận Bình Tân", "bình tân", "quận bình tân", "q bình tân", "binh tan", "quan binh tan"],
-  ["Quận Bình Thạnh", "bình thạnh", "quận bình thạnh", "q bình thạnh", "binh thanh", "quan binh thanh"],
+  [
+    "Quận Bình Tân",
+    "bình tân",
+    "quận bình tân",
+    "q bình tân",
+    "binh tan",
+    "quan binh tan",
+  ],
+  [
+    "Quận Bình Thạnh",
+    "bình thạnh",
+    "quận bình thạnh",
+    "q bình thạnh",
+    "binh thanh",
+    "quan binh thanh",
+  ],
   ["Quận Gò Vấp", "gò vấp", "quận gò vấp", "q gò vấp", "go vap", "quan go vap"],
-  ["Quận Phú Nhuận", "phú nhuận", "quận phú nhuận", "q phú nhuận", "phu nhuan", "quan phu nhuan"],
-  ["Quận Tân Bình", "tân bình", "quận tân bình", "q tân bình", "tan binh", "quan tan binh"],
-  ["Quận Tân Phú", "tân phú", "quận tân phú", "q tân phú", "tan phu", "quan tan phu"],
-  ["TP. Thủ Đức", "thủ đức", "tp thủ đức", "thành phố thủ đức", "thu duc", "tp thu duc"],
-  ["Huyện Bình Chánh", "bình chánh", "huyện bình chánh", "binh chanh", "huyen binh chanh"],
+  [
+    "Quận Phú Nhuận",
+    "phú nhuận",
+    "quận phú nhuận",
+    "q phú nhuận",
+    "phu nhuan",
+    "quan phu nhuan",
+  ],
+  [
+    "Quận Tân Bình",
+    "tân bình",
+    "quận tân bình",
+    "q tân bình",
+    "tan binh",
+    "quan tan binh",
+  ],
+  [
+    "Quận Tân Phú",
+    "tân phú",
+    "quận tân phú",
+    "q tân phú",
+    "tan phu",
+    "quan tan phu",
+  ],
+  [
+    "TP. Thủ Đức",
+    "thủ đức",
+    "tp thủ đức",
+    "thành phố thủ đức",
+    "thu duc",
+    "tp thu duc",
+  ],
+  [
+    "Huyện Bình Chánh",
+    "bình chánh",
+    "huyện bình chánh",
+    "binh chanh",
+    "huyen binh chanh",
+  ],
   ["Huyện Cần Giờ", "cần giờ", "huyện cần giờ", "can gio", "huyen can gio"],
   ["Huyện Củ Chi", "củ chi", "huyện củ chi", "cu chi", "huyen cu chi"],
   ["Huyện Hóc Môn", "hóc môn", "huyện hóc môn", "hoc mon", "huyen hoc mon"],
@@ -308,6 +350,21 @@ function getSearchableTokenSet(value = "") {
   return new Set(getWordTokens(value));
 }
 
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createPhrasePattern(normalizedPhrase, flags = "") {
+  return new RegExp(
+    `(^|\\s)${escapeRegExp(normalizedPhrase).replace(/\s+/g, "\\s+")}(?=\\s|$)`,
+    flags,
+  );
+}
+
+function includesNormalizedPhrase(normalizedText, normalizedPhrase) {
+  return createPhrasePattern(normalizedPhrase).test(normalizedText);
+}
+
 function includesSearchPhrase(text, phrase) {
   const normalizedText = normalizeSearchText(text);
   const normalizedPhrase = normalizeSearchText(phrase);
@@ -322,12 +379,23 @@ function includesSearchPhrase(text, phrase) {
     .filter(Boolean);
 
   return normalizedSegments.length
-    ? normalizedSegments.some((segment) => segment.includes(normalizedPhrase))
-    : normalizedText.includes(normalizedPhrase);
+    ? normalizedSegments.some((segment) =>
+        includesNormalizedPhrase(segment, normalizedPhrase),
+      )
+    : includesNormalizedPhrase(normalizedText, normalizedPhrase);
 }
 
 const ADMINISTRATIVE_CITY_ALIASES = [
-  ["ho chi minh", "tp ho chi minh", "thanh pho ho chi minh", "tp hcm", "tphcm", "hcm", "sai gon", "saigon"],
+  [
+    "ho chi minh",
+    "tp ho chi minh",
+    "thanh pho ho chi minh",
+    "tp hcm",
+    "tphcm",
+    "hcm",
+    "sai gon",
+    "saigon",
+  ],
   ["ha noi", "thanh pho ha noi", "tp ha noi"],
   ["da nang", "thanh pho da nang", "tp da nang"],
   ["can tho", "thanh pho can tho", "tp can tho"],
@@ -340,11 +408,14 @@ function getAdministrativeNameAliases(name = "") {
   const normalizedName = normalizeSearchText(name);
   const matchedAliasGroup = ADMINISTRATIVE_CITY_ALIASES.find((aliases) =>
     aliases.some(
-      (alias) => normalizedName.includes(alias) || alias.includes(normalizedName),
+      (alias) =>
+        normalizedName.includes(alias) || alias.includes(normalizedName),
     ),
   );
 
-  return [...new Set([normalizedName, ...(matchedAliasGroup ?? [])])].filter(Boolean);
+  return [...new Set([normalizedName, ...(matchedAliasGroup ?? [])])].filter(
+    Boolean,
+  );
 }
 
 function includesAnyAdministrativeAlias(keyword, name) {
@@ -356,17 +427,14 @@ function includesAnyAdministrativeAlias(keyword, name) {
 function removeSearchPhrases(text, phrases = []) {
   let normalizedText = ` ${normalizeSearchText(text)} `;
 
-  phrases.forEach((phrase) => {
-    const normalizedPhrase = normalizeSearchText(phrase);
-
-    if (!normalizedPhrase) {
-      return;
-    }
-
-    normalizedText = normalizedText
-      .replaceAll(` ${normalizedPhrase} `, " ")
-      .replaceAll(normalizedPhrase, " ");
-  });
+  [...new Set(phrases.map(normalizeSearchText).filter(Boolean))]
+    .sort((left, right) => right.length - left.length)
+    .forEach((normalizedPhrase) => {
+      normalizedText = normalizedText.replace(
+        createPhrasePattern(normalizedPhrase, "g"),
+        " ",
+      );
+    });
 
   return normalizedText.replace(/\s+/g, " ").trim();
 }
@@ -460,8 +528,12 @@ function findPropertyTypeGroup(value) {
     PROPERTY_TYPE_SEARCH_GROUPS.find(
       (group) =>
         normalizeSearchText(group.value) === normalizedValue ||
-        group.aliases.some((alias) => normalizeSearchText(alias) === normalizedValue) ||
-        group.matchers.some((matcher) => normalizeSearchText(matcher) === normalizedValue),
+        group.aliases.some(
+          (alias) => normalizeSearchText(alias) === normalizedValue,
+        ) ||
+        group.matchers.some(
+          (matcher) => normalizeSearchText(matcher) === normalizedValue,
+        ),
     ) ?? null
   );
 }
@@ -490,13 +562,17 @@ function matchesPropertyTypeGroup(actualValue, group) {
 function matchesProjectGroup(listing, group) {
   const projectText = getListingProjectText(listing);
 
-  return group.aliases.some((alias) => includesSearchPhrase(projectText, alias));
+  return group.aliases.some((alias) =>
+    includesSearchPhrase(projectText, alias),
+  );
 }
 
 function matchesLocationGroup(listing, group) {
   const locationText = getListingLocationText(listing);
 
-  return group.aliases.some((alias) => includesSearchPhrase(locationText, alias));
+  return group.aliases.some((alias) =>
+    includesSearchPhrase(locationText, alias),
+  );
 }
 
 function getMatchedBroadRealEstateAliases(keyword) {
@@ -506,17 +582,16 @@ function getMatchedBroadRealEstateAliases(keyword) {
 }
 
 function findStaticAdministrativeLocationMatch(keyword) {
-  const matchedDistrict = HCMC_DISTRICT_SEARCH_GROUPS
-    .map((group) => ({
-      group,
-      score: group.aliases.reduce((bestScore, alias) => {
-        if (!includesSearchPhrase(keyword, alias)) {
-          return bestScore;
-        }
+  const matchedDistrict = HCMC_DISTRICT_SEARCH_GROUPS.map((group) => ({
+    group,
+    score: group.aliases.reduce((bestScore, alias) => {
+      if (!includesSearchPhrase(keyword, alias)) {
+        return bestScore;
+      }
 
-        return Math.max(bestScore, normalizeSearchText(alias).length);
-      }, 0),
-    }))
+      return Math.max(bestScore, normalizeSearchText(alias).length);
+    }, 0),
+  }))
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score)[0]?.group;
 
@@ -570,7 +645,10 @@ export function parsePropertyKeywordIntent(keyword = "") {
   };
 }
 
-function findAdministrativeDivisionMatch(keyword, administrativeDivisions = []) {
+function findAdministrativeDivisionMatch(
+  keyword,
+  administrativeDivisions = [],
+) {
   const normalizedKeyword = normalizeSearchText(keyword);
 
   if (!normalizedKeyword || !administrativeDivisions.length) {
@@ -589,10 +667,7 @@ function findAdministrativeDivisionMatch(keyword, administrativeDivisions = []) 
     }
 
     (city.districts ?? []).forEach((district) => {
-      const districtMatches = includesSearchPhrase(
-        keyword,
-        district.name,
-      );
+      const districtMatches = includesSearchPhrase(keyword, district.name);
 
       if (districtMatches && 200 + (cityMatches ? 100 : 0) > bestScore) {
         bestMatch = { city: city.name, district: district.name };
@@ -624,7 +699,10 @@ function findAdministrativeDivisionMatch(keyword, administrativeDivisions = []) 
   return bestMatch;
 }
 
-export function buildSearchStateFromKeyword(searchState = {}, administrativeDivisions = []) {
+export function buildSearchStateFromKeyword(
+  searchState = {},
+  administrativeDivisions = [],
+) {
   const normalizedState = normalizePropertySearchState(searchState);
   const intent = parsePropertyKeywordIntent(normalizedState.keyword);
   const locationMatch = findAdministrativeDivisionMatch(
@@ -700,12 +778,12 @@ function matchesExactFilter(filterValue, actualValue) {
     .trim();
 
   return (
-    normalizedActual.includes(normalizedFilter) ||
-    normalizedFilter.includes(normalizedActual) ||
+    includesNormalizedPhrase(normalizedActual, normalizedFilter) ||
+    includesNormalizedPhrase(normalizedFilter, normalizedActual) ||
     (compactFilter &&
       compactActual &&
-      (compactActual.includes(compactFilter) ||
-        compactFilter.includes(compactActual)))
+      (includesNormalizedPhrase(compactActual, compactFilter) ||
+        includesNormalizedPhrase(compactFilter, compactActual)))
   );
 }
 
@@ -713,10 +791,9 @@ function matchesPropertyTypeFilter(filterValue, actualValue) {
   const normalizedListingType = normalizeSearchText(filterValue);
 
   if (LISTING_PROPERTY_TYPES.has(normalizedListingType)) {
-    const allowedActualTypes =
-      LISTING_PROPERTY_TYPE_FILTER_MATCHERS[normalizedListingType] ?? [
-        normalizedListingType,
-      ];
+    const allowedActualTypes = LISTING_PROPERTY_TYPE_FILTER_MATCHERS[
+      normalizedListingType
+    ] ?? [normalizedListingType];
     const normalizedActualValue = normalizeSearchText(actualValue);
 
     if (!normalizedActualValue) {
@@ -762,7 +839,9 @@ function matchesKeyword(listing, keyword) {
 
   if (
     intent.locationGroups.length &&
-    !intent.locationGroups.every((group) => matchesLocationGroup(listing, group))
+    !intent.locationGroups.every((group) =>
+      matchesLocationGroup(listing, group),
+    )
   ) {
     return false;
   }
@@ -856,7 +935,10 @@ export function getListingSearchRelevanceScore(listing, searchState = {}) {
       : 0;
   }
 
-  if (normalizedState.city && matchesExactFilter(normalizedState.city, listing?.draft?.city)) {
+  if (
+    normalizedState.city &&
+    matchesExactFilter(normalizedState.city, listing?.draft?.city)
+  ) {
     score += 320;
   }
 
@@ -867,25 +949,35 @@ export function getListingSearchRelevanceScore(listing, searchState = {}) {
     score += 360;
   }
 
-  if (normalizedState.ward && matchesExactFilter(normalizedState.ward, listing?.draft?.ward)) {
+  if (
+    normalizedState.ward &&
+    matchesExactFilter(normalizedState.ward, listing?.draft?.ward)
+  ) {
     score += 380;
   }
 
   if (intent.locationGroups.length) {
-    score += intent.locationGroups.some((group) => matchesLocationGroup(listing, group))
+    score += intent.locationGroups.some((group) =>
+      matchesLocationGroup(listing, group),
+    )
       ? 300
       : 0;
   }
 
   if (intent.projectGroups.length) {
-    score += intent.projectGroups.some((group) => matchesProjectGroup(listing, group))
+    score += intent.projectGroups.some((group) =>
+      matchesProjectGroup(listing, group),
+    )
       ? 200
       : 0;
   }
 
   if (
     normalizedState.keyword &&
-    includesSearchPhrase(getListingProjectText(listing), normalizedState.keyword)
+    includesSearchPhrase(
+      getListingProjectText(listing),
+      normalizedState.keyword,
+    )
   ) {
     score += 80;
   }
@@ -903,7 +995,9 @@ export function filterListingsBySearchState(listings = [], searchState = {}) {
   const minBathrooms = parseNumberValue(normalizedState.bathrooms);
 
   return listings.filter((listing) => {
-    const listingPrice = parseNumberValue(listing?.draft?.rentPrice || listing?.price);
+    const listingPrice = parseNumberValue(
+      listing?.draft?.rentPrice || listing?.price,
+    );
     const listingArea = parseNumberValue(listing?.draft?.area || listing?.area);
     const listingBedrooms = parseNumberValue(listing?.draft?.bedrooms);
     const listingBathrooms = parseNumberValue(listing?.draft?.bathrooms);
@@ -912,7 +1006,12 @@ export function filterListingsBySearchState(listings = [], searchState = {}) {
       return false;
     }
 
-    if (!matchesPropertyTypeFilter(normalizedState.propertyType, listing?.draft?.propertyType)) {
+    if (
+      !matchesPropertyTypeFilter(
+        normalizedState.propertyType,
+        listing?.draft?.propertyType,
+      )
+    ) {
       return false;
     }
 
@@ -920,7 +1019,9 @@ export function filterListingsBySearchState(listings = [], searchState = {}) {
       return false;
     }
 
-    if (!matchesExactFilter(normalizedState.district, listing?.draft?.district)) {
+    if (
+      !matchesExactFilter(normalizedState.district, listing?.draft?.district)
+    ) {
       return false;
     }
 

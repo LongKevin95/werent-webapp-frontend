@@ -60,6 +60,10 @@ export function listProperties(params = {}) {
   return request(`/api/properties${suffix}`);
 }
 
+export function getProperty(propertyId) {
+  return request(`/api/properties/${propertyId}`);
+}
+
 export function listMyProperties(token, params = {}) {
   const suffix = createQueryString(params);
   return request(`/api/properties/my-listings${suffix}`, { token });
