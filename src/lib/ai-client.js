@@ -47,3 +47,11 @@ export function searchListingsWithAi(body, options = {}) {
     signal: options.signal,
   });
 }
+
+export function generateListingContentWithAi(body, options = {}) {
+  return request("/api/ai/listing-content", {
+    body,
+    method: "POST",
+    signal: options.signal,
+  });
+}

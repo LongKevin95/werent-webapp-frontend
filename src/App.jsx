@@ -56,6 +56,7 @@ import {
   listFavorites,
   removeFavorite,
 } from "./lib/favorite-client";
+import { generateListingContentWithAi } from "./lib/ai-client";
 import {
   createPropertyListing,
   deletePropertyListing,
@@ -110,9 +111,11 @@ import {
   Ruler,
   Save,
   Search,
+  RefreshCw,
   Settings,
   ShieldCheck,
   Sofa,
+  Sparkles,
   Star,
   Store,
   Trash2,
@@ -300,8 +303,8 @@ function updateListingDetailRoute(propertyId, options = {}) {
 function canUserPostListing(user) {
   return Boolean(
     isRegularUser(user) &&
-      user?.canPostListing &&
-      user?.kycStatus === "verified",
+    user?.canPostListing &&
+    user?.kycStatus === "verified",
   );
 }
 
@@ -1298,22 +1301,22 @@ function PropertyCard({
             <span className="truncate">{publishedTimeLabel}</span>
           </div>
           {showFavoriteAction ? (
-          <button
-            aria-label={
-              isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"
-            }
-            className={`flex size-9 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-wait disabled:opacity-65 ${
-              isFavorite
-                ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#EF4444]"
-                : "border-[#D8EEDD] text-[#77B87B] hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
-            }`}
-            disabled={isFavoriteBusy}
-            title={isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"}
-            type="button"
-            onClick={handleToggleFavorite}
-          >
-            <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
-          </button>
+            <button
+              aria-label={
+                isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"
+              }
+              className={`flex size-9 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-wait disabled:opacity-65 ${
+                isFavorite
+                  ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#EF4444]"
+                  : "border-[#D8EEDD] text-[#77B87B] hover:bg-[#F3FBF5] hover:text-[#2FA14E]"
+              }`}
+              disabled={isFavoriteBusy}
+              title={isFavorite ? "Nhấn để bỏ yêu thích" : "Lưu tin yêu thích"}
+              type="button"
+              onClick={handleToggleFavorite}
+            >
+              <Heart className={`size-4 ${isFavorite ? "fill-current" : ""}`} />
+            </button>
           ) : null}
         </div>
       </div>
@@ -1366,19 +1369,21 @@ function MiniPropertyCard({
           src={listing.image}
         />
         {showFavoriteAction ? (
-        <button
-          aria-label={isFavorite ? "Bỏ lưu tin yêu thích" : "Lưu tin yêu thích"}
-          className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
-            isFavorite
-              ? "text-[#EF4444]"
-              : "text-[#7B8590] hover:text-[#EF4444]"
-          }`}
-          disabled={isFavoriteBusy}
-          type="button"
-          onClick={handleToggleFavorite}
-        >
-          <Heart className={`size-3.5 ${isFavorite ? "fill-current" : ""}`} />
-        </button>
+          <button
+            aria-label={
+              isFavorite ? "Bỏ lưu tin yêu thích" : "Lưu tin yêu thích"
+            }
+            className={`absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm transition disabled:cursor-wait disabled:opacity-65 ${
+              isFavorite
+                ? "text-[#EF4444]"
+                : "text-[#7B8590] hover:text-[#EF4444]"
+            }`}
+            disabled={isFavoriteBusy}
+            type="button"
+            onClick={handleToggleFavorite}
+          >
+            <Heart className={`size-3.5 ${isFavorite ? "fill-current" : ""}`} />
+          </button>
         ) : null}
       </div>
       <div className="space-y-3 p-[18px]">
@@ -6962,13 +6967,420 @@ function PostListingStepFooter({
   );
 }
 
+const aiListingTones = ["Lịch sự", "Trẻ trung", "Nhiệt tình"];
+
+function AiListingWriterButton({ label, onClick }) {
+  return (
+    <button
+      className="inline-flex items-center gap-1.5 rounded-full border border-[#BFE0C6] bg-[#F4FBF5] px-3.5 py-2 text-xs font-bold text-[#2F9C50] transition hover:border-[#8BC79A] hover:bg-[#EAF7EC] focus:outline-none focus:ring-2 focus:ring-[#BDE8C7]"
+      type="button"
+      onClick={onClick}
+    >
+      <Sparkles className="size-3.5" />
+      {label}
+    </button>
+  );
+}
+
+function AiWriterChecklistItem({ isReady, label }) {
+  return (
+    <li className="flex items-center gap-2 text-xs text-[#3C4A41]">
+      <span
+        className={`flex size-4 items-center justify-center rounded-full text-[9px] font-bold ${
+          isReady ? "bg-[#2BA24B] text-white" : "bg-[#E3E9E4] text-[#8A949F]"
+        }`}
+      >
+        ✓
+      </span>
+      {label}
+    </li>
+  );
+}
+
+function AiListingWriterPanel({
+  cityOptions = [],
+  districtOptions = [],
+  draftValues,
+  isAdministrativeDivisionsLoading = false,
+  locationNote = "",
+  mode,
+  onApply,
+  onClose,
+  onDraftValueChange,
+  onModeChange,
+  selectedAmenities = [],
+  wardOptions = [],
+}) {
+  const [tone, setTone] = useState(aiListingTones[0]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState("");
+  const [results, setResults] = useState({ description: null, title: null });
+  const [selectedTitleIndex, setSelectedTitleIndex] = useState(0);
+  const variationRef = useRef(0);
+  const amenityLabels = selectedAmenities
+    .map((key) => listingAmenityMap[key]?.label)
+    .filter(Boolean);
+  const hasSelectedCity = Boolean(draftValues.city);
+  const hasSelectedDistrict = Boolean(draftValues.district);
+  const currentResult = results[mode];
+  const titleSuggestions = results.title?.titles ?? [];
+  const descriptionSuggestion = results.description?.description ?? "";
+  const getFieldProps = (field) => ({
+    value: draftValues[field] ?? "",
+    onChange: (event) => onDraftValueChange(field, event.target.value),
+  });
+
+  async function handleGenerate() {
+    if (!draftValues.propertyType) {
+      setGenerationError(
+        "Vui lòng chọn loại bất động sản ở bước 1 trước khi dùng AI.",
+      );
+      return;
+    }
+
+    if (!hasSelectedCity || !hasSelectedDistrict) {
+      setGenerationError(
+        "Vui lòng chọn Tỉnh/Thành phố và Quận/Huyện để AI viết đúng khu vực.",
+      );
+      return;
+    }
+
+    setIsGenerating(true);
+    setGenerationError("");
+
+    try {
+      const response = await generateListingContentWithAi({
+        address: {
+          addressLine: draftValues.addressLine ?? "",
+          city: draftValues.city ?? "",
+          district: draftValues.district ?? "",
+          projectName: draftValues.projectName ?? "",
+          street: draftValues.street ?? "",
+          ward: draftValues.ward ?? "",
+        },
+        amenities: amenityLabels,
+        locationNote,
+        mode,
+        property: {
+          area: draftValues.area ?? "",
+          bathrooms: draftValues.bathrooms ?? "",
+          bedrooms: draftValues.bedrooms ?? "",
+          floor: draftValues.floor ?? "",
+          furnishing: draftValues.furnishing ?? "",
+          moveInDays: draftValues.moveInDays ?? "",
+          orientation: draftValues.orientation ?? "",
+          propertyType: draftValues.propertyType,
+          rentPrice: draftValues.rentPrice ?? "",
+          totalFloors: draftValues.totalFloors ?? "",
+        },
+        tone,
+        variation: variationRef.current,
+      });
+
+      variationRef.current = Math.min(variationRef.current + 1, 1000);
+      setResults((current) => ({ ...current, [mode]: response.data ?? {} }));
+
+      if (mode === "title") {
+        setSelectedTitleIndex(0);
+      }
+    } catch (error) {
+      setGenerationError(
+        error.message || "AI chưa thể viết nội dung lúc này. Vui lòng thử lại.",
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  function handleApply() {
+    if (mode === "title") {
+      const selectedTitle = titleSuggestions[selectedTitleIndex];
+
+      if (selectedTitle) {
+        onApply("title", selectedTitle);
+        onClose?.();
+      }
+      return;
+    }
+
+    if (descriptionSuggestion) {
+      onApply("description", descriptionSuggestion);
+      onClose?.();
+    }
+  }
+
+  const canApply =
+    mode === "title"
+      ? Boolean(titleSuggestions[selectedTitleIndex])
+      : Boolean(descriptionSuggestion);
+
+  return (
+    <Modal
+      className="max-h-[calc(100vh-32px)] max-w-[960px]"
+      closeOnBackdrop
+      contentClassName="max-h-[calc(100vh-32px)] overflow-y-auto p-0"
+      showCloseButton={false}
+      size="xl"
+      onClose={onClose}
+    >
+      <div className="p-5 sm:p-6">
+        <div className="flex items-start gap-2.5">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[#EDF8EF] text-[#2F9C50]">
+            <Sparkles className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-[17px] font-bold text-[#1F252D]">
+                Trợ lý AI viết nội dung
+              </h3>
+            </div>
+            <p className="mt-0.5 text-xs text-[#69717B]">
+              Tạo tiêu đề và mô tả chuyên nghiệp chỉ trong vài giây
+            </p>
+          </div>
+          <span className="rounded-full border border-[#DDEEDD] bg-[#F7FCF7] px-2.5 py-1 text-[10px] font-bold text-[#2F9C50]">
+            Powered by Gemini
+          </span>
+          <button
+            aria-label="Đóng trợ lý AI"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-[#69717B] transition hover:bg-[#F0F4F1]"
+            type="button"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#E3F3E5] bg-[#F7FCF8] px-4 py-3">
+          <p className="text-xs font-bold text-[#286E36]">
+            💡 AI sẽ dựa trên các thông tin bạn đã nhập
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            <AiWriterChecklistItem
+              isReady={Boolean(draftValues.propertyType)}
+              label="Loại bất động sản"
+            />
+            <AiWriterChecklistItem
+              isReady={hasSelectedCity && hasSelectedDistrict}
+              label="Vị trí (nhập bên dưới)"
+            />
+            <AiWriterChecklistItem
+              isReady={Boolean(draftValues.area && draftValues.bedrooms)}
+              label="Diện tích, số phòng, nội thất"
+            />
+            <AiWriterChecklistItem
+              isReady={amenityLabels.length > 0}
+              label="Tiện ích, đặc điểm nổi bật"
+            />
+            <AiWriterChecklistItem
+              isReady={Boolean(draftValues.rentPrice)}
+              label="Giá cho thuê"
+            />
+          </ul>
+        </div>
+
+        <div className="mt-4">
+          <h4 className="text-sm font-bold text-[#27313A]">
+            Địa chỉ bất động sản
+          </h4>
+          <p className="mt-0.5 text-xs text-[#8A949F]">
+            Thông tin này cũng sẽ được tự động điền vào bước 2 (Vị trí).
+          </p>
+          <div className="mt-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ListingSelect
+                disabled={
+                  isAdministrativeDivisionsLoading && cityOptions.length === 0
+                }
+                label="Tỉnh / Thành phố"
+                options={cityOptions}
+                placeholder="Chọn tỉnh / thành phố"
+                required
+                {...getFieldProps("city")}
+              />
+              <ListingSelect
+                disabled={!hasSelectedCity || districtOptions.length === 0}
+                label="Quận / Huyện"
+                options={districtOptions}
+                placeholder={
+                  hasSelectedCity ? "Chọn quận / huyện" : "Chọn tỉnh / TP trước"
+                }
+                required
+                {...getFieldProps("district")}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ListingSelect
+                disabled={!hasSelectedDistrict || wardOptions.length === 0}
+                label="Phường / Xã"
+                options={wardOptions}
+                placeholder={
+                  hasSelectedDistrict
+                    ? "Chọn phường / xã"
+                    : "Chọn quận / huyện trước"
+                }
+                {...getFieldProps("ward")}
+              />
+              <ListingInput
+                label="Đường / Phố"
+                placeholder="Nhập đường / phố"
+                {...getFieldProps("street")}
+              />
+            </div>
+            <ListingInput
+              label="Tên tòa nhà / Dự án (nếu có)"
+              placeholder="Ví dụ: Vinhomes Grand Park, Tòa S5.03"
+              {...getFieldProps("projectName")}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            className={`flex h-11 items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold transition ${
+              mode === "title"
+                ? "bg-[#2F9C50] text-white"
+                : "border border-[#E2E7E3] bg-white text-[#49505B] hover:border-[#CFE3D3]"
+            }`}
+            type="button"
+            onClick={() => onModeChange("title")}
+          >
+            <FileText className="size-4" />
+            Gợi ý tiêu đề
+          </button>
+          <button
+            className={`flex h-11 items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold transition ${
+              mode === "description"
+                ? "bg-[#2F9C50] text-white"
+                : "border border-[#E2E7E3] bg-white text-[#49505B] hover:border-[#CFE3D3]"
+            }`}
+            type="button"
+            onClick={() => onModeChange("description")}
+          >
+            <Pencil className="size-4" />
+            Gợi ý mô tả
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <h4 className="text-sm font-bold text-[#27313A]">
+            Giọng điệu bài viết
+          </h4>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {aiListingTones.map((toneOption) => (
+              <button
+                className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                  tone === toneOption
+                    ? "border-[#2F9C50] bg-[#2F9C50] text-white"
+                    : "border-[#E2E7E3] bg-white text-[#49505B] hover:border-[#CFE3D3]"
+                }`}
+                key={toneOption}
+                type="button"
+                onClick={() => setTone(toneOption)}
+              >
+                {toneOption}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {generationError ? (
+          <p className="mt-3 rounded-xl bg-[#FFF6F1] px-3.5 py-2.5 text-xs leading-5 text-[#B2521B]">
+            {generationError}
+          </p>
+        ) : null}
+
+        {isGenerating ? (
+          <div className="mt-4 flex items-center justify-center gap-2.5 rounded-2xl border border-[#E3F3E5] bg-[#F7FCF8] px-4 py-6 text-sm font-semibold text-[#2F9C50]">
+            <LoaderCircle className="size-4 animate-spin" />
+            Tin đăng đang được viết...
+          </div>
+        ) : null}
+
+        {!isGenerating && mode === "title" && titleSuggestions.length ? (
+          <div className="mt-4 space-y-2">
+            <h4 className="text-sm font-bold text-[#27313A]">
+              Tiêu đề gợi ý từ AI
+            </h4>
+            {titleSuggestions.map((title, index) => (
+              <button
+                className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-left text-[13px] leading-5 transition ${
+                  selectedTitleIndex === index
+                    ? "border-[#69C47B] bg-[#F3FBF4] text-[#1F252D]"
+                    : "border-[#E5E8ED] bg-white text-[#49505B] hover:border-[#CFE3D3]"
+                }`}
+                key={title}
+                type="button"
+                onClick={() => setSelectedTitleIndex(index)}
+              >
+                <span
+                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${
+                    selectedTitleIndex === index
+                      ? "border-[#2BA24B] bg-[#2BA24B]"
+                      : "border-[#C6CDD4]"
+                  }`}
+                >
+                  {selectedTitleIndex === index ? (
+                    <span className="size-1.5 rounded-full bg-white" />
+                  ) : null}
+                </span>
+                {title}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {!isGenerating && mode === "description" && descriptionSuggestion ? (
+          <div className="mt-4">
+            <h4 className="text-sm font-bold text-[#27313A]">
+              Mô tả gợi ý từ AI
+            </h4>
+            <p className="mt-0.5 text-xs text-[#8A949F]">
+              Mỗi lần AI tạo 1 bản mô tả. Nhấn Tạo lại để xem bản mới.
+            </p>
+            <div className="mt-2 max-h-72 overflow-y-auto whitespace-pre-line rounded-xl border border-[#E5E8ED] bg-[#FCFDFC] px-4 py-3 text-[13px] leading-6 text-[#38404A]">
+              {descriptionSuggestion}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button
+            className="h-11 border-[#E2E7E3] text-[#49505B] hover:bg-[#F7F8F8]"
+            disabled={isGenerating}
+            variant="outline"
+            onClick={handleGenerate}
+          >
+            <RefreshCw className="size-4" />
+            {currentResult ? "Tạo lại" : "Tạo nội dung"}
+          </Button>
+          <Button
+            className="h-11 disabled:bg-[#A9D9B5] disabled:shadow-none"
+            disabled={isGenerating || !canApply}
+            variant="primary"
+            onClick={handleApply}
+          >
+            <Check className="size-4" />
+            {mode === "title" ? "Dùng tiêu đề này" : "Dùng mô tả này"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function PostListingBasicInfoStep({
   canGoBack,
   canGoNext,
+  cityOptions = [],
+  districtOptions = [],
   draftValues,
+  isAdministrativeDivisionsLoading = false,
   isSaveDraftLoading,
   listingDescription,
   listingTitle,
+  locationNote = "",
+  onApplyAiContent,
   onBackStep,
   onDescriptionChange,
   onDraftValueChange,
@@ -6978,7 +7390,10 @@ function PostListingBasicInfoStep({
   selectedAmenities,
   toggleAmenity,
   validationErrors = {},
+  wardOptions = [],
 }) {
+  const [aiWriterMode, setAiWriterMode] = useState(null);
+  const isAiWriterOpen = Boolean(aiWriterMode);
   const getFieldProps = (field) => ({
     inputMode: listingNumberInputFields[field]?.allowDecimal
       ? "decimal"
@@ -6989,173 +7404,226 @@ function PostListingBasicInfoStep({
     onChange: (event) => onDraftValueChange(field, event.target.value),
   });
 
+  function handleApplyAiContent(kind, value) {
+    onApplyAiContent?.(kind, value);
+  }
+
   return (
-    <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
-      <div>
-        <h2 className="text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
-          Thông tin cơ bản
-        </h2>
-        <p className="mt-2 text-sm text-[#69717B]">
-          Cung cấp thông tin chi tiết về bất động sản của bạn.
-        </p>
-      </div>
-
-      <div className="mt-6 space-y-5">
-        <ListingCounterInput
-          error={validationErrors.title}
-          maxLength={100}
-          placeholder="Nhập tiêu đề tin đăng (tối đa 100 ký tự)"
-          required
-          value={listingTitle}
-          onChange={onTitleChange}
-        />
-
-        <ListingEditor
-          error={validationErrors.description}
-          maxLength={2000}
-          value={listingDescription}
-          onChange={onDescriptionChange}
-        />
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ListingSelect
-            label="Loại bất động sản"
-            options={["Căn hộ chung cư", ...propertyTypeOptions]}
-            placeholder="Chọn loại bất động sản"
-            required
-            error={validationErrors.propertyType}
-            {...getFieldProps("propertyType")}
-          />
-          <ListingInput
-            label="Diện tích"
-            required
-            suffix="m²"
-            type="text"
-            error={validationErrors.area}
-            {...getFieldProps("area")}
-          />
-          <ListingInput
-            label="Số phòng ngủ"
-            required
-            type="text"
-            error={validationErrors.bedrooms}
-            {...getFieldProps("bedrooms")}
-          />
-          <ListingInput
-            label="Số phòng tắm"
-            required
-            type="text"
-            error={validationErrors.bathrooms}
-            {...getFieldProps("bathrooms")}
-          />
+    <div className="grid items-start gap-5">
+      <section className="rounded-[24px] border border-[#E8ECE7] bg-white p-5 shadow-[0_12px_35px_rgba(46,72,54,0.055)] sm:p-7">
+        <div>
+          <h2 className="text-[28px] font-bold tracking-[-0.03em] text-[#1F252D]">
+            Thông tin cơ bản
+          </h2>
+          <p className="mt-2 text-sm text-[#69717B]">
+            Cung cấp thông tin chi tiết về bất động sản của bạn.
+          </p>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4">
-          <div className="xl:col-span-1">
-            <ListingInput
-              label="Giá cho thuê"
+        <div className="mt-6 space-y-5">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ListingSelect
+              label="Loại bất động sản"
+              options={["Căn hộ chung cư", ...propertyTypeOptions]}
+              placeholder="Chọn loại bất động sản"
               required
-              suffix="đ / tháng"
+              error={validationErrors.propertyType}
+              {...getFieldProps("propertyType")}
+            />
+            <ListingInput
+              label="Diện tích"
+              required
+              suffix="m²"
               type="text"
-              error={validationErrors.rentPrice}
-              {...getFieldProps("rentPrice")}
+              error={validationErrors.area}
+              {...getFieldProps("area")}
+            />
+            <ListingInput
+              label="Số phòng ngủ"
+              required
+              type="text"
+              error={validationErrors.bedrooms}
+              {...getFieldProps("bedrooms")}
+            />
+            <ListingInput
+              label="Số phòng tắm"
+              required
+              type="text"
+              error={validationErrors.bathrooms}
+              {...getFieldProps("bathrooms")}
             />
           </div>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ListingSelect
-            label="Tình trạng nội thất"
-            options={furnishingOptions}
-            placeholder="Chọn tình trạng nội thất"
-            {...getFieldProps("furnishing")}
+          <div className="grid gap-4 xl:grid-cols-4">
+            <div className="xl:col-span-1">
+              <ListingInput
+                label="Giá cho thuê"
+                required
+                suffix="đ / tháng"
+                type="text"
+                error={validationErrors.rentPrice}
+                {...getFieldProps("rentPrice")}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ListingSelect
+              label="Tình trạng nội thất"
+              options={furnishingOptions}
+              placeholder="Chọn tình trạng nội thất"
+              {...getFieldProps("furnishing")}
+            />
+            <ListingSelect
+              label="Hướng nhà"
+              options={orientationOptions}
+              placeholder="Chọn hướng nhà"
+              {...getFieldProps("orientation")}
+            />
+            <ListingInput
+              label="Tầng"
+              placeholder="Nhập tầng"
+              type="text"
+              {...getFieldProps("floor")}
+            />
+            <ListingInput
+              label="Tổng số tầng"
+              placeholder="Nhập tổng số tầng"
+              type="text"
+              {...getFieldProps("totalFloors")}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ListingInput
+              label="Mặt tiền"
+              placeholder="Nhập mặt tiền"
+              suffix="m"
+              {...getFieldProps("frontage")}
+            />
+            <ListingInput
+              label="Đường vào"
+              placeholder="Nhập đường vào"
+              suffix="m"
+              {...getFieldProps("accessRoad")}
+            />
+            <ListingInput
+              label="Thời gian vào ở dự kiến"
+              placeholder="Nhập số ngày"
+              type="text"
+              {...getFieldProps("moveInDays")}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <ListingSelect
+              label="Giá nước"
+              options={waterPriceOptions}
+              placeholder="Chọn giá nước"
+              {...getFieldProps("waterPrice")}
+            />
+            <ListingSelect
+              label="Giá điện"
+              options={electricityPriceOptions}
+              placeholder="Chọn giá điện"
+              {...getFieldProps("electricityPrice")}
+            />
+            <ListingSelect
+              label="Giá Internet"
+              options={internetPriceOptions}
+              placeholder="Chọn giá Internet"
+              {...getFieldProps("internetPrice")}
+            />
+          </div>
+
+          <AmenityGroup
+            amenities={indoorAmenities}
+            selectedAmenities={selectedAmenities}
+            title="Tiện ích trong nhà"
+            onToggle={toggleAmenity}
           />
-          <ListingSelect
-            label="Hướng nhà"
-            options={orientationOptions}
-            placeholder="Chọn hướng nhà"
-            {...getFieldProps("orientation")}
+
+          <AmenityGroup
+            amenities={areaAmenities}
+            selectedAmenities={selectedAmenities}
+            title="Tiện ích tòa nhà / khu vực"
+            onToggle={toggleAmenity}
           />
-          <ListingInput
-            label="Tầng"
-            placeholder="Nhập tầng"
-            type="text"
-            {...getFieldProps("floor")}
-          />
-          <ListingInput
-            label="Tổng số tầng"
-            placeholder="Nhập tổng số tầng"
-            type="text"
-            {...getFieldProps("totalFloors")}
+
+          <div className="rounded-[18px] border border-[#E7ECE8] bg-[#FCFDFC] p-4 sm:p-5">
+            <div>
+              <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#1F252D]">
+                Mô tả chi tiết
+              </h3>
+              <p className="mt-1 text-sm text-[#69717B]">
+                Viết tiêu đề và mô tả chi tiết về bất động sản của bạn, hoặc để
+                AI viết giúp dựa trên các thông tin đã nhập ở trên.
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-5">
+              <div>
+                <div className="mb-2 flex justify-end">
+                  <AiListingWriterButton
+                    label="Gợi ý tiêu đề bằng AI"
+                    onClick={() => setAiWriterMode("title")}
+                  />
+                </div>
+                <ListingCounterInput
+                  error={validationErrors.title}
+                  maxLength={100}
+                  placeholder="Nhập tiêu đề tin đăng (tối đa 100 ký tự)"
+                  required
+                  value={listingTitle}
+                  onChange={onTitleChange}
+                />
+              </div>
+
+              <div>
+                <div className="mb-2 flex justify-end">
+                  <AiListingWriterButton
+                    label="Viết mô tả bằng AI"
+                    onClick={() => setAiWriterMode("description")}
+                  />
+                </div>
+                <ListingEditor
+                  error={validationErrors.description}
+                  maxLength={2000}
+                  value={listingDescription}
+                  onChange={onDescriptionChange}
+                />
+              </div>
+            </div>
+          </div>
+
+          <PostListingStepFooter
+            canGoBack={canGoBack}
+            canGoNext={canGoNext}
+            isSaveDraftLoading={isSaveDraftLoading}
+            onBackStep={onBackStep}
+            onNextStep={onNextStep}
+            onSaveDraft={onSaveDraft}
           />
         </div>
+      </section>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ListingInput
-            label="Mặt tiền"
-            placeholder="Nhập mặt tiền"
-            suffix="m"
-            {...getFieldProps("frontage")}
-          />
-          <ListingInput
-            label="Đường vào"
-            placeholder="Nhập đường vào"
-            suffix="m"
-            {...getFieldProps("accessRoad")}
-          />
-          <ListingInput
-            label="Thời gian vào ở dự kiến"
-            placeholder="Nhập số ngày"
-            type="text"
-            {...getFieldProps("moveInDays")}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <ListingSelect
-            label="Giá nước"
-            options={waterPriceOptions}
-            placeholder="Chọn giá nước"
-            {...getFieldProps("waterPrice")}
-          />
-          <ListingSelect
-            label="Giá điện"
-            options={electricityPriceOptions}
-            placeholder="Chọn giá điện"
-            {...getFieldProps("electricityPrice")}
-          />
-          <ListingSelect
-            label="Giá Internet"
-            options={internetPriceOptions}
-            placeholder="Chọn giá Internet"
-            {...getFieldProps("internetPrice")}
-          />
-        </div>
-
-        <AmenityGroup
-          amenities={indoorAmenities}
+      {isAiWriterOpen ? (
+        <AiListingWriterPanel
+          cityOptions={cityOptions}
+          districtOptions={districtOptions}
+          draftValues={draftValues}
+          isAdministrativeDivisionsLoading={isAdministrativeDivisionsLoading}
+          locationNote={locationNote}
+          mode={aiWriterMode}
           selectedAmenities={selectedAmenities}
-          title="Tiện ích trong nhà"
-          onToggle={toggleAmenity}
+          wardOptions={wardOptions}
+          onApply={handleApplyAiContent}
+          onClose={() => setAiWriterMode(null)}
+          onDraftValueChange={onDraftValueChange}
+          onModeChange={setAiWriterMode}
         />
-
-        <AmenityGroup
-          amenities={areaAmenities}
-          selectedAmenities={selectedAmenities}
-          title="Tiện ích tòa nhà / khu vực"
-          onToggle={toggleAmenity}
-        />
-
-        <PostListingStepFooter
-          canGoBack={canGoBack}
-          canGoNext={canGoNext}
-          isSaveDraftLoading={isSaveDraftLoading}
-          onBackStep={onBackStep}
-          onNextStep={onNextStep}
-          onSaveDraft={onSaveDraft}
-        />
-      </div>
-    </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -9617,6 +10085,23 @@ function PostListingPage({
     }
   }
 
+  function handleApplyAiListingContent(kind, value) {
+    if (!hasListingInputValue(value)) {
+      return;
+    }
+
+    if (kind === "title") {
+      setListingTitle(value);
+      clearDraftValidationError("title");
+      showPostListingNotice("Đã áp dụng tiêu đề do AI gợi ý.");
+      return;
+    }
+
+    setListingDescription(value);
+    clearDraftValidationError("description");
+    showPostListingNotice("Đã áp dụng mô tả do AI viết.");
+  }
+
   function handleDraftValueChange(field, value) {
     const nextValue = formatListingDraftNumberValue(field, value);
 
@@ -9997,13 +10482,19 @@ function PostListingPage({
         <PostListingBasicInfoStep
           canGoBack={canGoBack}
           canGoNext={canGoNext}
+          cityOptions={cityOptions}
+          districtOptions={districtOptions}
           draftValues={listingDraft}
+          isAdministrativeDivisionsLoading={isAdministrativeDivisionsLoading}
           isSaveDraftLoading={isSavingDraft}
           listingDescription={listingDescription}
           listingTitle={listingTitle}
+          locationNote={locationNote}
           selectedAmenities={selectedAmenities}
           toggleAmenity={toggleAmenity}
           validationErrors={draftValidationErrors}
+          wardOptions={wardOptions}
+          onApplyAiContent={handleApplyAiListingContent}
           onBackStep={goToPreviousStep}
           onDescriptionChange={handleListingDescriptionChange}
           onDraftValueChange={handleDraftValueChange}
@@ -11454,17 +11945,17 @@ function ListingDetailPage({
                       {listing.title}
                     </h1>
                     {!isAdminViewer ? (
-                    <button
-                      className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`}
-                      disabled={isUpdatingFavorite}
-                      type="button"
-                      onClick={handleFavoriteToggle}
-                    >
-                      <Heart
-                        className={`size-5 ${isFavorite ? "fill-current" : ""}`}
-                      />
-                      {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
-                    </button>
+                      <button
+                        className={`mt-4 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${isFavorite ? "border-[#F4B8B8] bg-[#FFF5F5] text-[#E53E3E]" : "border-[#DDE5DF] text-[#526071] hover:border-[#F4B8B8] hover:text-[#E53E3E]"}`}
+                        disabled={isUpdatingFavorite}
+                        type="button"
+                        onClick={handleFavoriteToggle}
+                      >
+                        <Heart
+                          className={`size-5 ${isFavorite ? "fill-current" : ""}`}
+                        />
+                        {isFavorite ? "Đã lưu tin" : "Lưu tin yêu thích"}
+                      </button>
                     ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[#69717B]">
                       <span className="flex items-center gap-2">
@@ -11589,61 +12080,62 @@ function ListingDetailPage({
                   <div className="mt-5 space-y-3">
                     {isAdminViewer ? (
                       <div className="rounded-xl border border-[#E4E9E5] bg-[#F8FAF8] px-4 py-3 text-sm font-semibold text-[#60706A]">
-                        Tài khoản admin chỉ xem tin, không sử dụng kênh liên hệ chủ nhà.
+                        Tài khoản admin chỉ xem tin, không sử dụng kênh liên hệ
+                        chủ nhà.
                       </div>
                     ) : (
                       <>
-                    <button
-                      aria-label={
-                        isContactPhoneVisible
-                          ? "Sao chép số điện thoại"
-                          : "Hiện số điện thoại"
-                      }
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#35A554] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(53,165,84,0.22)] transition hover:bg-[#2C9349]"
-                      type="button"
-                      onClick={handleContactPhoneClick}
-                    >
-                      <Phone className="size-4" />
-                      <span>{contactPhoneLabel}</span>
-                      {isContactPhoneVisible && contactPhone ? (
-                        <span className="relative ml-1 flex size-5 shrink-0 items-center justify-center">
-                          <Copy
-                            aria-hidden="true"
-                            className={`absolute size-4 text-white transition-all duration-200 ease-out ${
-                              isContactPhoneCopied
-                                ? "scale-75 rotate-45 opacity-0"
-                                : "scale-100 rotate-0 opacity-100"
-                            }`}
-                          />
-                          <Check
-                            aria-hidden="true"
-                            className={`absolute size-4 text-white transition-all duration-200 ease-out ${
-                              isContactPhoneCopied
-                                ? "scale-100 rotate-0 opacity-100"
-                                : "scale-75 -rotate-45 opacity-0"
-                            }`}
-                          />
-                        </span>
-                      ) : null}
-                      {!isContactPhoneVisible && contactPhone ? (
-                        <span aria-hidden="true">· Hiện số</span>
-                      ) : null}
-                    </button>
-                    <button
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D6E2FF] bg-[#F3F7FF] px-4 py-3 text-sm font-semibold text-[#2457C5] transition hover:bg-[#EAF1FF]"
-                      type="button"
-                      onClick={handleZaloContactClick}
-                    >
-                      <ZaloMark className="size-5" />
-                      Nhắn tin qua Zalo
-                    </button>
-                    <button
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D8EEDD] px-4 py-3 text-sm font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
-                      type="button"
-                    >
-                      <MessageSquare className="size-4" />
-                      Nhắn qua WeRent
-                    </button>
+                        <button
+                          aria-label={
+                            isContactPhoneVisible
+                              ? "Sao chép số điện thoại"
+                              : "Hiện số điện thoại"
+                          }
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#35A554] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(53,165,84,0.22)] transition hover:bg-[#2C9349]"
+                          type="button"
+                          onClick={handleContactPhoneClick}
+                        >
+                          <Phone className="size-4" />
+                          <span>{contactPhoneLabel}</span>
+                          {isContactPhoneVisible && contactPhone ? (
+                            <span className="relative ml-1 flex size-5 shrink-0 items-center justify-center">
+                              <Copy
+                                aria-hidden="true"
+                                className={`absolute size-4 text-white transition-all duration-200 ease-out ${
+                                  isContactPhoneCopied
+                                    ? "scale-75 rotate-45 opacity-0"
+                                    : "scale-100 rotate-0 opacity-100"
+                                }`}
+                              />
+                              <Check
+                                aria-hidden="true"
+                                className={`absolute size-4 text-white transition-all duration-200 ease-out ${
+                                  isContactPhoneCopied
+                                    ? "scale-100 rotate-0 opacity-100"
+                                    : "scale-75 -rotate-45 opacity-0"
+                                }`}
+                              />
+                            </span>
+                          ) : null}
+                          {!isContactPhoneVisible && contactPhone ? (
+                            <span aria-hidden="true">· Hiện số</span>
+                          ) : null}
+                        </button>
+                        <button
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D6E2FF] bg-[#F3F7FF] px-4 py-3 text-sm font-semibold text-[#2457C5] transition hover:bg-[#EAF1FF]"
+                          type="button"
+                          onClick={handleZaloContactClick}
+                        >
+                          <ZaloMark className="size-5" />
+                          Nhắn tin qua Zalo
+                        </button>
+                        <button
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D8EEDD] px-4 py-3 text-sm font-semibold text-[#2FA14E] transition hover:bg-[#F3FBF5]"
+                          type="button"
+                        >
+                          <MessageSquare className="size-4" />
+                          Nhắn qua WeRent
+                        </button>
                       </>
                     )}
                   </div>
@@ -12493,8 +12985,7 @@ function ProfilePage({
     : "Chưa có dữ liệu";
   const isAdminProfile = isAdminUser(user);
   const isRejectedAccountKyc =
-    !isAdminProfile &&
-    ["rejected", "need_more_info"].includes(user.kycStatus);
+    !isAdminProfile && ["rejected", "need_more_info"].includes(user.kycStatus);
   const kycStatusDisplay = isAdminProfile
     ? {
         badgeClassName: "bg-green-50 text-green-700",
